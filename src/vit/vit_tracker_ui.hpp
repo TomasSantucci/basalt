@@ -129,6 +129,7 @@ class vit_tracker_ui : public vis::VIOUIBase {
 
  private:
   VioVisualizationData::Ptr curr_vis_data = nullptr;
+  MapDatabaseVisualizationData::Ptr curr_map_vis_data = nullptr;
   VioVisualizationData::Ptr prev_vis_data = nullptr;
   pangolin::DataLog vio_data_log;
   thread vis_thread;
@@ -141,6 +142,7 @@ class vit_tracker_ui : public vis::VIOUIBase {
   tbb::concurrent_queue<double> *opt_flow_depth_queue = nullptr;
 
   VioVisualizationData::Ptr get_curr_vis_data() override { return curr_vis_data; }
+  MapDatabaseVisualizationData::Ptr get_curr_map_vis_data() override { return curr_map_vis_data; }
 
   void initialize(int ncams) {
     vio_data_log.Clear();

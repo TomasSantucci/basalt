@@ -176,6 +176,7 @@ const uint8_t GREEN[4]{0x4C, 0xAF, 0x50, 0xFF};
 const uint8_t LGREEN[4]{0x76, 0xFF, 0x03, 0xFF};
 const uint8_t RED[4]{0xF4, 0x43, 0x36, 0xFF};
 const uint8_t YELLOW[4]{0xFF, 0xFF, 0x00, 0xFF};
+const uint8_t ORANGE[4] = {(0xF4 + 0xFF) / 2, (0x43 + 0xFF) / 2, (0x36 + 0xFF) / 2, 0xFF};
 
 inline Colour C_BLUEGREY() { return {69 / 255.0, 90 / 255.0, 100 / 255.0}; }
 inline Colour C_RED() { return {244 / 255.0, 67 / 255.0, 54 / 255.0}; }
@@ -339,15 +340,23 @@ struct VIOUIBase {
   Var<bool> show_est_ba{"curves_menu.show_est_ba", false, true};
   Var<bool> show_point_count{"curves_menu.show_point_count", false, true};
 
+  Var<bool> map_menu{"ui.Map Menu", false, true};
+  Var<string> map_menu_title{"map_menu.MENU", "Map Menu", META_FLAG_READONLY};
+  Var<bool> show_vio{"map_menu.show_vio", true, true};
+  Var<bool> show_map{"map_menu.show_map", false, true};
+  Var<bool> show_covisibility{"map_menu.show_covisibility", false, true};
+  Var<bool> show_observations{"map_menu.show_observations", false, true};
+
   Var<bool> follow{"ui.follow", true, true};
   Button reset_state_btn{"ui.Reset State", [this]() { reset_state(); }};
 
   vector<Var<bool>*> menus{&features_menu, &highlights_menu, &blocks_menu, &keyframe_menu,
-                           &image_menu,    &guesses_menu,    &curves_menu};
-  vector<string> menus_str{"features_menu", "highlights_menu", "blocks_menu", "keyframe_menu",
-                           "image_menu",    "guesses_menu",    "curves_menu", "trajectory_menu"};
+                           &image_menu,    &guesses_menu,    &curves_menu, &map_menu};
+  vector<string> menus_str{"features_menu", "highlights_menu", "blocks_menu", "keyframe_menu",  "image_menu",
+                           "guesses_menu",  "curves_menu",     "map_menu",    "trajectory_menu"};
 
   virtual VioVisualizationData::Ptr get_curr_vis_data() = 0;
+  virtual MapDatabaseVisualizationData::Ptr get_curr_map_vis_data() = 0;
 
   KeypointId get_kpid_at(size_t cam_id, int x, int y, float radius = 10);
   bool is_highlighted(size_t lmid) const { return vis::is_selected(highlights, lmid); }
