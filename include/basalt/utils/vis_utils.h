@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pangolin/gl/glfont.h>
 
 #include <basalt/utils/vis_matrices.h>
+#include <basalt/vi_estimator/map_database.h>
 #include <basalt/vi_estimator/vio_estimator.h>
 #include <pangolin/var/var.h>
 #include <pangolin/var/varvaluegeneric.h>
@@ -253,6 +254,7 @@ struct VIOUIBase {
   VioEstimatorBase::Ptr vio;
   // TODO: Make vis_map into a queue that stores a range of frames, even in realtime mode
   unordered_map<int64_t, VioVisualizationData::Ptr> vis_map;
+  MapDatabase::Ptr map_db;
 
   Var<int> show_frame{"ui.show_frame", 0, META_FLAG_READONLY};
 
