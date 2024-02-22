@@ -99,6 +99,8 @@ class LandmarkDatabase {
 
   typedef std::shared_ptr<LandmarkDatabase<Scalar>> Ptr;
 
+  LandmarkDatabase(std::string name = "Landmark Database") : debug_name(name){};
+
   // Non-const
   void addLandmark(LandmarkId lm_id, const Landmark<Scalar>& pos);
 
@@ -107,6 +109,7 @@ class LandmarkDatabase {
   void clear() {
     kpts.clear();
     observations.clear();
+    keyframe_idx.clear();
     keyframe_poses.clear();
     keyframe_obs.clear();
   }
@@ -118,9 +121,11 @@ class LandmarkDatabase {
 
   Landmark<Scalar>& getLandmark(LandmarkId lm_id);
 
-  void addKeyframe(FrameId kf_id, const SE3& pos);
+  void addKeyframe(FrameId kf_id, size_t index, const SE3& pos);
 
   SE3& getKeyframePose(FrameId kf_id);
+
+  size_t& getKeyframeIndex(FrameId kf_id);
 
   void mergeLMDB(LandmarkDatabase<Scalar>::Ptr lmdb, bool override);
 
@@ -159,6 +164,8 @@ class LandmarkDatabase {
 
   void removeObservations(LandmarkId lm_id, const std::set<TimeCamId>& obs);
 
+  void print(bool show_ids = false);
+
   inline void backup() {
     for (auto& kv : kpts) kv.second.backup();
   }
@@ -177,11 +184,15 @@ class LandmarkDatabase {
 
   std::unordered_map<TimeCamId, std::map<TimeCamId, std::set<LandmarkId>>> observations;
 
+  Eigen::aligned_map<FrameId, size_t> keyframe_idx;
+
   Eigen::aligned_map<FrameId, SE3> keyframe_poses;
 
   Eigen::aligned_map<TimeCamId, std::set<LandmarkId>> keyframe_obs;
 
   static constexpr int min_num_obs = 2;
+
+  std::string debug_name;
 };
 
 }  // namespace basalt
