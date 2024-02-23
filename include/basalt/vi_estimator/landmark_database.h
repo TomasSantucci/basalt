@@ -131,6 +131,8 @@ class LandmarkDatabase {
 
   void getCovisibilityMap(LandmarkDatabase<Scalar>::Ptr submap);
 
+  void getSubmap(std::set<TimeCamId> tcids, LandmarkDatabase<Scalar>::Ptr submap);
+
   void mergeLMDB(LandmarkDatabase<Scalar>::Ptr lmdb, bool override);
 
   // Const
