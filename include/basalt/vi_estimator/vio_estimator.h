@@ -113,6 +113,8 @@ class VioEstimatorBase {
   tbb::concurrent_bounded_queue<PoseVelBiasState<double>::Ptr>* out_state_queue = nullptr;
   tbb::concurrent_bounded_queue<MargData::Ptr>* out_marg_queue = nullptr;
   tbb::concurrent_bounded_queue<MapStamp::Ptr>* out_vio_data_queue = nullptr;
+  tbb::concurrent_bounded_queue<int>* out_covi_req_queue = nullptr;
+  tbb::concurrent_bounded_queue<LandmarkDatabase<float>::Ptr> in_covi_res_queue;
   tbb::concurrent_bounded_queue<VioVisualizationData::Ptr>* out_vis_queue = nullptr;
 
   tbb::concurrent_queue<double>* opt_flow_depth_guess_queue = nullptr;
@@ -143,6 +145,8 @@ class VioEstimatorBase {
 
   virtual void scheduleResetState() {};
   virtual void takeLongTermKeyframe() {};
+  virtual void GetCovisibilityMap() {};
+  virtual void addCovisibilityMap() {};
 
   virtual inline void debug_finalize() {}
 

@@ -276,6 +276,7 @@ struct VIOUIBase {
   Var<bool> show_map{"map_menu.show_map", false, true};
   Var<bool> show_covisibility{"map_menu.show_covisibility", false, true};
   Var<bool> show_observations{"map_menu.show_observations", false, true};
+  Button take_map_btn{"map_menu.Get Covisibility Map", [this]() { get_covisibility_map(); }};
 
   Var<bool> highlights_menu{"ui.Highlights Menu", false, true};
   Var<string> highlights_menu_title{"highlights_menu.MENU", "Highlights Menu", META_FLAG_READONLY};
@@ -341,6 +342,7 @@ struct VIOUIBase {
   bool toggle_blocks();
   bool take_ltkf();
   bool reset_state();
+  bool get_covisibility_map();
   void do_show_flow(size_t cam_id);
   void do_show_highlights(size_t cam_id);
   void do_show_tracking_guess(size_t cam_id, size_t frame_id, const VioVisualizationData::Ptr& prev_vis_data);
