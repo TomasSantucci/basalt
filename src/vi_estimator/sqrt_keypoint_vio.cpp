@@ -137,12 +137,14 @@ template <class Scalar>
 void SqrtKeypointVioEstimator<Scalar>::addZeroKeyframeToMargData(FrameId toadd_ts) {
   // Update marg_data for a timestamped keyframe so that H and b add corresponding zeroed indices
 
-  size_t old_total_size = marg_data.b.rows();
-  size_t new_total_size = old_total_size + POSE_SIZE;
+  size_t old_total_rows = marg_data.b.rows();
+  size_t new_total_rows = old_total_rows + POSE_SIZE;
+  size_t old_total_cols = marg_data.H.cols();
+  size_t new_total_cols = old_total_cols + POSE_SIZE;
   MatX Hm;
   VecX bm;
-  Hm.setZero(new_total_size, new_total_size);
-  bm.setZero(new_total_size);
+  Hm.setZero(new_total_rows, new_total_cols);
+  bm.setZero(new_total_rows);
 
   AbsOrderMap order{};
   size_t added_idx = SIZE_MAX;
@@ -167,24 +169,33 @@ void SqrtKeypointVioEstimator<Scalar>::addZeroKeyframeToMargData(FrameId toadd_t
     order.items++;
   }
 
-  size_t bef = added_idx;                   // Side size to the left (before)
-  size_t aft = old_total_size - added_idx;  // Side size to the right (after)
-  size_t i = added_idx;                     // Index to insert at
-  size_t s = POSE_SIZE;                     // Number of inserted vars
+  size_t bef = added_idx;                       // Side size to the left (before)
+  size_t aft_row = old_total_rows - added_idx;  // cols at the right of idx
+  size_t aft_col = old_total_cols - added_idx;  // rows after idx
+  size_t i = added_idx;                         // Index to insert at
+  size_t s = POSE_SIZE;                         // Number of inserted vars
 
-  if (i == 0) {                                                                              // If at the beginning
-    Hm.template block(i + s, i + s, aft, aft) = marg_data.H.template block(i, i, aft, aft);  // bottomright
-    bm.tail(aft) = marg_data.b.tail(aft);
-  } else if (i + s == order.total_size) {                                            // If at the end
-    Hm.template block(0, 0, bef, bef) = marg_data.H.template block(0, 0, bef, bef);  // topleft
-    bm.head(bef) = marg_data.b.head(bef);
-  } else {                                                                                   // If in the middle
-    Hm.template block(0, 0, bef, bef) = marg_data.H.template block(0, 0, bef, bef);          // topleft
-    Hm.template block(0, i + s, bef, aft) = marg_data.H.template block(0, i, bef, aft);      // topright
-    Hm.template block(i + s, 0, aft, bef) = marg_data.H.template block(i, 0, aft, bef);      // bottomleft
-    Hm.template block(i + s, i + s, aft, aft) = marg_data.H.template block(i, i, aft, aft);  // bottomright
-    bm.head(bef) = marg_data.b.head(bef);
-    bm.tail(aft) = marg_data.b.tail(aft);
+  if (old_total_rows < added_idx) {                                                                                    // If cols > rows
+    Hm.template block(0, 0, old_total_rows, bef) = marg_data.H.template block(0, 0, old_total_rows, bef);              // left
+    Hm.template block(0, i + s, old_total_rows, aft_col) = marg_data.H.template block(0, i, old_total_rows, aft_col);  // right
+  } else if (old_total_cols < added_idx) {                                                                             // If rows > cols
+    Hm.template block(0, 0, bef, old_total_cols) = marg_data.H.template block(0, 0, bef, old_total_cols);              // left
+    Hm.template block(0, i + s, aft_row, old_total_cols) = marg_data.H.template block(0, i, aft_row, old_total_cols);  // right
+  } else {                                                                                                     // If H is square
+    if (i == 0) {                                                                                              // If at the beginning
+      Hm.template block(i + s, i + s, aft_row, aft_col) = marg_data.H.template block(i, i, aft_row, aft_col);  // bottomright
+      bm.tail(aft_row) = marg_data.b.tail(aft_row);
+    } else if (i + s == order.total_size) {                                                                    // If at the end
+      Hm.template block(0, 0, bef, bef) = marg_data.H.template block(0, 0, bef, bef);                          // topleft
+      bm.head(bef) = marg_data.b.head(bef);
+    } else {                                                                                                   // If in the middle
+      Hm.template block(0, 0, bef, bef) = marg_data.H.template block(0, 0, bef, bef);                          // topleft
+      Hm.template block(0, i + s, bef, aft_col) = marg_data.H.template block(0, i, bef, aft_col);              // topright
+      Hm.template block(i + s, 0, aft_row, bef) = marg_data.H.template block(i, 0, aft_row, bef);              // bottomleft
+      Hm.template block(i + s, i + s, aft_row, aft_col) = marg_data.H.template block(i, i, aft_row, aft_col);  // bottomright
+      bm.head(bef) = marg_data.b.head(bef);
+      bm.tail(aft_row) = marg_data.b.tail(aft_row);
+    }
   }
 
   marg_data.H = Hm;
