@@ -169,6 +169,11 @@ void VIOUIBase::do_show_empty_warning(size_t) {
   FONT.Text("Pose unavailable").Draw(64, 64);
 }
 
+bool VIOUIBase::get_covisibility_map() {
+  vio->GetCovisibilityMap();
+  return true;
+}
+
 void VIOUIBase::do_show_flow(size_t cam_id) {
   const VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
   if (curr_vis_data == nullptr) return;

@@ -368,6 +368,7 @@ struct VIOUIBase {
   bool take_ltkf();
   bool reset_state();
   void do_show_empty_warning(size_t cam_id);
+  bool get_covisibility_map();
   void do_show_flow(size_t cam_id);
   void do_show_highlights(size_t cam_id);
   void do_show_tracking_guess(size_t cam_id, size_t frame_id, const VioVisualizationData::Ptr& prev_vis_data);
