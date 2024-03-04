@@ -144,6 +144,10 @@ class NfrMapper : public ScBundleAdjustmentBase<double> {
 
   NfrMapper(const basalt::Calibration<double>& calib, const VioConfig& config);
 
+  ~NfrMapper() { maybe_join(); }
+
+  void initialize();
+
   void addMargData(basalt::MargData::Ptr& data);
 
   void processMargData(basalt::MargData& m);
@@ -169,6 +173,13 @@ class NfrMapper : public ScBundleAdjustmentBase<double> {
 
   void setup_opt();
 
+  inline void maybe_join() {
+    if (processing_thread) {
+      processing_thread->join();
+      processing_thread.reset();
+    }
+  }
+
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   Eigen::aligned_vector<RollPitchFactor> roll_pitch_factors;
@@ -187,5 +198,10 @@ class NfrMapper : public ScBundleAdjustmentBase<double> {
   VioConfig config;
 
   double lambda, min_lambda, max_lambda, lambda_vee;
+
+  tbb::concurrent_bounded_queue<MargData::Ptr> in_marg_queue;
+
+  std::shared_ptr<std::thread> processing_thread;
+
 };
 }  // namespace basalt

@@ -64,6 +64,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/spline/se3_spline.h>
 #include <basalt/utils/assert.h>
 #include <basalt/vi_estimator/map_database.h>
+#include <basalt/vi_estimator/nfr_mapper.h>
 #include <basalt/vi_estimator/vio_estimator.h>
 #include <basalt/calibration/calibration.hpp>
 
@@ -291,6 +292,12 @@ struct basalt_vio_ui : vis::VIOUIBase {
       vio->out_covi_req_queue = &map_db->in_covi_req_queue;
       map_db->out_covi_res_queue = &vio->in_covi_res_queue;
       if (show_gui) map_db->out_vis_queue = &out_mapper_vis_queue;
+    }
+    {
+      nfr_mapper = std::make_shared<basalt::NfrMapper>(calib, config);
+      nfr_mapper.reset(new basalt::NfrMapper(calib, config));
+      nfr_mapper->initialize();
+      vio->out_marg_queue = &nfr_mapper->in_marg_queue;
     }
 
     basalt::MargDataSaver::Ptr marg_data_saver;

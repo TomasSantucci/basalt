@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <basalt/utils/vis_matrices.h>
 #include <basalt/vi_estimator/map_database.h>
+#include <basalt/vi_estimator/nfr_mapper.h>
 #include <basalt/vi_estimator/vio_estimator.h>
 #include <pangolin/var/var.h>
 #include <pangolin/var/varvaluegeneric.h>
@@ -256,6 +257,7 @@ struct VIOUIBase {
   // TODO: Make vis_map into a queue that stores a range of frames, even in realtime mode
   unordered_map<int64_t, VioVisualizationData::Ptr> vis_map;
   MapDatabase::Ptr map_db;
+  NfrMapper::Ptr nfr_mapper;
 
   Var<int> show_frame{"ui.show_frame", 0, META_FLAG_READONLY};
 

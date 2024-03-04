@@ -57,6 +57,39 @@ NfrMapper::NfrMapper(const Calibration<double>& calib, const VioConfig& config)
   hash_bow_database.reset(new HashBow<256>(config.mapper_bow_num_bits));
 }
 
+void NfrMapper::initialize() {
+  auto proc_func = [&]() {
+    basalt::MargData::Ptr marg_data;
+    while (true) {
+      in_marg_queue.pop(marg_data);
+
+      if (marg_data.get()) {
+        std::cout << "Procesando MargData" << std::endl;
+        addMargData(marg_data);
+
+        // detect_keypoints();       // --> Ajustar para que el mapper funcione bien con la detección del VIO
+
+        // match_stereo();           // --> Ajustar para que el mapper funcione bien con la detección del VIO
+        // match_all();              // --> Muy costoso. No debería hacerse en todas las iteraciones
+
+        // build_tracks();           // --> Ajustar
+        // setup_opt();              // --> El mapper no debería triangular ni agregar Landmarks. Reemplazar por AddMap con lmdb del VIO.
+
+        // int num_opt_iter = 10;
+        // optimize(num_opt_iter); // --> Muy costoso. No debería hacerse en todas las iteraciones
+
+        // double outlier_threshold = 3;
+        // filterOutliers(outlier_threshold, 4);
+      } else {
+        std::cout << "Done" << std::endl;
+        break;
+      }
+    }
+  };
+
+  processing_thread.reset(new std::thread(proc_func));
+}
+
 void NfrMapper::addMargData(MargData::Ptr& data) {
   processMargData(*data);
   bool valid = extractNonlinearFactors(*data);
