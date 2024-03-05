@@ -92,6 +92,7 @@ using HashBowVector = std::vector<std::pair<FeatureHash, double>>;
 
 /// keypoint positions and descriptors for an image
 struct KeypointsData {
+  using Ptr = std::shared_ptr<KeypointsData>;
   /// collection of 2d corner points (indexed by FeatureId)
   std::vector<Eigen::Vector2d, Eigen::aligned_allocator<Eigen::Vector2d>> corners;
   /// collection of feature orientation (in radian) with same index as `corners`

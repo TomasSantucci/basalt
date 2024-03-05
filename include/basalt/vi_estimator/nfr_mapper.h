@@ -162,6 +162,8 @@ class NfrMapper : public ScBundleAdjustmentBase<double> {
 
   void computeRollPitch(double& roll_pitch_error);
 
+  void compute_feature_corners();
+
   void detect_keypoints();
 
   // Feature matching and inlier filtering for stereo pairs with known pose
@@ -202,6 +204,8 @@ class NfrMapper : public ScBundleAdjustmentBase<double> {
   tbb::concurrent_bounded_queue<MargData::Ptr> in_marg_queue;
 
   std::shared_ptr<std::thread> processing_thread;
+
+  Eigen::aligned_map<int64_t, OpticalFlowResult::Ptr> opt_flow_res;
 
 };
 }  // namespace basalt

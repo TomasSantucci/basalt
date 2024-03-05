@@ -68,7 +68,7 @@ void NfrMapper::initialize() {
         addMargData(marg_data);
 
         // detect_keypoints();       // --> Ajustar para que el mapper funcione bien con la detección del VIO
-
+        compute_feature_corners();
         // match_stereo();           // --> Ajustar para que el mapper funcione bien con la detección del VIO
         // match_all();              // --> Muy costoso. No debería hacerse en todas las iteraciones
 
@@ -171,6 +171,10 @@ void NfrMapper::processMargData(MargData& m) {
     for (const auto& v : m.opt_flow_res) {
       img_data[v->t_ns] = v->input_images;
     }
+  }
+  // save optical flow result
+  for (const auto& v : m.opt_flow_res) {
+    opt_flow_res[v->t_ns] = v;
   }
 }
 
@@ -458,6 +462,22 @@ void NfrMapper::computeRollPitch(double& roll_pitch_error) {
     roll_pitch_error += res.transpose() * rpf.cov_inv * res;
   }
 }
+
+void NfrMapper::compute_feature_corners() {
+  for (const auto& [kf_id, opt] : opt_flow_res) {
+    for (size_t i = 0; i < opt->keypoint_datas.size(); i++) {
+      for (const auto& [kp_id, kd] : opt->keypoint_datas[i]) {
+        TimeCamId tcid(kf_id, i);
+        hash_bow_database->compute_bow(kd->corner_descriptors, kd->hashes, kd->bow_vector);
+        hash_bow_database->add_to_database(tcid, kd->bow_vector);
+        std::vector<bool> success;
+        calib.intrinsics[tcid.cam_id].unproject(kd->corners, kd->corners_3d, success);
+        feature_corners[tcid] = *kd;
+      }
+    }
+  }
+}
+
 
 void NfrMapper::detect_keypoints() {
   std::vector<int64_t> keys;
