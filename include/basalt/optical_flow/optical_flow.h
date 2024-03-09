@@ -65,7 +65,6 @@ using KeypointId = size_t;
 using Keypoints = Eigen::aligned_map<KeypointId, Keypoint>;
 using KeypointLevels = std::map<KeypointId, size_t>;
 using KeypointResponses = std::map<KeypointId, float>;
-using KeypointDatas = std::map<KeypointId, KeypointsData::Ptr>;
 using LandmarkId = KeypointId;
 
 struct LandmarkBundle {
@@ -111,7 +110,6 @@ struct OpticalFlowResult {
 
   std::vector<KeypointLevels> pyramid_levels;
   std::vector<KeypointResponses> keypoint_responses;
-  std::vector<KeypointDatas> keypoint_datas;
 
   OpticalFlowInput::Ptr input_images;
 };

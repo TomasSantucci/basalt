@@ -212,7 +212,6 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
       transforms.reset(new OpticalFlowResult);
       transforms->keypoints.resize(num_cams);
       transforms->keypoint_responses.resize(num_cams);
-      transforms->keypoint_datas.resize(num_cams);
       transforms->tracking_guesses.resize(num_cams);
       transforms->matching_guesses.resize(num_cams);
       transforms->recall_guesses.resize(num_cams);
@@ -248,7 +247,6 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
       new_transforms.reset(new OpticalFlowResult);
       new_transforms->keypoints.resize(num_cams);
       new_transforms->keypoint_responses.resize(num_cams);
-      new_transforms->keypoint_datas.resize(num_cams);
       new_transforms->tracking_guesses.resize(num_cams);
       new_transforms->matching_guesses.resize(num_cams);
       new_transforms->recall_guesses.resize(num_cams);
@@ -572,17 +570,16 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
   }
 
   Keypoints addPointsForCamera(size_t cam_id) {
-    auto kd = std::make_shared<KeypointsData>(); // Detected new points
-    detectKeypointsWithCells(pyramid->at(cam_id).lvl(0), *kd, cells.at(cam_id), config.optical_flow_detection_grid_size,
+    KeypointsData kd;  // Detected new points
+    detectKeypointsWithCells(pyramid->at(cam_id).lvl(0), kd, cells.at(cam_id), config.optical_flow_detection_grid_size,
                              config.optical_flow_detection_num_points_cell, config.optical_flow_detection_min_threshold,
                              config.optical_flow_detection_max_threshold, config.optical_flow_image_safe_radius,
                              transforms->input_images->masks.at(cam_id));
-    computeAngles(pyramid->at(cam_id).lvl(0), *kd, true);
-    computeDescriptors(pyramid->at(cam_id).lvl(0), *kd);
+
     Keypoints new_kpts;
-    for (size_t i = 0; i < kd->corners.size(); i++) {  // Set new points as keypoints
-      const Eigen::Vector2d& corner = kd->corners[i];
-      const float response = kd->corner_responses[i];
+    for (size_t i = 0; i < kd.corners.size(); i++) {  // Set new points as keypoints
+      const Eigen::Vector2d& corner = kd.corners[i];
+      const float response = kd.corner_responses[i];
 
       if (config.optical_flow_recall_enable) {  // Save patch
         // TODO: Patches are never getting deleted
@@ -599,7 +596,6 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
       transform.translation() = corner.cast<Scalar>();
 
       addKeypoint(cam_id, last_keypoint_id, transform, response);
-      transforms->keypoint_datas.at(cam_id)[last_keypoint_id] = kd;
       new_kpts[last_keypoint_id] = transform;
 
       last_keypoint_id++;
