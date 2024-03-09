@@ -171,13 +171,13 @@ void SqrtKeypointVioEstimator<Scalar>::addZeroKeyframeToMargData(FrameId toadd_t
   size_t i = added_idx;                     // Index to insert at
   size_t s = POSE_SIZE;                     // Number of inserted vars
 
-  if (i == 0) {                                                                                         // If at the beginning
-    Hm.template block(0, i + s, total_rows, aft) = marg_data.H.template block(0, i, total_rows, aft);   // right
-  } else if (i + s == order.total_size) {                                                               // If at the end
-    Hm.template block(0, 0, total_rows, bef) = marg_data.H.template block(0, 0, total_rows, bef);       // left
-  } else {                                                                                              // If in the middle
-    Hm.template block(0, 0, total_rows, bef) = marg_data.H.template block(0, 0, total_rows, bef);       // left
-    Hm.template block(0, i + s, total_rows, aft) = marg_data.H.template block(0, i, total_rows, aft);   // right
+  if (i == 0) {  // If at the beginning
+    Hm.template block(0, i + s, total_rows, aft) = marg_data.H.template block(0, i, total_rows, aft);  // right
+  } else if (i + s == order.total_size) {                                                              // If at the end
+    Hm.template block(0, 0, total_rows, bef) = marg_data.H.template block(0, 0, total_rows, bef);      // left
+  } else {                                                                                         // If in the middle
+    Hm.template block(0, 0, total_rows, bef) = marg_data.H.template block(0, 0, total_rows, bef);  // left
+    Hm.template block(0, i + s, total_rows, aft) = marg_data.H.template block(0, i, total_rows, aft);  // right
   }
 
   marg_data.H = Hm;
