@@ -164,6 +164,8 @@ class NfrMapper : public ScBundleAdjustmentBase<double> {
 
   void detect_keypoints();
 
+  void detect_keypoints(std::vector<int64_t> keys);
+
   // Feature matching and inlier filtering for stereo pairs with known pose
   void match_stereo();
 
@@ -186,6 +188,8 @@ class NfrMapper : public ScBundleAdjustmentBase<double> {
   Eigen::aligned_vector<RelPoseFactor> rel_pose_factors;
 
   std::unordered_map<int64_t, OpticalFlowInput::Ptr> img_data;
+
+  std::set<int64_t> detected_keyframes;
 
   Corners feature_corners;
 

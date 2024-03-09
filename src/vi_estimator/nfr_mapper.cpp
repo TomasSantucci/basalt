@@ -67,16 +67,20 @@ void NfrMapper::initialize() {
         std::cout << "Procesando MargData" << std::endl;
         addMargData(marg_data);
 
+        std::vector<int64_t> kf_ids;
+        for(const auto& [kf_id, _] : marg_data->frame_poses)
+          if (detected_keyframes.count(kf_id) == 0) kf_ids.push_back(kf_id);
+        detect_keypoints(kf_ids);
         // detect_keypoints();       // --> Ajustar para que el mapper funcione bien con la detección del VIO
 
-        // match_stereo();           // --> Ajustar para que el mapper funcione bien con la detección del VIO
-        // match_all();              // --> Muy costoso. No debería hacerse en todas las iteraciones
+        match_stereo();           // --> Ajustar para que el mapper funcione bien con la detección del VIO
+        match_all();              // --> Muy costoso. No debería hacerse en todas las iteraciones
 
-        // build_tracks();           // --> Ajustar
-        // setup_opt();              // --> El mapper no debería triangular ni agregar Landmarks. Reemplazar por AddMap con lmdb del VIO.
+        build_tracks();           // --> Ajustar
+        setup_opt();              // --> El mapper no debería triangular ni agregar Landmarks. Reemplazar por AddMap con lmdb del VIO.
 
         // int num_opt_iter = 10;
-        // optimize(num_opt_iter); // --> Muy costoso. No debería hacerse en todas las iteraciones
+        optimize(1); // --> Muy costoso. No debería hacerse en todas las iteraciones
 
         // double outlier_threshold = 3;
         // filterOutliers(outlier_threshold, 4);
@@ -466,6 +470,10 @@ void NfrMapper::detect_keypoints() {
       keys.emplace_back(kv.first);
     }
   }
+  detect_keypoints(keys);
+}
+
+void NfrMapper::detect_keypoints(std::vector<int64_t> keys) {
 
   auto t1 = std::chrono::high_resolution_clock::now();
 
@@ -503,7 +511,9 @@ void NfrMapper::detect_keypoints() {
 
   auto elapsed1 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1);
 
-  std::cout << "Processed " << feature_corners.size() << " frames." << std::endl;
+  detected_keyframes.insert(keys.begin(), keys.end());
+
+  std::cout << "Processed " << detected_keyframes.size() << " frames." << std::endl;
 
   std::cout << "Detection time: " << elapsed1.count() * 1e-6 << "s." << std::endl;
 }
