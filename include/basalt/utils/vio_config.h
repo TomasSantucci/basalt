@@ -107,7 +107,7 @@ struct VioConfig {
   bool vio_fix_long_term_keyframes;
   double vio_kf_marg_feature_ratio;
   KeyframeMargCriteria vio_kf_marg_criteria;  // Keyframe removal criteria
-  bool vio_always_get_covisibility_map;
+  int vio_covisibility_query_frequency;       // How often the VIO makes the covisibility query (measured in frames)
   MapCovisibilityCriteria map_covisibility_criteria;
   int map_sts_max_size;
   bool map_sts_use_last_frame;
