@@ -146,6 +146,11 @@ struct basalt_vio_ui : vis::VIOUIBase {
   tbb::concurrent_bounded_queue<basalt::VioVisualizationData::Ptr> out_vis_queue;
   tbb::concurrent_bounded_queue<basalt::MapDatabaseVisualizationData::Ptr> out_mapper_vis_queue;
   tbb::concurrent_bounded_queue<basalt::PoseVelBiasState<double>::Ptr> out_state_queue;
+  tbb::concurrent_bounded_queue<basalt::OpticalFlowStats::Ptr> opt_flow_stats_queue;
+
+  std::vector<int64_t> opt_flow_t_ns;
+  Eigen::aligned_vector<int> features;
+  Eigen::aligned_vector<int> recalls;
 
   std::vector<int64_t> vio_t_ns;
   Eigen::aligned_vector<Eigen::Vector3d> vio_t_w_i;
@@ -176,6 +181,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   bool show_gui = true;
   std::string trajectory_fmt;
   std::string trajectory_name = "trajectory.csv";
+  bool save_features = false;
   std::string result_path;
   bool trajectory_groundtruth = false;
   bool print_queue = false;
@@ -188,6 +194,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   thread vis_thread;
   thread ui_thread;
   thread map_vis_thread;
+  thread opt_flow_consumer_thread;
   thread state_consumer_thread;
   thread queues_printer_thread;
 
@@ -201,6 +208,8 @@ struct basalt_vio_ui : vis::VIOUIBase {
   Var<bool> kitti_fmt{"trajectory_menu.kitti_fmt", false, true};
   Var<bool> save_groundtruth{"trajectory_menu.save_groundtruth", false, true};
   Button save_traj_btn{"trajectory_menu.save_traj", [this]() { saveTrajectoryButton(); }};
+
+  Button save_features_btn{"features_menu.save_features", [this]() { saveFeaturesButton(); }};
 
   Button compute_frames_error_btn{"curves_menu.compute_frames_error", [this]() { compute_frames_error(); }};
   Var<int> rte_delta{"curves_menu.rte_delta", 6, 1, 30};
@@ -264,6 +273,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     app.add_option("--save-groundtruth", trajectory_groundtruth, "In addition to trajectory, save also ground truth");
     app.add_option("--save-times", save_times, "Measure and save timing information.");
     app.add_option("--use-imu", use_imu, "Use IMU: visual-inertial vs visual-only pipeline");
+    app.add_option("--save-features", save_features, "Save features.");
     app.add_option("--use-double", use_double, "Use double not float.");
     app.add_option("--deterministic", deterministic, "Make the pipeline output reproducible (some performance impact)");
     app.add_option("--max-frames", max_frames, "Limit number of frames to process from dataset (0 means unlimited)");
@@ -338,6 +348,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
       opt_flow->output_queue = &vio->vision_data_queue;
       opt_flow->show_gui = show_gui;
+      opt_flow->opt_flow_stats_queue = &opt_flow_stats_queue;
       if (show_gui) vio->out_vis_queue = &out_vis_queue;
       vio->out_state_queue = &out_state_queue;
       vio->opt_flow_depth_guess_queue = &opt_flow->input_depth_queue;
@@ -422,6 +433,22 @@ struct basalt_vio_ui : vis::VIOUIBase {
         while (pop_state()) continue;
       });
     }
+
+    opt_flow_consumer_thread = thread([&]() {
+      basalt::OpticalFlowStats::Ptr data;
+
+      while (true) {
+        opt_flow_stats_queue.pop(data);
+
+        if (!data.get()) break;
+
+        opt_flow_t_ns.emplace_back(data->t_ns);
+        features.emplace_back(data->features);
+        recalls.emplace_back(data->recalls);
+      }
+
+      std::cout << "Finished opt flow stats" << std::endl;
+    });
 
     if (print_queue) {
       queues_printer_thread = thread([&]() {
@@ -773,6 +800,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
       map_vis_thread.join();
     }
     if (!deterministic) state_consumer_thread.join();
+    opt_flow_consumer_thread.join();
     if (print_queue) queues_printer_thread.join();
 
     // after joining all threads, print final queue sizes.
@@ -845,6 +873,8 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
       saveTrajectoryButton();
     }
+
+    if (!aborted && save_features) saveFeaturesButton();
 
     if (!aborted && !result_path.empty()) {
       double error = basalt::alignSVD(vio_t_ns, vio_t_w_i, gt_t_ns, gt_t_w_i);
@@ -1360,6 +1390,21 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
       std::cout << "Saved trajectory in KITTI Dataset format in " << trajectory_name << std::endl;
     }
+  }
+
+  void saveFeaturesButton() {
+    std::ofstream os("features.csv");
+
+    os << "#timestamp [ns],features,recalls" << std::endl;
+
+    for (size_t i = 0; i < opt_flow_t_ns.size(); i++) {
+      os << std::fixed << std::setprecision(10) << opt_flow_t_ns[i] << "," << features[i] << "," << recalls[i]
+         << std::endl;
+    }
+
+    os.close();
+
+    std::cout << "Saved features.csv" << std::endl;
   }
 };
 
