@@ -78,6 +78,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/linearization/landmark_block.hpp>
 #include <basalt/utils/format.hpp>
 #include <basalt/utils/time_utils.hpp>
+#include <vit_implementation_helper.hpp>
 
 // enable the "..."_format(...) string literal
 using namespace basalt::literals;
@@ -156,6 +157,8 @@ struct basalt_vio_ui : vis::VIOUIBase {
   Eigen::aligned_vector<Eigen::Vector3d> vio_t_w_i;
   Eigen::aligned_vector<Sophus::SE3d> vio_T_w_i;
 
+  std::vector<vit::TimeStats> time_stats;
+
   std::vector<int64_t> gt_t_ns;
   Eigen::aligned_vector<Eigen::Vector3d> gt_t_w_i;
   Eigen::aligned_vector<Sophus::SE3d> gt_T_w_i;
@@ -182,6 +185,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   std::string trajectory_fmt;
   std::string trajectory_name = "trajectory.csv";
   bool save_features = false;
+  bool save_timing = false;
   std::string result_path;
   bool trajectory_groundtruth = false;
   bool print_queue = false;
@@ -208,6 +212,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   Var<bool> kitti_fmt{"trajectory_menu.kitti_fmt", false, true};
   Var<bool> save_groundtruth{"trajectory_menu.save_groundtruth", false, true};
   Button save_traj_btn{"trajectory_menu.save_traj", [this]() { saveTrajectoryButton(); }};
+  Button save_timing_btn{"trajectory_menu.save_timing", [this]() { saveTimingButton(); }};
 
   Button save_features_btn{"features_menu.save_features", [this]() { saveFeaturesButton(); }};
 
@@ -274,6 +279,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     app.add_option("--save-times", save_times, "Measure and save timing information.");
     app.add_option("--use-imu", use_imu, "Use IMU: visual-inertial vs visual-only pipeline");
     app.add_option("--save-features", save_features, "Save features.");
+    app.add_option("--save-timing", save_timing, "Save timings.");
     app.add_option("--use-double", use_double, "Use double not float.");
     app.add_option("--deterministic", deterministic, "Make the pipeline output reproducible (some performance impact)");
     app.add_option("--max-frames", max_frames, "Limit number of frames to process from dataset (0 means unlimited)");
@@ -876,6 +882,8 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
     if (!aborted && save_features) saveFeaturesButton();
 
+    if (!aborted && save_timing) saveTimingButton();
+
     if (!aborted && !result_path.empty()) {
       double error = basalt::alignSVD(vio_t_ns, vio_t_w_i, gt_t_ns, gt_t_w_i);
 
@@ -1405,6 +1413,37 @@ struct basalt_vio_ui : vis::VIOUIBase {
     os.close();
 
     std::cout << "Saved features.csv" << std::endl;
+  }
+
+  void saveTimingButton() {
+    std::ofstream os("timing.csv");
+
+    // Write the time stats titles
+    os << "#";
+    if (!time_stats.empty() && time_stats[0].timing_titles != nullptr) {
+      const char** titles = time_stats[0].timing_titles;
+      size_t i = 0;
+      while (titles[i] != nullptr) {
+        if (i > 0) os << ",";
+        os << titles[i];
+        ++i;
+      }
+      std::cout << std::endl;
+      os << "\n";
+    }
+
+    // Write the timestamps
+    for (const auto& ts : time_stats) {
+      for (size_t i = 0; i < ts.timings.size(); ++i) {
+        if (i > 0) os << ",";
+        os << ts.timings[i];
+      }
+      os << "\n";
+    }
+
+    os.close();
+
+    std::cout << "Saved timing.csv" << std::endl;
   }
 };
 
