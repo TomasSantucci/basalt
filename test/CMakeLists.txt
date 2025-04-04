@@ -4,7 +4,6 @@ cmake_minimum_required(VERSION 3.10...3.18)
 
 include_directories(../thirdparty/basalt-headers/test/include)
 
-
 add_executable(test_spline_opt src/test_spline_opt.cpp)
 target_link_libraries(test_spline_opt gtest gtest_main basalt_internal)
 

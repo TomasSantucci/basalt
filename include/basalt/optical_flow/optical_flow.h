@@ -125,7 +125,7 @@ class OpticalFlowBase {
     // patch_coord = PatchT::pattern2.template cast<float>();
     depth_guess = config.optical_flow_matching_default_depth;
   }
-  ~OpticalFlowBase() { processing_thread->join(); }
+  virtual ~OpticalFlowBase() { processing_thread->join(); }
 
   virtual void processingLoop() = 0;
 
@@ -209,6 +209,8 @@ class OpticalFlowTyped : public OpticalFlowBase {
       E[i] = Ed.cast<Scalar>();
     }
   }
+
+  virtual ~OpticalFlowTyped() = default;
 
   size_t getNumCams() const { return calib.intrinsics.size(); }
 

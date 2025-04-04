@@ -1,30 +1,38 @@
 # SPDX-License-Identifier: CC0-1.0
 # SPDX-FileCopyrightText: 2023 Collabora, Ltd.
 
-# TODO: The CI for clang-format and clang-tidy are preliminary.
-# - clang-format-all: Runs clang-format on all files. clang-format-diff exists.
-# - clangd-tidy-diff-files: Runs a fast subset of clang-tidy through clangd.
-#   There exists clang-tidy-diff but it was slow when I tried it and it didn't
-#   show warnings on lines that the full clang-tidy showed.
-# - I am downloading some things on the CI that could be predownloaded in the
-#   docker image
+# ccache?
 
 variables:
   GIT_SUBMODULE_STRATEGY: recursive
-  CLANG_VERSION: "15"
-  CLANG_FORMAT: "clang-format-$CLANG_VERSION"
+  CLANG_FORMAT: "clang-format-15"
 
 stages:
   - build
   - analyze
   - release
 
-build-ubuntu-2204:
-  image: registry.freedesktop.org/mateosss/basalt/ubuntu/22.04
+cache:
+  paths:
+    - ccache
+
+.ccache:
+  before_script:
+    - export CCACHE_BASEDIR="$PWD"
+    - export CCACHE_DIR="$PWD/ccache"
+    - export CCACHE_COMPILERCHECK=content
+    - ccache --zero-stats || true
+    - ccache --show-stats || true
+  after_script:
+    - export CCACHE_DIR="$PWD/ccache"
+    - ccache --show-stats -v
+
+gcc-ubuntu-2204:
+  extends: .ccache
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2204
   stage: build
   when: manual
   script:
-    - apt-get update && apt-get install -y mold
     - echo BUILD_UBUNTU_2204_JOB_ID=$CI_JOB_ID >> release.env
     - cmake --preset=ci
     - time cmake --build build
@@ -38,47 +46,66 @@ build-ubuntu-2204:
     reports:
       dotenv: release.env
 
-clangd-tidy-diff-files:
+gcc-ubuntu-2404:
+  extends: .ccache
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+  stage: build
+  when: manual
+  script:
+    - echo BUILD_UBUNTU_2404_JOB_ID=$CI_JOB_ID >> release.env
+    - cmake --preset=ci
+    - time cmake --build build
+    - cd build && cpack
+    - mv *.deb ../basalt-monado-ubuntu-24.04-haswell-amd64.deb
+  artifacts:
+    name: basalt-monado-ubuntu-24.04-haswell-amd64
+    expose_as: "basalt-monado-ubuntu-2404-haswell-amd64-deb"
+    paths:
+      - "basalt-monado-ubuntu-24.04-haswell-amd64.deb"
+    reports:
+      dotenv: release.env
+
+clang19-ubuntu-2404:
+  extends: .ccache
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+  stage: build
+  when: manual
+  script:
+    - apt-get update && apt-get install -y clang-19
+    - export CC=clang-19 CXX=clang++-19
+    - cmake --preset=ci
+    - time cmake --build build
+
+clangd-tidy-delta:
   stage: analyze
-  image: registry.freedesktop.org/mateosss/basalt/ubuntu/22.04
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
   when: manual
   script:
     - git fetch origin $CI_DEFAULT_BRANCH
-    - apt-get update && apt-get install -y unzip python3.10-venv
-    - export CLANGD_URL=$(curl -s https://api.github.com/repos/clangd/clangd/releases/latest | grep -oP "\"browser_download_url.*clangd-linux-(\d|\.)+\.zip\"" | cut -d ":" -f 2,3 | tr -d \")
-    - echo $CLANGD_URL
-    - curl -L --silent --show-error --fail $CLANGD_URL -o clangd-linux.zip
-    - unzip -q clangd-linux.zip
-    - rm clangd-linux.zip
-    - mv clangd* clangd
-    - python3 -m venv .venv
-    - source .venv/bin/activate
-    - pip install clangd-tidy
     - cmake -B build
     - git diff origin/$CI_DEFAULT_BRANCH --exit-code || IN_MR=$?
     - (( $IN_MR )) && COMPARISON_BRANCH=origin/$CI_DEFAULT_BRANCH || COMPARISON_BRANCH=HEAD~1
     - echo $COMPARISON_BRANCH
-    - git diff $COMPARISON_BRANCH --name-only | xargs clangd-tidy --clangd-executable=clangd/bin/clangd -p build -j $(nproc) --github --color always
+    - source /venv/bin/activate
+    - git diff $COMPARISON_BRANCH --name-only | xargs clangd-tidy --clangd-executable=/clangd/bin/clangd -p build -j $(nproc) --github --color always
 
-clang-format-all:
+format:
   stage: analyze
-  image: registry.freedesktop.org/mateosss/basalt/ubuntu/22.04
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
   when: manual
   script:
-    - apt-get update && apt-get install -y $CLANG_FORMAT
-    - $CLANG_FORMAT --version
-    - ./scripts/clang-format-all.sh
+    - ./scripts/format.sh
     - git diff --exit-code
 
 release:
   stage: release
-  image: registry.freedesktop.org/mateosss/basalt/ubuntu/22.04
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2204
   when: manual
   script:
     - echo "Releasing artifacts of previous jobs"
     - curl --location --output /usr/local/bin/release-cli "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64"
     - chmod +x /usr/local/bin/release-cli
-  needs: ["build-ubuntu-2204"]
+  needs: ["gcc-ubuntu-2204", "gcc-ubuntu-2404"]
   release:
     name: "Release of $CI_COMMIT_SHORT_SHA"
     tag_name: "release-$CI_COMMIT_SHORT_SHA"
@@ -87,4 +114,7 @@ release:
       links:
         - name: "Ubuntu 22.04 .deb (amd64, -march=haswell)"
           url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_UBUNTU_2204_JOB_ID}/artifacts/raw/basalt-monado-ubuntu-22.04-haswell-amd64.deb"
+          link_type: package
+        - name: "Ubuntu 24.04 .deb (amd64, -march=haswell)"
+          url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_UBUNTU_2404_JOB_ID}/artifacts/raw/basalt-monado-ubuntu-24.04-haswell-amd64.deb"
           link_type: package

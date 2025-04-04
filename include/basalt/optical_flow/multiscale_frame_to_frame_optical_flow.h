@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <memory>
 #include <sophus/se2.hpp>
 
 #include <tbb/blocked_range.h>
@@ -47,6 +48,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/optical_flow/optical_flow.h>
 #include <basalt/optical_flow/patch.h>
 
+#include <basalt/imu/preintegration.h>
+#include <basalt/utils/imu_types.h>
 #include <basalt/utils/keypoints.h>
 
 namespace basalt {
@@ -55,7 +58,7 @@ namespace basalt {
 /// but patches can be created at all pyramid levels, not just the lowest
 /// pyramid.
 template <typename Scalar, template <typename> typename Pattern>
-class MultiscaleFrameToFrameOpticalFlow : public OpticalFlowTyped<Scalar, Pattern> {
+class MultiscaleFrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
  public:
   using Vector3d = Eigen::Matrix<double, 3, 1>;
 
@@ -183,14 +186,14 @@ class MultiscaleFrameToFrameOpticalFlow : public OpticalFlowTyped<Scalar, Patter
     if (t_ns < 0) {
       t_ns = curr_t_ns;
 
-      transforms.reset(new OpticalFlowResult);
+      transforms = std::make_shared<OpticalFlowResult>();
       transforms->keypoints.resize(num_cams);
       transforms->pyramid_levels.resize(num_cams);
       transforms->tracking_guesses.resize(num_cams);
       transforms->matching_guesses.resize(num_cams);
       transforms->t_ns = t_ns;
 
-      pyramid.reset(new std::vector<ManagedImagePyr<uint16_t>>);
+      pyramid = std::make_shared<std::vector<ManagedImagePyr<uint16_t>>>();
       pyramid->resize(num_cams);
 
       tbb::parallel_for(tbb::blocked_range<size_t>(0, num_cams), [&](const tbb::blocked_range<size_t>& r) {
@@ -208,7 +211,7 @@ class MultiscaleFrameToFrameOpticalFlow : public OpticalFlowTyped<Scalar, Patter
 
       old_pyramid = pyramid;
 
-      pyramid.reset(new std::vector<ManagedImagePyr<uint16_t>>);
+      pyramid = std::make_shared<std::vector<ManagedImagePyr<uint16_t>>>();
       pyramid->resize(num_cams);
       tbb::parallel_for(tbb::blocked_range<size_t>(0, num_cams), [&](const tbb::blocked_range<size_t>& r) {
         for (size_t i = r.begin(); i != r.end(); ++i) {
@@ -217,7 +220,7 @@ class MultiscaleFrameToFrameOpticalFlow : public OpticalFlowTyped<Scalar, Patter
       });
 
       OpticalFlowResult::Ptr new_transforms;
-      new_transforms.reset(new OpticalFlowResult);
+      new_transforms = std::make_shared<OpticalFlowResult>();
       new_transforms->keypoints.resize(num_cams);
       new_transforms->tracking_guesses.resize(num_cams);
       new_transforms->matching_guesses.resize(num_cams);
@@ -355,8 +358,8 @@ class MultiscaleFrameToFrameOpticalFlow : public OpticalFlowTyped<Scalar, Patter
 
     transform.linear().setIdentity();
 
-    for (int level = config.optical_flow_levels; level >= static_cast<int>(pyramid_level); level--) {
-      const Scalar scale = 1 << level;
+    for (int level = config.optical_flow_levels; level >= int(pyramid_level); level--) {
+      const Scalar scale = 1 << unsigned(level);
 
       Eigen::AffineCompact2f transform_tmp = transform;
 
@@ -370,7 +373,7 @@ class MultiscaleFrameToFrameOpticalFlow : public OpticalFlowTyped<Scalar, Patter
         patch_valid &= trackPointAtLevel(pyr.lvl(level), p, transform_tmp);
       }
 
-      if (level == int{pyramid_level} + 1 && !patch_valid) {
+      if (level == int(pyramid_level) + 1 && !patch_valid) {
         return false;
       }
 
@@ -423,14 +426,14 @@ class MultiscaleFrameToFrameOpticalFlow : public OpticalFlowTyped<Scalar, Patter
   std::pair<Keypoints, KeypointLevels> addPointsForCamera(size_t cam_id, int level) {
     Eigen::aligned_vector<Eigen::Vector2d> pts;  // Current points
     for (const auto& [kpid, affine] : transforms->keypoints.at(cam_id)) {
-      const size_t point_level = transforms->pyramid_levels.at(cam_id).at(kpid);
+      const int point_level = int(transforms->pyramid_levels.at(cam_id).at(kpid));
       if (point_level >= level - 1 && point_level <= level + 1) {  // Use the point on adjacent levels too
-        const Scalar pt_scale = 1 << point_level;
+        const Scalar pt_scale = 1 << unsigned(point_level);
         pts.emplace_back((affine.translation() / pt_scale).template cast<double>());
       }
     }
 
-    const Scalar scale = 1 << level;
+    const Scalar scale = 1 << unsigned(level);
 
     KeypointsData kd;  // Detected new points
     detectKeypoints(pyramid->at(cam_id).lvl(level), kd, config.optical_flow_detection_grid_size,
@@ -486,7 +489,7 @@ class MultiscaleFrameToFrameOpticalFlow : public OpticalFlowTyped<Scalar, Patter
         bool in_bounds = c0_uv.x() >= 0 && c0_uv.x() < w && c0_uv.y() >= 0 && c0_uv.y() < h;
         bool valid = projected && in_bounds;
         if (valid) {
-          Rect cell_mask(x - C / 2, y - C / 2, C, C);
+          Rect cell_mask(x - C / 2.0f, y - C / 2.0f, C, C);
           masks.masks.push_back(cell_mask);
         }
       }

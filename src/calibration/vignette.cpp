@@ -76,13 +76,9 @@ VignetteEstimator::VignetteEstimator(
 }
 
 void VignetteEstimator::compute_error(std::map<TimeCamId, std::vector<double>> *reprojected_vignette_error) {
-  //  double error = 0;
-  //  double mean_residual = 0;
   double max_residual = 0;
-  int num_residuals = 0;
 
   TimeCamId tcid_max;
-  // int point_id = 0;
 
   if (reprojected_vignette_error) reprojected_vignette_error->clear();
 
@@ -102,36 +98,15 @@ void VignetteEstimator::compute_error(std::map<TimeCamId, std::vector<double>> *
         int64_t loc = (points_2d_val[i].head<2>() - oc).norm() * 1e9;  // in pixels * 1e9
         double e = irradiance[i] * vign_param[tcid.cam_id].evaluate(loc)[0] - val;
         ve[i] = e;
-        //        error += e * e;
-        //        mean_residual += std::abs(e);
         max_residual = std::max(max_residual, std::abs(e));
         if (max_residual == std::abs(e)) {
           tcid_max = tcid;
-          // point_id = i;
         }
-        num_residuals++;
       }
     }
 
     if (reprojected_vignette_error) reprojected_vignette_error->emplace(tcid, ve);
   }
-
-  //  std::cerr << "error " << error << std::endl;
-  //  std::cerr << "mean_residual " << mean_residual / num_residuals <<
-  //  std::endl;
-  //  std::cerr << "max_residual " << max_residual << std::endl;
-
-  // int frame_id = 0;
-  //  for (size_t i = 0; i < vio_dataset->get_image_timestamps().size(); i++) {
-  //    if (tcid_max.first == vio_dataset->get_image_timestamps()[i]) {
-  //      frame_id = i;
-  //    }
-  //  }
-
-  //  std::cerr << "tcid_max " << frame_id << " " << tcid_max.second << " point
-  //  id "
-  //            << point_id << std::endl
-  //            << std::endl;
 }
 
 void VignetteEstimator::opt_irradience() {

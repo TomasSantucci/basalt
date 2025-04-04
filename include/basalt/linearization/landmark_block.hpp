@@ -18,9 +18,9 @@ struct RelPoseLin {
   using Mat4 = Eigen::Matrix<Scalar, 4, 4>;
   using Mat6 = Eigen::Matrix<Scalar, 6, 6>;
 
-  Mat4 T_t_h;
-  Mat6 d_rel_d_h;
-  Mat6 d_rel_d_t;
+  Mat4 T_t_h = Mat4::Zero();
+  Mat6 d_rel_d_h = Mat6::Zero();
+  Mat6 d_rel_d_t = Mat6::Zero();
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };

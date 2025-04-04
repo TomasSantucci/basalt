@@ -50,3 +50,16 @@ if [ $MAJOR_VERSION_DETECTED -lt $MAJOR_VERSION_NEEDED ]; then
 fi
 
 find $FOLDER -iname "*.?pp" -or -iname "*.h" | xargs $CLANG_FORMAT_CMD -verbose -i
+
+if hash cmake-format 2>/dev/null; then
+    echo "Running cmake-format"
+    cmake-format -i \
+        CMakeLists.txt \
+        test/CMakeLists.txt \
+        thirdparty/CMakeLists.txt \
+        thirdparty/basalt-headers/CMakeLists.txt \
+        thirdparty/basalt-headers/test/CMakeLists.txt \
+        --config-file scripts/.cmake-format.json
+else
+    echo "cmake-format not installed, skipping"
+fi

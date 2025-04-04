@@ -61,7 +61,7 @@ namespace basalt {
 /// While it might cause more drift of the patch location, it leads to longer
 /// tracks in practice.
 template <typename Scalar, template <typename> typename Pattern>
-class FrameToFrameOpticalFlow : public OpticalFlowTyped<Scalar, Pattern> {
+class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
  public:
   using Vector3d = Eigen::Matrix<double, 3, 1>;
 

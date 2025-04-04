@@ -1,6 +1,6 @@
 # Dockerfile for registry.freedesktop.org/mateosss/basalt and generating .deb package
 
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC
 
@@ -14,8 +14,10 @@ RUN apt update && \
     mold \
     git \
     clang-format-15 \
+    cmake-format \
     unzip \
     python3-pip \
+    python3-venv \
     libtbb-dev \
     libeigen3-dev \
     libglew-dev \
@@ -42,6 +44,8 @@ RUN apt update && \
     unzip -q clangd-linux.zip && \
     rm clangd-linux.zip && \
     mv clangd* /clangd && \
+    python3 -m venv /venv && \
+    . /venv/bin/activate && \
     pip install clangd-tidy && \
   rm -rf /var/lib/apt/lists/* && \
   apt autoremove -y

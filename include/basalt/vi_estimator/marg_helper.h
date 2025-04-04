@@ -35,7 +35,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#if __GNUC__ >= 12
+// See https://gitlab.com/libeigen/eigen/-/merge_requests/?state=all&search=maybe-uninitialized
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #include <Eigen/Dense>
+#pragma GCC diagnostic pop
+#else
+#include <Eigen/Dense>
+#endif
+
 #include <set>
 
 namespace basalt {

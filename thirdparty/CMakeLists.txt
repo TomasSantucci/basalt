@@ -7,7 +7,7 @@ add_subdirectory(basalt-headers EXCLUDE_FROM_ALL)
 add_subdirectory(ros EXCLUDE_FROM_ALL)
 
 add_subdirectory(apriltag EXCLUDE_FROM_ALL)
-target_compile_options(apriltag PRIVATE "-Wno-unused-private-field") # Fix external warning
+ignore_external_warnings(apriltag)
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Enable BUILD_SHARED_LIBS")
 set(BUILD_TESTS OFF CACHE BOOL "Enable BUILD_TESTS")
@@ -27,7 +27,6 @@ set(BUILD_PANGOLIN_FFMPEG OFF CACHE BOOL "Build support for ffmpeg video input")
 set(EIGEN_INCLUDE_DIR "${EIGEN3_INCLUDE_DIR}")
 set(EIGEN_INCLUDE_DIRS "${EIGEN3_INCLUDE_DIR}")
 
-
 # Hack to disable march=native in opengv
 macro(add_definitions)
   if(NOT ${ARGV0} STREQUAL "-march=native")
@@ -40,8 +39,7 @@ add_subdirectory(opengv EXCLUDE_FROM_ALL)
 set_target_properties(opengv PROPERTIES CXX_STANDARD 17 DEBUG_POSTFIX "")
 
 # fix opengv: compile options (CMAKE_CXX_FLAGS is overwritten by Opengv)
-target_compile_options(opengv PRIVATE -Wno-unused-private-field ${BASALT_MARCH_FLAGS}
-  "SHELL:${BASALT_PASSED_CXX_FLAGS}" "-Wno-stringop-overflow" "-w")
+target_compile_options(opengv PRIVATE ${BASALT_MARCH_FLAGS} "SHELL:${BASALT_PASSED_CXX_FLAGS}")
 ignore_external_warnings(opengv)
 
 # Hack to disable CPack in Pangolin.
@@ -75,6 +73,7 @@ foreach(_target opengv pangolin)
   foreach(_dir IN LISTS _include_dirs)
     if("${_dir}" MATCHES ".*/eigen3?(/unsupported)?$")
       if(NOT _dir MATCHES "^${EIGEN3_INCLUDE_DIR}.*")
+
       endif()
     endif()
   endforeach()
@@ -85,7 +84,7 @@ endforeach()
 # which makes cmake complain that that property contains paths in the
 # source folder. Thus, we update the property to only include these
 # eigen paths in the "BUILD_INTERFACE" (not "INSTALL").
-if (EIGEN3_INCLUDE_DIR MATCHES "^${CMAKE_SOURCE_DIR}.*")
+if(EIGEN3_INCLUDE_DIR MATCHES "^${CMAKE_SOURCE_DIR}.*")
   foreach(_target opengv pangolin)
     get_target_property(_include_dirs ${_target} INTERFACE_INCLUDE_DIRECTORIES)
     set(_include_dirs_new "")

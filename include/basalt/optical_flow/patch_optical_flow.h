@@ -55,7 +55,7 @@ namespace basalt {
 /// time) than frame-to-frame tracking, but it results in shorter tracks in
 /// practice.
 template <typename Scalar, template <typename> typename Pattern>
-class PatchOpticalFlow : public OpticalFlowTyped<Scalar, Pattern> {
+class PatchOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
  public:
   using Vector3d = Eigen::Matrix<double, 3, 1>;
 

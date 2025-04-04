@@ -143,8 +143,8 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
               size_t abs_t_idx = aom_->abs_order_map.at(pose_tcid_vec[i]->second.frame_id).first;
 
               Vec2 res;
-              Eigen::Matrix<Scalar, 2, POSE_SIZE> d_res_d_xi;
-              Eigen::Matrix<Scalar, 2, 3> d_res_d_p;
+              Eigen::Matrix<Scalar, 2, POSE_SIZE> d_res_d_xi = Eigen::Matrix<Scalar, 2, POSE_SIZE>::Zero();
+              Eigen::Matrix<Scalar, 2, 3> d_res_d_p = Eigen::Matrix<Scalar, 2, 3>::Zero();
 
               using CamT = std::decay_t<decltype(cam)>;
               bool valid =
