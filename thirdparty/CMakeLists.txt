@@ -19,6 +19,7 @@ set(BUILD_PANGOLIN_PYTHON OFF CACHE BOOL "Enable BUILD_PANGOLIN_PYTHON")
 set(BUILD_EXAMPLES OFF CACHE BOOL "Enable BUILD_EXAMPLES")
 set(BUILD_PANGOLIN_REALSENSE OFF CACHE BOOL "Enable librealsense")
 set(BUILD_PANGOLIN_REALSENSE2 OFF CACHE BOOL "Enable librealsense2")
+set(BUILD_PANGOLIN_LIBTIFF OFF CACHE BOOL "Enable libtiff")
 
 # disable ffmpeg b/c build is broken on macOS since 2022-02
 # see: https://github.com/stevenlovegrove/Pangolin/issues/737
