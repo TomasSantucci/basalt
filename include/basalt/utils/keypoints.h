@@ -78,6 +78,12 @@ struct Masks {
   }
 };
 
+void detectKeypointsFAST(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd, int threshold,
+                         bool non_max_suppression);
+
+void detectKeypointsGFTT(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd, int num_features,
+                         double quality_level, double min_distance);
+
 void detectKeypointsMapping(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd, int num_features);
 
 void detectKeypoints(

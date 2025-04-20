@@ -33,6 +33,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <opencv2/features2d.hpp>
 #include <unordered_set>
 
 #include <basalt/utils/build_config.h>
@@ -106,6 +107,52 @@ const static signed char pattern_31_y_b[256] = {
     -1,  -9,  -13, 2,   12,  -10, -6, -6,  -9,  -7,  -13, 5,   -13, -3, -12, -1, 3,   -9,  1,   -8,  9,   12, -5,  7,
     -8,  -12, 5,   9,   5,   4,   3,  12,  11,  -13, 12,  4,   6,   12, 1,   1,  1,   -13, -13, 4,   -2,  -3, -2,  10,
     -9,  -1,  -2,  -8,  5,   10,  5,  5,   11,  -6,  -12, 9,   4,   -2, -2,  -11};
+
+void detectKeypointsFAST(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd, int threshold,
+                         bool non_max_suppression) {
+  kd.corners.clear();
+
+  cv::Mat subImg(img_raw.h, img_raw.w, CV_8U);
+  for (size_t y = 0; y < img_raw.w; y++) {
+    uchar* sub_ptr = subImg.ptr(y);
+    for (size_t x = 0; x < img_raw.w; x++) {
+      sub_ptr[x] = (img_raw(x, y) >> 8);
+    }
+  }
+
+  std::vector<cv::KeyPoint> points;
+  cv::FAST(subImg, points, threshold, non_max_suppression, cv::FastFeatureDetector::TYPE_9_16);
+
+  for (size_t i = 0; i < points.size(); ++i) {
+    const cv::KeyPoint& point = points[i];
+    kd.corners.emplace_back(point.pt.x, point.pt.y);
+  }
+}
+
+void detectKeypointsGFTT(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd, int num_features,
+                         double quality_level, double min_distance) {
+  cv::Mat image(img_raw.h, img_raw.w, CV_8U);
+
+  uint8_t* dst = image.ptr();
+  const uint16_t* src = img_raw.ptr;
+
+  for (size_t i = 0; i < img_raw.size(); i++) {
+    dst[i] = (src[i] >> 8);
+  }
+
+  std::vector<cv::Point2f> points;
+  goodFeaturesToTrack(image, points, num_features, quality_level, min_distance);
+
+  kd.corners.clear();
+  kd.corner_angles.clear();
+  kd.corner_descriptors.clear();
+
+  for (size_t i = 0; i < points.size(); i++) {
+    if (img_raw.InBounds(points[i].x, points[i].y, EDGE_THRESHOLD)) {
+      kd.corners.emplace_back(points[i].x, points[i].y);
+    }
+  }
+}
 
 void detectKeypointsMapping(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd, int num_features) {
   cv::Mat image(img_raw.h, img_raw.w, CV_8U);
