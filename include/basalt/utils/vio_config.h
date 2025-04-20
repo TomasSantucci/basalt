@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace basalt {
 
+enum class OrbDetectionType { FAST, GFTT };
 enum class LinearizationType { ABS_QR, ABS_SC, REL_SC };
 enum class MatchingGuessType { SAME_PIXEL, REPROJ_FIX_DEPTH, REPROJ_AVG_DEPTH };
 enum class KeyframeMargCriteria { KF_MARG_DEFAULT, KF_MARG_FORWARD_VECTOR };
@@ -70,6 +71,18 @@ struct VioConfig {
   bool optical_flow_recall_update_patch_viewpoint;         // Update feature patch when succesfully recalled
   float optical_flow_recall_max_patch_dist;                // Maximum distance in % of width to accept a recall, or 0
   std::vector<float> optical_flow_recall_max_patch_norms;  // Maximum patch residual norm to accept a recall
+  bool optical_flow_track_klt;
+  bool optical_flow_track_orb;
+  int optical_flow_orb_max_level;
+  int optical_flow_orb_window_size;
+  float optical_flow_orb_second_best_test_ratio;
+  int optical_flow_orb_max_hamming_distance;
+  OrbDetectionType optical_flow_orb_detection_type;
+  int optical_flow_orb_fast_threshold;
+  bool optical_flow_orb_fast_non_max_supression;
+  int optical_flow_orb_gftt_num_features;
+  double optical_flow_orb_gftt_quality_level;
+  double optical_flow_orb_gftt_min_distance;
 
   LinearizationType vio_linearization_type;
   bool vio_sqrt_marg;

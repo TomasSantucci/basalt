@@ -215,6 +215,27 @@ void load_minimal(const Archive& ar, basalt::LinearizationType& linearization_ty
 }
 
 template <class Archive>
+std::string save_minimal(const Archive& ar, const basalt::OrbDetectionType& orb_detection_type) {
+  UNUSED(ar);
+  auto name = magic_enum::enum_name(orb_detection_type);
+  return std::string(name);
+}
+
+template <class Archive>
+void load_minimal(const Archive& ar, basalt::OrbDetectionType& orb_detection_type, const std::string& name) {
+  UNUSED(ar);
+
+  auto orb_detection_enum = magic_enum::enum_cast<basalt::OrbDetectionType>(name);
+
+  if (orb_detection_enum.has_value()) {
+    orb_detection_type = orb_detection_enum.value();
+  } else {
+    std::cerr << "Could not find the OrbDetectionType for " << name << std::endl;
+    std::abort();
+  }
+}
+
+template <class Archive>
 void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.optical_flow_type));
   ar(CEREAL_NVP(config.optical_flow_detection_grid_size));
@@ -238,6 +259,18 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.optical_flow_recall_update_patch_viewpoint));
   ar(CEREAL_NVP(config.optical_flow_recall_max_patch_dist));
   ar(CEREAL_NVP(config.optical_flow_recall_max_patch_norms));
+  ar(CEREAL_NVP(config.optical_flow_track_klt));
+  ar(CEREAL_NVP(config.optical_flow_track_orb));
+  ar(CEREAL_NVP(config.optical_flow_orb_max_level));
+  ar(CEREAL_NVP(config.optical_flow_orb_window_size));
+  ar(CEREAL_NVP(config.optical_flow_orb_second_best_test_ratio));
+  ar(CEREAL_NVP(config.optical_flow_orb_max_hamming_distance));
+  ar(CEREAL_NVP(config.optical_flow_orb_detection_type));
+  ar(CEREAL_NVP(config.optical_flow_orb_fast_threshold));
+  ar(CEREAL_NVP(config.optical_flow_orb_fast_non_max_supression));
+  ar(CEREAL_NVP(config.optical_flow_orb_gftt_num_features));
+  ar(CEREAL_NVP(config.optical_flow_orb_gftt_quality_level));
+  ar(CEREAL_NVP(config.optical_flow_orb_gftt_min_distance));
 
   ar(CEREAL_NVP(config.vio_linearization_type));
   ar(CEREAL_NVP(config.vio_sqrt_marg));
