@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <iostream>
 #include <memory>
 
 #include <sophus/se2.hpp>
@@ -114,6 +115,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
     latest_state = std::make_shared<PoseVelBiasState<double>>();
     predicted_state = std::make_shared<PoseVelBiasState<double>>();
     if (config.optical_flow_recall_enable) patches.reserve(3000);
+    descriptors.reserve(3000);
     cells.resize(getNumCams());
     recalls.resize(getNumCams());
     for (size_t i = 0; i < getNumCams(); i++) cells.at(i).setZero(h / c + 1, w / c + 1);
@@ -339,7 +341,10 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
         valid = t2(0) >= 0 && t2(1) >= 0 && t2(0) < w && t2(1) < h;
         if (!valid) continue;
 
-        valid = trackPoint(pyr_1, pyr_2, transform_1, transform_2);
+        const std::vector<std::bitset<256>>& source_descriptors = descriptors.at(id);
+        std::vector<std::bitset<256>> best_descriptors(config.optical_flow_levels + 1);
+
+        valid = trackPoint(pyr_1, pyr_2, transform_1, transform_2, source_descriptors, &best_descriptors);
         if (!valid) continue;
 
         if (masks2.inBounds(t2.x(), t2.y())) continue;
@@ -349,7 +354,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
 
         t1_recovered += off;
 
-        valid = trackPoint(pyr_2, pyr_1, transform_2, transform_1_recovered);
+        valid = trackPoint(pyr_2, pyr_1, transform_2, transform_1_recovered, best_descriptors);
         if (!valid) continue;
 
         Scalar dist2 = (t1 - t1_recovered).squaredNorm();
@@ -370,30 +375,62 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
   }
 
   inline bool trackPoint(const ManagedImagePyr<uint16_t>& old_pyr, const ManagedImagePyr<uint16_t>& pyr,
-                         const Eigen::AffineCompact2f& old_transform, Eigen::AffineCompact2f& transform) const {
-    bool patch_valid = true;
+                         const Eigen::AffineCompact2f& old_transform, Eigen::AffineCompact2f& transform,
+                         const std::vector<std::bitset<256>>& source_descriptors,
+                         std::vector<std::bitset<256>>* best_descriptors = nullptr) const {
+    bool patch_valid;
 
-    transform.linear().setIdentity();
+    Eigen::Affine2f original_guess = transform;
 
-    for (int level = config.optical_flow_levels; level >= 0 && patch_valid; level--) {
-      const Scalar scale = 1 << level;
+    if (config.optical_flow_track_klt) {
+      patch_valid = true;
 
-      transform.translation() /= scale;
+      transform.linear().setIdentity();
 
-      PatchT p(old_pyr.lvl(level), old_transform.translation() / scale);
+      for (int level = config.optical_flow_levels; level >= 0 && patch_valid; level--) {
+        const Scalar scale = 1 << level;
 
-      patch_valid &= p.valid;
-      if (patch_valid) {
-        // Perform tracking on current level
-        patch_valid &= trackPointAtLevel(pyr.lvl(level), p, transform);
+        transform.translation() /= scale;
+
+        PatchT p(old_pyr.lvl(level), old_transform.translation() / scale);
+
+        patch_valid &= p.valid;
+        if (patch_valid) {
+          // Perform tracking on current level
+          patch_valid &= trackPointAtLevel(pyr.lvl(level), p, transform);
+        }
+
+        transform.translation() *= scale;
       }
 
-      transform.translation() *= scale;
+      transform.linear() = old_transform.linear() * transform.linear();
+
+      if (patch_valid) return true;
     }
 
-    transform.linear() = old_transform.linear() * transform.linear();
+    transform = original_guess;
 
-    return patch_valid;
+    if (config.optical_flow_track_orb) {
+      patch_valid = true;
+
+      for (int level = config.optical_flow_orb_max_level; level >= 0 && patch_valid; level--) {
+        const Scalar scale = 1 << level;
+        transform.translation() /= scale;
+
+        const std::bitset<256>& descriptor = source_descriptors.at(level);
+        std::bitset<256> best_descriptor;
+
+        patch_valid &= trackPointAtLevelORB(pyr.lvl(level), transform, descriptor, best_descriptor);
+
+        if (best_descriptors) best_descriptors->at(level) = best_descriptor;
+
+        transform.translation() *= scale;
+      }
+
+      if (patch_valid) return true;
+    }
+
+    return false;
   }
 
   inline bool trackPointAtLevel(const Image<const uint16_t>& img_2, const PatchT& dp, Eigen::AffineCompact2f& transform,
@@ -432,31 +469,106 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
     return patch_valid;
   }
 
+  inline bool trackPointAtLevelORB(const Image<const uint16_t>& img_2, Eigen::AffineCompact2f& transform,
+                                   const std::bitset<256>& descriptor, std::bitset<256>& best_descriptor) const {
+    if (!descriptor.any()) return false;
+
+    auto center = transform.translation();
+
+    if (!img_2.InBounds(center.x(), center.y(), config.optical_flow_orb_window_size / 2)) return false;
+
+    const Image<const uint16_t>& sub_img_2 = img_2.SubImage(
+        center.x() - (config.optical_flow_orb_window_size / 2), center.y() - (config.optical_flow_orb_window_size / 2),
+        config.optical_flow_orb_window_size, config.optical_flow_orb_window_size);
+
+    KeypointsData kd;
+    switch (config.optical_flow_orb_detection_type) {
+      case OrbDetectionType::FAST:
+        detectKeypointsFAST(sub_img_2, kd, config.optical_flow_orb_fast_threshold,
+                            config.optical_flow_orb_fast_non_max_supression);
+        break;
+      case OrbDetectionType::GFTT:
+        detectKeypointsGFTT(sub_img_2, kd, config.optical_flow_orb_gftt_num_features,
+                            config.optical_flow_orb_gftt_quality_level, config.optical_flow_orb_gftt_min_distance);
+        break;
+      default:
+        std::cerr << "Unknown keypoint detection type!" << std::endl;
+        return false;
+    }
+
+    computeAngles(sub_img_2, kd, true);
+    computeDescriptors(sub_img_2, kd);
+
+    std::vector<std::pair<int, int>> matches;
+    std::vector<std::bitset<256>> descriptor_vec = {descriptor};
+    matchDescriptors(descriptor_vec, kd.corner_descriptors, matches, config.optical_flow_orb_max_hamming_distance,
+                     config.optical_flow_orb_second_best_test_ratio);
+
+    if (!matches.size()) return false;
+
+    const std::pair<int, int>& best_match_pair = matches[0];
+    const Eigen::Vector2d& best_keypoint_pos = kd.corners[best_match_pair.second];
+
+    best_descriptor = kd.corner_descriptors[best_match_pair.second];
+
+    float x = center.x() - (config.optical_flow_orb_window_size / 2) + best_keypoint_pos.x();
+    float y = center.y() - (config.optical_flow_orb_window_size / 2) + best_keypoint_pos.y();
+    transform.translation() = Eigen::Vector2f(x, y);
+
+    return true;
+  }
+
   inline bool trackPointFromPyrPatch(const ManagedImagePyr<uint16_t>& pyr,
-                                     const Eigen::aligned_vector<PatchT>& patch_vec,
-                                     Eigen::AffineCompact2f& transform) const {
-    bool patch_valid = true;
+                                     const Eigen::aligned_vector<PatchT>& patch_vec, Eigen::AffineCompact2f& transform,
+                                     LandmarkId lm_id) const {
+    bool patch_valid;
+
+    Eigen::Affine2f original_guess = transform;
 
     //! @note For some reason resetting transform linear part would be wrong only in patch_optical_flow?
     // transform.linear().setIdentity();
 
-    for (int level = config.optical_flow_levels; level >= 0 && patch_valid; level--) {
-      const Scalar scale = 1 << level;
+    if (config.optical_flow_track_klt) {
+      patch_valid = true;
+      for (int level = config.optical_flow_levels; level >= 0 && patch_valid; level--) {
+        const Scalar scale = 1 << level;
 
-      transform.translation() /= scale;
+        transform.translation() /= scale;
 
-      const auto& p = patch_vec[level];
-      patch_valid &= p.valid;
-      if (patch_valid) {  // Perform tracking on current level
-        Scalar error = -1;
-        patch_valid &= trackPointAtLevel(pyr.lvl(level), p, transform, &error);
-        patch_valid &= error <= config.optical_flow_recall_max_patch_norms.at(level);
+        const auto& p = patch_vec[level];
+        patch_valid &= p.valid;
+        if (patch_valid) {  // Perform tracking on current level
+          Scalar error = -1;
+          patch_valid &= trackPointAtLevel(pyr.lvl(level), p, transform, &error);
+          patch_valid &= error <= config.optical_flow_recall_max_patch_norms.at(level);
+        }
+
+        transform.translation() *= scale;
       }
 
-      transform.translation() *= scale;
+      if (patch_valid) return true;
     }
 
-    return patch_valid;
+    transform = original_guess;
+
+    if (config.optical_flow_track_orb) {
+      patch_valid = true;
+      for (int level = config.optical_flow_orb_max_level; level >= 0 && patch_valid; level--) {
+        const Scalar scale = 1 << level;
+        transform.translation() /= scale;
+
+        const std::bitset<256>& descriptor = descriptors.at(lm_id).at(level);
+        std::bitset<256> best_descriptor;
+
+        patch_valid &= trackPointAtLevelORB(pyr.lvl(level), transform, descriptor, best_descriptor);
+
+        transform.translation() *= scale;
+      }
+
+      if (patch_valid) return true;
+    }
+
+    return false;
   }
 
   /**
@@ -537,7 +649,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
 
       Eigen::aligned_vector<PatchT>& lm_patch = patches.at(lm_id);
       Eigen::AffineCompact2f curr_pose = proj_pose;
-      bool valid = trackPointFromPyrPatch(pyramid->at(cam_id), lm_patch, curr_pose);
+      bool valid = trackPointFromPyrPatch(pyramid->at(cam_id), lm_patch, curr_pose, lm_id);
       if (!valid) continue;
 
       // Optionally limit recalled patch reprojected distance
@@ -576,6 +688,27 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
                              config.optical_flow_detection_max_threshold, config.optical_flow_image_safe_radius,
                              transforms->input_images->masks.at(cam_id));
 
+    computeAngles(pyramid->at(cam_id).lvl(0), kd, true);
+    computeDescriptors(pyramid->at(cam_id).lvl(0), kd);
+
+    Eigen::aligned_vector<KeypointsData> kd_levels;
+    kd_levels.resize(config.optical_flow_levels + 1);
+    kd_levels[0] = kd;
+
+    for (int l = 1; l <= config.optical_flow_levels; l++) {
+      KeypointsData& kd_l = kd_levels[l];
+      Scalar scale = 1 << l;
+
+      for (size_t i = 0; i < kd.corners.size(); i++) {
+        const Eigen::Vector2d& corner = kd.corners[i];
+
+        kd_l.corners.emplace_back(corner / scale);
+      }
+
+      computeAngles(pyramid->at(cam_id).lvl(l), kd_l, true);
+      computeDescriptors(pyramid->at(cam_id).lvl(l), kd_l);
+    }
+
     Keypoints new_kpts;
     for (size_t i = 0; i < kd.corners.size(); i++) {  // Set new points as keypoints
       const Eigen::Vector2d& corner = kd.corners[i];
@@ -590,6 +723,11 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
           Vector2 pos_scaled = pos / scale;
           p.emplace_back(pyramid->at(0).lvl(l), pos_scaled);
         }
+      }
+
+      std::vector<std::bitset<256>>& desc = descriptors[last_keypoint_id];
+      for (int l = 0; l <= config.optical_flow_levels; l++) {
+        desc.emplace_back(kd_levels[l].corner_descriptors[i]);
       }
 
       auto transform = Eigen::AffineCompact2f::Identity();
@@ -743,6 +881,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
  private:
   Eigen::aligned_unordered_map<KeypointId, Eigen::aligned_vector<PatchT>> patches;
+  std::unordered_map<KeypointId, std::vector<std::bitset<256>>> descriptors;
   Eigen::aligned_vector<Eigen::MatrixXi> cells;  // Number of features in each gridcell
   std::vector<Keypoints> recalls;
   const Vector3d accel_cov;
