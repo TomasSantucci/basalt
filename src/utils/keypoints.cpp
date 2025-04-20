@@ -299,15 +299,20 @@ void computeAngles(const basalt::Image<const uint16_t>& img_raw, KeypointsData& 
       double m01 = 0, m10 = 0;
       for (int x = -HALF_PATCH_SIZE; x <= HALF_PATCH_SIZE; x++) {
         for (int y = -HALF_PATCH_SIZE; y <= HALF_PATCH_SIZE; y++) {
-          if (x * x + y * y <= HALF_PATCH_SIZE * HALF_PATCH_SIZE) {
-            double val = img_raw(cx + x, cy + y);
-            m01 += y * val;
-            m10 += x * val;
+          int xx = cx + x;
+          int yy = cy + y;
+
+          if (xx >= 0 && xx < static_cast<int>(img_raw.w) && yy >= 0 && yy < static_cast<int>(img_raw.h)) {
+            if (x * x + y * y <= HALF_PATCH_SIZE * HALF_PATCH_SIZE) {
+              double val = img_raw(xx, yy);
+              m01 += y * val;
+              m10 += x * val;
+            }
           }
         }
       }
 
-      angle = atan2(m01, m10);
+      if (!m10) angle = atan2(m01, m10);
     }
 
     kd.corner_angles[i] = angle;
@@ -325,6 +330,14 @@ void computeDescriptors(const basalt::Image<const uint16_t>& img_raw, KeypointsD
 
     int cx = p[0];
     int cy = p[1];
+
+    int border = HALF_PATCH_SIZE + 1;
+
+    if (cx < border || cx >= static_cast<int>(img_raw.w) - border || cy < border ||
+        cy >= static_cast<int>(img_raw.h) - border) {
+      kd.corner_descriptors[i] = std::bitset<256>();
+      continue;
+    }
 
     Eigen::Rotation2Dd rot(angle);
     Eigen::Matrix2d mat_rot = rot.matrix();
