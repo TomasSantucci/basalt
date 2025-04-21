@@ -83,6 +83,9 @@ struct VioConfig {
   int optical_flow_orb_gftt_num_features;
   double optical_flow_orb_gftt_quality_level;
   double optical_flow_orb_gftt_min_distance;
+  bool optical_flow_orb_last_descriptor;
+  bool optical_flow_orb_descriptor_fallback;
+  bool optical_flow_update_descriptors;
 
   LinearizationType vio_linearization_type;
   bool vio_sqrt_marg;
