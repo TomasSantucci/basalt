@@ -271,6 +271,9 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.optical_flow_orb_gftt_num_features));
   ar(CEREAL_NVP(config.optical_flow_orb_gftt_quality_level));
   ar(CEREAL_NVP(config.optical_flow_orb_gftt_min_distance));
+  ar(CEREAL_NVP(config.optical_flow_orb_last_descriptor));
+  ar(CEREAL_NVP(config.optical_flow_orb_descriptor_fallback));
+  ar(CEREAL_NVP(config.optical_flow_update_descriptors));
 
   ar(CEREAL_NVP(config.vio_linearization_type));
   ar(CEREAL_NVP(config.vio_sqrt_marg));

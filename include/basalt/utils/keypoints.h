@@ -78,6 +78,11 @@ struct Masks {
   }
 };
 
+void computeAngle(const basalt::Image<const uint16_t>& img_raw, const Eigen::Vector2f& p, double& angle);
+
+void computeDescriptor(const basalt::Image<const uint16_t>& img_raw, const Eigen::Vector2f& p,
+                       std::bitset<256>& descriptor);
+
 void detectKeypointsFAST(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd, int threshold,
                          bool non_max_suppression);
 

@@ -108,6 +108,60 @@ const static signed char pattern_31_y_b[256] = {
     -8,  -12, 5,   9,   5,   4,   3,  12,  11,  -13, 12,  4,   6,   12, 1,   1,  1,   -13, -13, 4,   -2,  -3, -2,  10,
     -9,  -1,  -2,  -8,  5,   10,  5,  5,   11,  -6,  -12, 9,   4,   -2, -2,  -11};
 
+void computeAngle(const basalt::Image<const uint16_t>& img_raw, const Eigen::Vector2f& p, double& angle) {
+  const int cx = p[0];
+  const int cy = p[1];
+
+  angle = 0;
+
+  double m01 = 0, m10 = 0;
+  for (int x = -HALF_PATCH_SIZE; x <= HALF_PATCH_SIZE; x++) {
+    for (int y = -HALF_PATCH_SIZE; y <= HALF_PATCH_SIZE; y++) {
+      int xx = cx + x;
+      int yy = cy + y;
+
+      if (xx >= 0 && xx < static_cast<int>(img_raw.w) && yy >= 0 && yy < static_cast<int>(img_raw.h)) {
+        if (x * x + y * y <= HALF_PATCH_SIZE * HALF_PATCH_SIZE) {
+          double val = img_raw(xx, yy);
+          m01 += y * val;
+          m10 += x * val;
+        }
+      }
+    }
+  }
+
+  if (!m10) angle = atan2(m01, m10);
+}
+
+void computeDescriptor(const basalt::Image<const uint16_t>& img_raw, const Eigen::Vector2f& p,
+                       std::bitset<256>& descriptor) {
+  double angle = 0;
+  computeAngle(img_raw, p, angle);
+
+  int cx = p[0];
+  int cy = p[1];
+
+  int border = HALF_PATCH_SIZE + 1;
+
+  if (cx < border || cx >= static_cast<int>(img_raw.w) - border || cy < border ||
+      cy >= static_cast<int>(img_raw.h) - border) {
+    descriptor = std::bitset<256>();
+    return;
+  }
+
+  Eigen::Rotation2Dd rot(angle);
+  Eigen::Matrix2d mat_rot = rot.matrix();
+
+  for (int i = 0; i < 256; i++) {
+    Eigen::Vector2d va(pattern_31_x_a[i], pattern_31_y_a[i]), vb(pattern_31_x_b[i], pattern_31_y_b[i]);
+
+    Eigen::Vector2i vva = (mat_rot * va).array().round().cast<int>();
+    Eigen::Vector2i vvb = (mat_rot * vb).array().round().cast<int>();
+
+    descriptor[i] = img_raw(cx + vva[0], cy + vva[1]) < img_raw(cx + vvb[0], cy + vvb[1]);
+  }
+}
+
 void detectKeypointsFAST(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd, int threshold,
                          bool non_max_suppression) {
   kd.corners.clear();
