@@ -514,8 +514,13 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
         return false;
     }
 
-    computeAngles(sub_img_2, kd, true);
-    computeDescriptors(sub_img_2, kd);
+    for (size_t i = 0; i < kd.corners.size(); i++) {
+      kd.corners[i] += Eigen::Vector2d(center.x() - (config.optical_flow_orb_window_size / 2),
+                                       center.y() - (config.optical_flow_orb_window_size / 2));
+    }
+
+    computeAngles(img_2, kd, true);
+    computeDescriptors(img_2, kd);
 
     std::vector<std::pair<int, int>> matches;
 
@@ -544,9 +549,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
 
     best_descriptor = kd.corner_descriptors[best_match_pair.second];
 
-    float x = center.x() - (config.optical_flow_orb_window_size / 2) + best_keypoint_pos.x();
-    float y = center.y() - (config.optical_flow_orb_window_size / 2) + best_keypoint_pos.y();
-    transform.translation() = Eigen::Vector2f(x, y);
+    transform.translation() = Eigen::Vector2f(best_keypoint_pos.x(), best_keypoint_pos.y());
 
     return true;
   }
