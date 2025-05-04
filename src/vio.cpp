@@ -76,6 +76,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/linearization/landmark_block.hpp>
 #include <basalt/utils/format.hpp>
 #include <basalt/utils/time_utils.hpp>
+#include "basalt/optical_flow/optical_flow.h"
 
 // enable the "..."_format(...) string literal
 using namespace basalt::literals;
@@ -773,9 +774,14 @@ struct basalt_vio_ui : vis::VIOUIBase {
     if (show_obs) do_show_obs(cam_id);
     if (show_flow) do_show_flow(cam_id);
     if (show_highlights) do_show_highlights(cam_id);
-    if (show_tracking_guess) do_show_tracking_guess_vio(cam_id, show_frame, vio_dataset, vis_map);
-    if (show_matching_guess) do_show_matching_guesses(cam_id);
-    if (show_recall_guess) do_show_recall_guesses(cam_id);
+    if (show_tracking_guess_klt)
+      do_show_tracking_guess_vio(cam_id, show_frame, vio_dataset, vis_map, TrackingType::KLT);
+    if (show_tracking_guess_orb)
+      do_show_tracking_guess_vio(cam_id, show_frame, vio_dataset, vis_map, TrackingType::ORB);
+    if (show_matching_guess_klt) do_show_matching_guesses(cam_id, TrackingType::KLT);
+    if (show_matching_guess_orb) do_show_matching_guesses(cam_id, TrackingType::ORB);
+    if (show_recall_guess_klt) do_show_recall_guesses(cam_id, TrackingType::KLT);
+    if (show_recall_guess_orb) do_show_recall_guesses(cam_id, TrackingType::ORB);
     if (show_masks) do_show_masks(cam_id);
     if (show_cam0_proj) do_show_cam0_proj(cam_id, depth_guess);
     if (show_grid) do_show_grid();

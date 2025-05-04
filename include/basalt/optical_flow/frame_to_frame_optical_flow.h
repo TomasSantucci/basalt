@@ -215,8 +215,11 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
       transforms->keypoints.resize(num_cams);
       transforms->keypoint_responses.resize(num_cams);
       transforms->tracking_guesses.resize(num_cams);
+      transforms->tracking_types.resize(num_cams);
       transforms->matching_guesses.resize(num_cams);
+      transforms->matching_types.resize(num_cams);
       transforms->recall_guesses.resize(num_cams);
+      transforms->recall_guesses_types.resize(num_cams);
       transforms->t_ns = t_ns;
 
       pyramid.reset(new std::vector<ManagedImagePyr<uint16_t>>);
@@ -250,8 +253,11 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
       new_transforms->keypoints.resize(num_cams);
       new_transforms->keypoint_responses.resize(num_cams);
       new_transforms->tracking_guesses.resize(num_cams);
+      new_transforms->tracking_types.resize(num_cams);
       new_transforms->matching_guesses.resize(num_cams);
+      new_transforms->matching_types.resize(num_cams);
       new_transforms->recall_guesses.resize(num_cams);
+      new_transforms->recall_guesses_types.resize(num_cams);
       new_transforms->t_ns = t_ns;
 
       SE3 T_i1 = latest_state->T_w_i.template cast<Scalar>();
@@ -263,7 +269,8 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
         trackPoints(old_pyramid->at(i), pyramid->at(i),  //
                     transforms->keypoints[i], new_transforms->keypoints[i],
                     new_transforms->tracking_guesses[i],  //
-                    new_img_vec->masks.at(i), new_img_vec->masks.at(i), T_c1_c2, i, i);
+                    new_transforms->tracking_types[i], new_img_vec->masks.at(i), new_img_vec->masks.at(i), T_c1_c2, i,
+                    i);
       }
 
       transforms = new_transforms;
@@ -286,7 +293,8 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
 
   void trackPoints(const ManagedImagePyr<uint16_t>& pyr_1, const ManagedImagePyr<uint16_t>& pyr_2,  //
                    const Keypoints& keypoint_map_1, Keypoints& keypoint_map_2, Keypoints& guesses,  //
-                   const Masks& masks1, const Masks& masks2, const SE3& T_c1_c2, size_t cam1, size_t cam2) {
+                   TrackingTypes& tracking_types, const Masks& masks1, const Masks& masks2, const SE3& T_c1_c2,
+                   size_t cam1, size_t cam2) {
     size_t num_points = keypoint_map_1.size();
 
     std::vector<KeypointId> ids;
@@ -301,6 +309,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
     }
 
     tbb::concurrent_unordered_map<KeypointId, Keypoint, std::hash<KeypointId>> result, guesses_tbb;
+    tbb::concurrent_unordered_map<KeypointId, TrackingType, std::hash<KeypointId>> tracking_types_tbb;
 
     bool tracking = cam1 == cam2;
     bool matching = cam1 != cam2;
@@ -334,17 +343,15 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
 
         t2 -= off;  // This modifies transform_2
 
-        if (show_gui) {
-          guesses_tbb[id] = transform_2;
-        }
-
         valid = t2(0) >= 0 && t2(1) >= 0 && t2(0) < w && t2(1) < h;
         if (!valid) continue;
 
         const std::vector<std::pair<std::bitset<256>, std::bitset<256>>>& source_descriptors = descriptors.at(id);
         std::vector<std::bitset<256>> best_descriptors(config.optical_flow_orb_max_level + 1);
 
-        valid = trackPoint(pyr_1, pyr_2, transform_1, transform_2, source_descriptors, &best_descriptors);
+        TrackingType tracking_type;
+        valid =
+            trackPoint(pyr_1, pyr_2, transform_1, transform_2, source_descriptors, tracking_type, &best_descriptors);
         if (!valid) continue;
 
         if (masks2.inBounds(t2.x(), t2.y())) continue;
@@ -360,7 +367,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
           best_descriptors_pairs.emplace_back(best_descriptors[level], best_descriptors[level]);
         }
 
-        valid = trackPoint(pyr_2, pyr_1, transform_2, transform_1_recovered, best_descriptors_pairs);
+        valid = trackPoint(pyr_2, pyr_1, transform_2, transform_1_recovered, best_descriptors_pairs, tracking_type);
         if (!valid) continue;
 
         if (config.optical_flow_update_descriptors) {
@@ -377,6 +384,11 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
         Scalar dist2 = (t1 - t1_recovered).squaredNorm();
 
         if (dist2 < config.optical_flow_max_recovered_dist2) {
+          if (show_gui) {
+            tracking_types_tbb[id] = tracking_type;
+            guesses_tbb[id] = transform_2;
+          }
+
           result[id] = transform_2;
         }
       }
@@ -389,12 +401,14 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
     keypoint_map_2.insert(result.begin(), result.end());
     guesses.clear();
     guesses.insert(guesses_tbb.begin(), guesses_tbb.end());
+    tracking_types.clear();
+    tracking_types.insert(tracking_types_tbb.begin(), tracking_types_tbb.end());
   }
 
   inline bool trackPoint(const ManagedImagePyr<uint16_t>& old_pyr, const ManagedImagePyr<uint16_t>& pyr,
                          const Eigen::AffineCompact2f& old_transform, Eigen::AffineCompact2f& transform,
                          const std::vector<std::pair<std::bitset<256>, std::bitset<256>>>& source_descriptors,
-                         std::vector<std::bitset<256>>* best_descriptors = nullptr) const {
+                         TrackingType& tracking_type, std::vector<std::bitset<256>>* best_descriptors = nullptr) const {
     bool patch_valid;
 
     Eigen::Affine2f original_guess = transform;
@@ -422,6 +436,8 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
 
       transform.linear() = old_transform.linear() * transform.linear();
 
+      tracking_type = TrackingType::KLT;
+
       if (patch_valid) return true;
     }
 
@@ -443,6 +459,8 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
 
         transform.translation() *= scale;
       }
+
+      tracking_type = TrackingType::ORB;
 
       if (patch_valid) return true;
     }
@@ -556,7 +574,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
 
   inline bool trackPointFromPyrPatch(const ManagedImagePyr<uint16_t>& pyr,
                                      const Eigen::aligned_vector<PatchT>& patch_vec, Eigen::AffineCompact2f& transform,
-                                     LandmarkId lm_id) {
+                                     LandmarkId lm_id, TrackingType& tracking_type) {
     bool patch_valid;
 
     Eigen::Affine2f original_guess = transform;
@@ -591,6 +609,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
         }
       }
 
+      tracking_type = TrackingType::KLT;
       if (patch_valid) return true;
     }
 
@@ -617,6 +636,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
         }
       }
 
+      tracking_type = TrackingType::ORB;
       if (patch_valid) return true;
     }
 
@@ -693,7 +713,6 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
     for (const auto& [lm_id, proj_pos] : projections) {
       Eigen::AffineCompact2f proj_pose = Eigen::AffineCompact2f::Identity();
       proj_pose.translation() = proj_pos;
-      if (show_gui) transforms->recall_guesses.at(cam_id)[lm_id] = proj_pose;
 
       // Optionally cap recalls to max number of points in gridcell
       if (config.optical_flow_recall_num_points_cell)
@@ -701,7 +720,8 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
 
       Eigen::aligned_vector<PatchT>& lm_patch = patches.at(lm_id);
       Eigen::AffineCompact2f curr_pose = proj_pose;
-      bool valid = trackPointFromPyrPatch(pyramid->at(cam_id), lm_patch, curr_pose, lm_id);
+      TrackingType tracking_type;
+      bool valid = trackPointFromPyrPatch(pyramid->at(cam_id), lm_patch, curr_pose, lm_id, tracking_type);
       if (!valid) continue;
 
       // Optionally limit recalled patch reprojected distance
@@ -721,6 +741,11 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
           Vector2 pos_scaled = curr_pose.translation() / scale;
           lm_patch[l] = PatchT(pyramid->at(0).lvl(l), pos_scaled);
         }
+      }
+
+      if (show_gui) {
+        transforms->recall_guesses.at(cam_id)[lm_id] = curr_pose;
+        transforms->recall_guesses_types.at(cam_id)[lm_id] = tracking_type;
       }
 
       addKeypoint(cam_id, lm_id, curr_pose);
@@ -828,13 +853,14 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
     for (size_t i = 1; i < getNumCams(); i++) {
       Masks& ms = transforms->input_images->masks.at(i);
       Keypoints& mgs = transforms->matching_guesses.at(i);
+      TrackingTypes& tracking_types = transforms->matching_types.at(i);
 
       // Match features on areas that overlap with cam0 using optical flow
       auto& pyr0 = pyramid->at(0);
       auto& pyri = pyramid->at(i);
       Keypoints kpts;
       SE3 T_c0_ci = calib.T_i_c[0].inverse() * calib.T_i_c[i];
-      trackPoints(pyr0, pyri, kpts0, kpts, mgs, ms0, ms, T_c0_ci, 0, i);
+      trackPoints(pyr0, pyri, kpts0, kpts, mgs, tracking_types, ms0, ms, T_c0_ci, 0, i);
       addKeypoints(i, kpts);
 
       // Update masks and detect features on area not overlapping with cam0
