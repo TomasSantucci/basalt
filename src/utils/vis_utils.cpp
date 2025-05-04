@@ -227,7 +227,8 @@ void VIOUIBase::do_show_highlights(size_t cam_id) {
   }
 }
 
-void VIOUIBase::do_show_tracking_guess(size_t cam_id, size_t frame_id, const VioVisualizationData::Ptr& prev_vis_data) {
+void VIOUIBase::do_show_tracking_guess(size_t cam_id, size_t frame_id, const VioVisualizationData::Ptr& prev_vis_data,
+                                       TrackingType tracking_type) {
   const VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
   if (curr_vis_data == nullptr) return;
 
@@ -236,6 +237,7 @@ void VIOUIBase::do_show_tracking_guess(size_t cam_id, size_t frame_id, const Vio
   auto new_kpts = curr_vis_data->opt_flow_res->keypoints[cam_id];
   auto prev_kpts = prev_vis_data->opt_flow_res->keypoints[cam_id];
   auto guess_obs = curr_vis_data->opt_flow_res->tracking_guesses[cam_id];
+  auto guess_types = curr_vis_data->opt_flow_res->tracking_types[cam_id];
 
   std::vector<Vector2f> prev_lines;
   std::vector<Vector2f> prev_points;
@@ -255,6 +257,12 @@ void VIOUIBase::do_show_tracking_guess(size_t cam_id, size_t frame_id, const Vio
   for (auto& [kpid, kpt] : new_kpts) {
     if (prev_kpts.count(kpid) == 0) continue;
     if (guess_obs.count(kpid) == 0) continue;
+    if (tracking_type == TrackingType::KLT) {
+      if (guess_types.count(kpid) > 0 && guess_types.at(kpid) != tracking_type) continue;
+    } else {
+      if (guess_types.count(kpid) == 0) continue;
+      if (guess_types.at(kpid) != tracking_type) continue;
+    }
 
     bool show = !filter_highlights || is_selected(highlights, kpid);
     if (!show) continue;
@@ -286,12 +294,13 @@ void VIOUIBase::do_show_tracking_guess(size_t cam_id, size_t frame_id, const Vio
   glDrawCirclePerimeters(guess_points, radius);
 }
 
-void VIOUIBase::do_show_recall_guesses(size_t cam_id) {
+void VIOUIBase::do_show_recall_guesses(size_t cam_id, TrackingType tracking_type) {
   const VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
   if (curr_vis_data == nullptr) return;
 
   auto new_kpts = curr_vis_data->opt_flow_res->keypoints.at(cam_id);
   auto guess_obs = curr_vis_data->opt_flow_res->recall_guesses.at(cam_id);
+  auto guess_types = curr_vis_data->opt_flow_res->recall_guesses_types.at(cam_id);
 
   std::vector<Vector2f> guess_lines;
   std::vector<Vector2f> guess_points;
@@ -304,6 +313,13 @@ void VIOUIBase::do_show_recall_guesses(size_t cam_id) {
 
   // Draw tracked features in previous frame
   for (auto& [kpid, kpt] : guess_obs) {
+    if (tracking_type == TrackingType::KLT) {
+      if (guess_types.count(kpid) > 0 && guess_types.at(kpid) != tracking_type) continue;
+    } else {
+      if (guess_types.count(kpid) == 0) continue;
+      if (guess_types.at(kpid) != tracking_type) continue;
+    }
+
     bool show = !filter_highlights || is_selected(highlights, kpid);
     if (!show) continue;
 
@@ -323,7 +339,8 @@ void VIOUIBase::do_show_recall_guesses(size_t cam_id) {
 }
 
 void VIOUIBase::do_show_tracking_guess_vio(size_t cam_id, size_t frame_id, const VioDatasetPtr& vio_dataset,
-                                           const std::unordered_map<int64_t, VioVisualizationData::Ptr>& vis_map) {
+                                           const std::unordered_map<int64_t, VioVisualizationData::Ptr>& vis_map,
+                                           TrackingType tracking_type) {
   if (frame_id < 1) return;
 
   int64_t prev_ts = vio_dataset->get_image_timestamps().at(frame_id - 1);
@@ -331,16 +348,17 @@ void VIOUIBase::do_show_tracking_guess_vio(size_t cam_id, size_t frame_id, const
   if (prev_it == vis_map.end()) return;
   const VioVisualizationData::Ptr& prev_vis_data = prev_it->second;
 
-  do_show_tracking_guess(cam_id, frame_id, prev_vis_data);
+  do_show_tracking_guess(cam_id, frame_id, prev_vis_data, tracking_type);
 }
 
-void VIOUIBase::do_show_matching_guesses(size_t cam_id) {
+void VIOUIBase::do_show_matching_guesses(size_t cam_id, TrackingType tracking_type) {
   const VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
   if (curr_vis_data == nullptr) return;
 
   auto new_kpts = curr_vis_data->opt_flow_res->keypoints.at(cam_id);
   auto cam0_kpts = curr_vis_data->opt_flow_res->keypoints.at(0);
   auto guess_obs = curr_vis_data->opt_flow_res->matching_guesses.at(cam_id);
+  auto guess_types = curr_vis_data->opt_flow_res->matching_types.at(cam_id);
 
   std::vector<Vector2f> cam0_lines;
   std::vector<Vector2f> cam0_points;
@@ -360,6 +378,12 @@ void VIOUIBase::do_show_matching_guesses(size_t cam_id) {
   for (auto& [kpid, kpt] : new_kpts) {
     if (cam0_kpts.count(kpid) == 0) continue;
     if (guess_obs.count(kpid) == 0) continue;
+    if (tracking_type == TrackingType::KLT) {
+      if (guess_types.count(kpid) > 0 && guess_types.at(kpid) != tracking_type) continue;
+    } else {
+      if (guess_types.count(kpid) == 0) continue;
+      if (guess_types.at(kpid) != tracking_type) continue;
+    }
 
     bool show = !filter_highlights || is_selected(highlights, kpid);
     if (!show) continue;

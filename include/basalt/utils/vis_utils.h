@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/utils/sophus_utils.hpp>
 #include <string>
 #include <tuple>
+#include "basalt/optical_flow/optical_flow.h"
 
 namespace basalt::vis {
 extern pangolin::GlFont FONT;
@@ -259,9 +260,12 @@ struct VIOUIBase {
   Var<bool> show_ids{"features_menu.show_ids", false, true};
   Var<bool> show_flow{"features_menu.show_flow", false, true};
   Var<bool> show_responses{"features_menu.show_responses", false, true};
-  Var<bool> show_tracking_guess{"features_menu.show_tracking_guess", false, true};
-  Var<bool> show_matching_guess{"features_menu.show_matching_guess", false, true};
-  Var<bool> show_recall_guess{"features_menu.show_recall_guess", false, true};
+  Var<bool> show_tracking_guess_klt{"features_menu.show_tracking_guess_klt", false, true};
+  Var<bool> show_tracking_guess_orb{"features_menu.show_tracking_guess_orb", false, true};
+  Var<bool> show_matching_guess_klt{"features_menu.show_matching_guess_klt", false, true};
+  Var<bool> show_matching_guess_orb{"features_menu.show_matching_guess_orb", false, true};
+  Var<bool> show_recall_guess_klt{"features_menu.show_recall_guess_klt", false, true};
+  Var<bool> show_recall_guess_orb{"features_menu.show_recall_guess_orb", false, true};
   Var<bool> show_obs{"features_menu.show_obs", true, true};
   Var<bool> show_depth{"features_menu.show_depth", false, true};
 
@@ -330,11 +334,13 @@ struct VIOUIBase {
   bool reset_state();
   void do_show_flow(size_t cam_id);
   void do_show_highlights(size_t cam_id);
-  void do_show_tracking_guess(size_t cam_id, size_t frame_id, const VioVisualizationData::Ptr& prev_vis_data);
+  void do_show_tracking_guess(size_t cam_id, size_t frame_id, const VioVisualizationData::Ptr& prev_vis_data,
+                              TrackingType tracking_type);
   void do_show_tracking_guess_vio(size_t cam_id, size_t frame_id, const VioDatasetPtr& vio_dataset,
-                                  const std::unordered_map<int64_t, VioVisualizationData::Ptr>& vis_map);
-  void do_show_recall_guesses(size_t cam_id);
-  void do_show_matching_guesses(size_t cam_id);
+                                  const std::unordered_map<int64_t, VioVisualizationData::Ptr>& vis_map,
+                                  TrackingType tracking_type);
+  void do_show_recall_guesses(size_t cam_id, TrackingType tracking_type);
+  void do_show_matching_guesses(size_t cam_id, TrackingType tracking_type);
   void do_show_masks(size_t cam_id);
   void do_show_cam0_proj(size_t cam_id, double depth_guess);
   void do_show_grid();
