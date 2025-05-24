@@ -205,8 +205,10 @@ inline Colour C_AMBER_DARK() { return {255 / 255.0, 111 / 255.0, 0 / 255.0}; }
 
 inline Colour C_BLUEGREY_LIGHT() { return {236 / 255.0, 239 / 255.0, 241 / 255.0}; }
 inline Colour C_RED_LIGHT() { return {255 / 255.0, 235 / 255.0, 238 / 255.0}; }
+inline Colour C_PINK_LIGHT() { return {252 / 255.0, 228 / 255.0, 236 / 255.0}; }
 inline Colour C_BLUE_LIGHT() { return {227 / 255.0, 242 / 255.0, 253 / 255.0}; }
 inline Colour C_GREEN_LIGHT() { return {232 / 255.0, 245 / 255.0, 233 / 255.0}; }
+inline Colour C_AMBER_LIGHT() { return {255 / 255.0, 248 / 255.0, 225 / 255.0}; }
 
 struct SelectionNode {
   bool is_range;

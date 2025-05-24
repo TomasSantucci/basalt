@@ -46,12 +46,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/utils/time_utils.hpp>
 
 #include <basalt/linearization/linearization_base.hpp>
+#include <memory>
 
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
 #include <tbb/parallel_reduce.h>
-
-#include <chrono>
 
 namespace basalt {
 
@@ -309,8 +308,8 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
 
         auto last_state = frame_states.at(last_state_t_ns);
 
-        meas.reset(new IntegratedImuMeasurement<Scalar>(prev_frame->t_ns, last_state.getState().bias_gyro,
-                                                        last_state.getState().bias_accel));
+        meas = std::make_shared<IntegratedImuMeasurement<Scalar>>(prev_frame->t_ns, last_state.getState().bias_gyro,
+                                                                  last_state.getState().bias_accel);
 
         BASALT_ASSERT_MSG(prev_frame->t_ns != curr_frame->t_ns,
                           "duplicate frame timestamps?! zero time delta leads "
@@ -370,7 +369,7 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
     std::cout << "Finished VIOFilter " << std::endl;
   };
 
-  processing_thread.reset(new std::thread(proc_func));
+  processing_thread = std::make_shared<std::thread>(proc_func);
 }
 
 template <class Scalar_>
@@ -515,8 +514,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
 
         // triangulate
         bool valid_kp = false;
-        const Scalar min_triang_distance2 =
-            Scalar(config.vio_min_triangulation_dist * config.vio_min_triangulation_dist);
+        const Scalar min_triang_distance2 = config.vio_min_triangulation_dist * config.vio_min_triangulation_dist;
         for (const auto& kv_obs : kp_obs) {
           if (valid_kp) break;
           TimeCamId tcido = kv_obs.first;
@@ -570,8 +568,8 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
   if (config.vio_marg_lost_landmarks) {
     for (const auto& kv : lmdb.getLandmarks()) {
       bool connected = false;
-      for (size_t i = 0; i < opt_flow_meas->keypoints.size(); i++) {
-        if (opt_flow_meas->keypoints[i].count(kv.first) > 0) connected = true;
+      for (auto& keypoint : opt_flow_meas->keypoints) {
+        if (keypoint.count(kv.first) > 0) connected = true;
       }
       if (!connected) {
         lost_landmaks.emplace(kv.first);
@@ -1410,8 +1408,8 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
 
           if (config.vio_fix_long_term_keyframes) {
             for (const int64_t& ts : ltkfs) {
-              if (aom.abs_order_map.count(ts) < 0) {
-                printf("UNEXPECTED: ltkf ts=%ld not in aom\n", ts);
+              if (aom.abs_order_map.count(ts) == 0) {
+                std::cerr << "[UNEXPECTED] ltkfs ts=" << ts << " not in aom" << std::endl;
                 continue;
               }
               const auto& [idx, size] = aom.abs_order_map.at(ts);

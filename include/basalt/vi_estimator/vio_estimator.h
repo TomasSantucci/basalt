@@ -155,10 +155,15 @@ class VioEstimatorFactory {
 double alignSVD(const std::vector<int64_t>& filter_t_ns, const Eigen::aligned_vector<Eigen::Vector3d>& filter_t_w_i,
                 const std::vector<int64_t>& gt_t_ns, Eigen::aligned_vector<Eigen::Vector3d>& gt_t_w_i);
 
-int associate(const std::vector<int64_t>& filter_t_ns, const Eigen::aligned_vector<Eigen::Vector3d>& filter_t_w_i,
-              const std::vector<int64_t>& gt_t_ns, const Eigen::aligned_vector<Eigen::Vector3d>& gt_t_w_i,
-              Eigen::Matrix<int64_t, Eigen::Dynamic, 1>& out_ts, Eigen::Matrix<float, 3, Eigen::Dynamic>& out_est_xyz,
-              Eigen::Matrix<float, 3, Eigen::Dynamic>& out_ref_xyz);
+int associate(const std::vector<int64_t>& filter_t_ns,                  //
+              const Eigen::aligned_vector<Sophus::SE3d>& filter_T_w_i,  //
+              const std::vector<int64_t>& gt_t_ns,                      //
+              const Eigen::aligned_vector<Sophus::SE3d>& gt_T_w_i,      //
+              Eigen::Matrix<int64_t, Eigen::Dynamic, 1>& out_ts,        //
+              Eigen::Matrix<float, 3, Eigen::Dynamic>& out_est_xyz,
+              Eigen::Matrix<float, 3, Eigen::Dynamic>& out_ref_xyz,
+              Eigen::Matrix<float, 4, Eigen::Dynamic>& out_est_quat,
+              Eigen::Matrix<float, 4, Eigen::Dynamic>& out_ref_quat);
 
 Eigen::Matrix4f get_alignment(const Eigen::Ref<const Eigen::Matrix<float, 3, Eigen::Dynamic>>& est_xyz,
                               const Eigen::Ref<const Eigen::Matrix<float, 3, Eigen::Dynamic>>& ref_xyz,  //
@@ -168,4 +173,14 @@ float compute_ate(const Eigen::Ref<const Eigen::Matrix<float, 3, Eigen::Dynamic>
                   const Eigen::Ref<const Eigen::Matrix<float, 3, Eigen::Dynamic>>& ref_xyz,  //
                   const Eigen::Ref<Eigen::Matrix4f>& T_ref_est_mat,                          //
                   int i, int j);
+
+float compute_rte(const Eigen::Ref<const Eigen::Matrix<int64_t, Eigen::Dynamic, 1>>& est_ts,  //
+                  const Eigen::Ref<const Eigen::Matrix<float, 3, Eigen::Dynamic>>& est_xyz,   //
+                  const Eigen::Ref<const Eigen::Matrix<float, 4, Eigen::Dynamic>>& est_quat,  //
+                  const Eigen::Ref<const Eigen::Matrix<float, 3, Eigen::Dynamic>>& ref_xyz,   //
+                  const Eigen::Ref<const Eigen::Matrix<float, 4, Eigen::Dynamic>>& ref_quat,  //
+                  Eigen::Matrix<int64_t, Eigen::Dynamic, 1>& out_ts,                          //
+                  Eigen::Matrix<float, Eigen::Dynamic, 1>& out_residuals,                     //
+                  int i, int j, int delta = 6);
+
 }  // namespace basalt

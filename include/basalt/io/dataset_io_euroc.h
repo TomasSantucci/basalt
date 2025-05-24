@@ -35,6 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef DATASET_IO_EUROC_H
 #define DATASET_IO_EUROC_H
 
+#include <memory>
+
 #include <basalt/io/dataset_io.h>
 #include <basalt/utils/filesystem.h>
 
@@ -66,65 +68,64 @@ class EurocVioDataset : public VioDataset {
   std::vector<std::unordered_map<int64_t, double>> exposure_times;
 
  public:
-  ~EurocVioDataset(){};
+  ~EurocVioDataset() override = default;
 
-  size_t get_num_cams() const { return num_cams; }
+  size_t get_num_cams() const override { return num_cams; }
 
-  std::vector<int64_t> &get_image_timestamps() { return image_timestamps; }
+  std::vector<int64_t> &get_image_timestamps() override { return image_timestamps; }
 
-  const Eigen::aligned_vector<AccelData> &get_accel_data() const { return accel_data; }
-  const Eigen::aligned_vector<GyroData> &get_gyro_data() const { return gyro_data; }
-  const std::vector<int64_t> &get_gt_timestamps() const { return gt_timestamps; }
-  const Eigen::aligned_vector<Sophus::SE3d> &get_gt_pose_data() const { return gt_pose_data; }
+  const Eigen::aligned_vector<AccelData> &get_accel_data() const override { return accel_data; }
+  const Eigen::aligned_vector<GyroData> &get_gyro_data() const override { return gyro_data; }
+  const std::vector<int64_t> &get_gt_timestamps() const override { return gt_timestamps; }
+  const Eigen::aligned_vector<Sophus::SE3d> &get_gt_pose_data() const override { return gt_pose_data; }
 
-  int64_t get_mocap_to_imu_offset_ns() const { return mocap_to_imu_offset_ns; }
+  int64_t get_mocap_to_imu_offset_ns() const override { return mocap_to_imu_offset_ns; }
 
-  std::vector<ImageData> get_image_data(int64_t t_ns) {
+  std::vector<ImageData> get_image_data(int64_t t_ns) override {
     std::vector<ImageData> res(num_cams);
 
     for (size_t i = 0; i < num_cams; i++) {
       std::string full_image_path = path + "/mav0/cam" + std::to_string(i) + "/data/" + image_path[t_ns];
+      if (!fs::exists(full_image_path)) return {};
 
-      if (fs::exists(full_image_path)) {
-        cv::Mat img = cv::imread(full_image_path, cv::IMREAD_UNCHANGED);
+      cv::Mat img = cv::imread(full_image_path, cv::IMREAD_UNCHANGED);
 
-        if (img.type() == CV_8UC1) {
-          res[i].img.reset(new ManagedImage<uint16_t>(img.cols, img.rows));
+      if (img.type() == CV_8UC1) {
+        res[i].img = std::make_shared<ManagedImage<uint16_t>>(img.cols, img.rows);
 
-          const uint8_t *data_in = img.ptr();
-          uint16_t *data_out = res[i].img->ptr;
+        const uint8_t *data_in = img.ptr();
+        uint16_t *data_out = res[i].img->ptr;
 
-          size_t full_size = img.cols * img.rows;
-          for (size_t i = 0; i < full_size; i++) {
-            int val = data_in[i];
-            val = val << 8;
-            data_out[i] = val;
-          }
-        } else if (img.type() == CV_8UC3) {
-          res[i].img.reset(new ManagedImage<uint16_t>(img.cols, img.rows));
-
-          const uint8_t *data_in = img.ptr();
-          uint16_t *data_out = res[i].img->ptr;
-
-          size_t full_size = img.cols * img.rows;
-          for (size_t i = 0; i < full_size; i++) {
-            int val = data_in[i * 3];
-            val = val << 8;
-            data_out[i] = val;
-          }
-        } else if (img.type() == CV_16UC1) {
-          res[i].img.reset(new ManagedImage<uint16_t>(img.cols, img.rows));
-          std::memcpy(res[i].img->ptr, img.ptr(), img.cols * img.rows * sizeof(uint16_t));
-
-        } else {
-          std::cerr << "img.fmt.bpp " << img.type() << std::endl;
-          std::abort();
+        size_t full_size = long(img.cols) * img.rows;
+        for (size_t i = 0; i < full_size; i++) {
+          unsigned val = data_in[i];
+          val = val << 8;
+          data_out[i] = val;
         }
+      } else if (img.type() == CV_8UC3) {
+        res[i].img = std::make_shared<ManagedImage<uint16_t>>(img.cols, img.rows);
 
-        auto exp_it = exposure_times[i].find(t_ns);
-        if (exp_it != exposure_times[i].end()) {
-          res[i].exposure = exp_it->second;
+        const uint8_t *data_in = img.ptr();
+        uint16_t *data_out = res[i].img->ptr;
+
+        size_t full_size = long(img.cols) * img.rows;
+        for (size_t i = 0; i < full_size; i++) {
+          unsigned val = data_in[i * 3];
+          val = val << 8;
+          data_out[i] = val;
         }
+      } else if (img.type() == CV_16UC1) {
+        res[i].img = std::make_shared<ManagedImage<uint16_t>>(img.cols, img.rows);
+        std::memcpy(res[i].img->ptr, img.ptr(), long(img.cols) * img.rows * sizeof(uint16_t));
+
+      } else {
+        std::cerr << "img.fmt.bpp " << img.type() << std::endl;
+        std::abort();
+      }
+
+      auto exp_it = exposure_times[i].find(t_ns);
+      if (exp_it != exposure_times[i].end()) {
+        res[i].exposure = exp_it->second;
       }
     }
 
@@ -140,10 +141,10 @@ class EurocIO : public DatasetIoInterface {
  public:
   EurocIO(bool load_mocap_as_gt) : load_mocap_as_gt(load_mocap_as_gt) {}
 
-  void read(const std::string &path) {
+  void read(const std::string &path) override {
     if (!fs::exists(path)) std::cerr << "No dataset found in " << path << std::endl;
 
-    data.reset(new EurocVioDataset);
+    data = std::make_shared<EurocVioDataset>();
 
     // Detect camera count
     int i = 0;
@@ -169,16 +170,18 @@ class EurocIO : public DatasetIoInterface {
     data->exposure_times.resize(data->num_cams);
     for (size_t i = 0; i < data->num_cams; i++) {
       std::string istr = std::to_string(i);
-      if (fs::exists(path + "/mav0/cam" + istr + "/exposure.csv")) {
+      std::string cam_dir = path;
+      cam_dir.append("/mav0/cam").append(istr).append("/");
+      if (fs::exists(cam_dir + "exposure.csv")) {
         std::cout << "Loading exposure times for cam" << istr << std::endl;
-        read_exposure(path + "/mav0/cam" + istr + "/", data->exposure_times[i]);
+        read_exposure(cam_dir, data->exposure_times[i]);
       }
     }
   }
 
-  void reset() { data.reset(); }
+  void reset() override { data.reset(); }
 
-  VioDatasetPtr get_data() { return data; }
+  VioDatasetPtr get_data() override { return data; }
 
  private:
   void read_exposure(const std::string &path, std::unordered_map<int64_t, double> &exposure_data) {

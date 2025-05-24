@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <sophus/se3.hpp>
 
+#include <Eigen/src/Core/Matrix.h>
 #include <tbb/concurrent_unordered_map.h>
 #include <tbb/global_control.h>
 
@@ -85,6 +86,7 @@ using pangolin::META_FLAG_READONLY;
 using pangolin::Plotter;
 using pangolin::Var;
 using pangolin::View;
+using Sophus::SE3f;
 using std::make_shared;
 using std::shared_ptr;
 using std::string;
@@ -96,7 +98,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   VioDatasetPtr vio_dataset;
   int64_t start_t_ns = -1;
 
-  DataLog imu_data_log, vio_data_log, error_data_log;
+  DataLog imu_data_log, vio_data_log, ate_data_log, rte_data_log;
   shared_ptr<Plotter> plotter;
 
   pangolin::OpenGlRenderState camera;
@@ -110,6 +112,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
   std::vector<int64_t> gt_t_ns;
   Eigen::aligned_vector<Eigen::Vector3d> gt_t_w_i;
+  Eigen::aligned_vector<Sophus::SE3d> gt_T_w_i;
 
   std::string marg_data_path;
   size_t last_frame_processed = 0;
@@ -135,6 +138,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   thread feed_images_thread;
   thread feed_imu_thread;
   thread vis_thread;
+  thread ui_thread;
   thread state_consumer_thread;
   thread queues_printer_thread;
 
@@ -148,13 +152,15 @@ struct basalt_vio_ui : vis::VIOUIBase {
   Var<bool> save_groundtruth{"trajectory_menu.save_groundtruth", false, true};
   Button save_traj_btn{"trajectory_menu.save_traj", [this]() { saveTrajectoryButton(); }};
 
-  Button compute_frames_ate_btn{"curves_menu.compute_frames_ate", [this]() { compute_frames_ate(); }};
+  Button compute_frames_error_btn{"curves_menu.compute_frames_error", [this]() { compute_frames_error(); }};
+  Var<int> rte_delta{"curves_menu.rte_delta", 6, 1, 30};
   Var<bool> show_frames_ate{"curves_menu.show_frames_ate", false, true};
+  Var<bool> show_frames_rte{"curves_menu.show_frames_rte", false, true};
 
   Button next_step_btn{"ui.next_step", [this]() { next_step(); }};
   Button prev_step_btn{"ui.prev_step", [this]() { prev_step(); }};
 
-  Var<bool> continue_btn{"ui.continue", false, true};
+  Var<bool> continue_btn{"ui.continue", true, true};
   Var<bool> continue_fast{"ui.continue_fast", true, true};
 
   struct OfflineVIOImageView : vis::VIOImageView {
@@ -254,6 +260,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
       for (size_t i = 0; i < vio_dataset->get_gt_pose_data().size(); i++) {
         gt_t_ns.push_back(vio_dataset->get_gt_timestamps()[i]);
         gt_t_w_i.push_back(vio_dataset->get_gt_pose_data()[i].translation());
+        gt_T_w_i.push_back(vio_dataset->get_gt_pose_data()[i]);
       }
     }
 
@@ -292,6 +299,10 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
     vio_data_log.Clear();
 
+    if (step_by_step) {
+      continue_btn = false;  // Disable automatically feeding next frame
+      continue_fast = true;  // Move to the latest computed frame automatically
+    }
     feed_images_thread = thread([this]() { feed_images(); });
     feed_imu_thread = thread([this]() { feed_imu(); });
 
@@ -498,7 +509,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
         }
 
         if (show_est_vel.GuiChanged() || show_est_pos.GuiChanged() || show_est_ba.GuiChanged() ||
-            show_est_bg.GuiChanged() || show_frames_ate.GuiChanged()) {
+            show_est_bg.GuiChanged() || show_frames_ate.GuiChanged() || show_frames_rte.GuiChanged()) {
           draw_plots();
         }
 
@@ -562,9 +573,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
         pangolin::FinishFrame();
 
         if (continue_btn) {
-          if (!next_step()) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+          if (!next_step()) std::this_thread::sleep_for(std::chrono::milliseconds(16));
         } else {
-          std::this_thread::sleep_for(std::chrono::milliseconds(50));
+          std::this_thread::sleep_for(std::chrono::milliseconds(16));
         }
 
         if (continue_fast) {
@@ -575,6 +586,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
           }
 
           if (vio->finished) {
+            continue_btn = false;
             continue_fast = false;
           }
         }
@@ -711,10 +723,19 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
       img->t_ns = vio_dataset->get_image_timestamps()[i];
       img->img_data = vio_dataset->get_image_data(img->t_ns);
+      if (img->img_data.size() != size_t(NUM_CAMS)) {
+        std::cout << "Skipping incomplete frameset for timestamp " << img->t_ns << std::endl;
+        continue;
+      }
 
       timestamp_to_id[img->t_ns] = i;
 
       opt_flow->input_img_queue.push(img);
+      if (i % 50 == 0) {
+        size_t frame_count = vio_dataset->get_image_timestamps().size();
+        float completion = 100.0 * i / frame_count;
+        std::cout << "[{:.2f}%] Input image {}/{}\t\r"_format(completion, i, frame_count) << std::flush;
+      }
 
       if (deterministic) pop_state();  // Wait for the state to be produced
     }
@@ -905,8 +926,15 @@ struct basalt_vio_ui : vis::VIOUIBase {
     }
 
     if (show_frames_ate) {
-      plotter->AddSeries("$0", "$1", pangolin::DrawingModeLine, vis::C_AMBER(), "ATE [cm]", &error_data_log);
-      plotter->AddSeries("$0", "$2", pangolin::DrawingModeLine, vis::C_PINK(), "ATE diffs [mm]", &error_data_log);
+      plotter->AddSeries("$0", "$1", pangolin::DrawingModeLine, vis::C_PINK_DARK(), "ATE [10µm]", &ate_data_log);
+      plotter->AddSeries("$0", "$2", pangolin::DrawingModeLine, vis::C_PINK(), "ATE diffs [µm]", &ate_data_log);
+    }
+
+    if (show_frames_rte) {
+      plotter->AddSeries("$0", "$1", pangolin::DrawingModeLine, vis::C_AMBER_DARK(), "RTE [10µm]", &rte_data_log);
+      plotter->AddSeries("$0", "$2", pangolin::DrawingModeLine, vis::C_AMBER(), "RTE diffs [µm]", &rte_data_log);
+      plotter->AddSeries("$0", "$3", pangolin::DrawingModeLine, vis::C_AMBER_LIGHT(), "RTE residuals [µm]",
+                         &rte_data_log);
     }
 
     double t = (vio_dataset->get_image_timestamps()[show_frame] - start_t_ns) * 1e-9;
@@ -915,39 +943,64 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
   void alignButton() { basalt::alignSVD(vio_t_ns, vio_t_w_i, gt_t_ns, gt_t_w_i); }
 
-  void compute_frames_ate() {
-    Eigen::Matrix<int64_t, Eigen::Dynamic, 1> ts{};
+  void compute_frames_error() {
+    Eigen::Matrix<int64_t, Eigen::Dynamic, 1> est_ts{};
     Eigen::Matrix<float, 3, Eigen::Dynamic> est_xyz{};
     Eigen::Matrix<float, 3, Eigen::Dynamic> ref_xyz{};
-    int num_assocs = associate(vio_t_ns, vio_t_w_i, gt_t_ns, gt_t_w_i, ts, est_xyz, ref_xyz);
+    Eigen::Matrix<float, 4, Eigen::Dynamic> est_quat{};
+    Eigen::Matrix<float, 4, Eigen::Dynamic> ref_quat{};
 
-    error_data_log.Clear();
-    constexpr int SAMPLE_POINTS = 10000;
+    // Compute estimate-gt associations
+    int num_assocs = associate(vio_t_ns, vio_T_w_i, gt_t_ns, gt_T_w_i, est_ts, est_xyz, ref_xyz, est_quat, ref_quat);
+
+    // Compute ATE
+
+    ate_data_log.Clear();
+    constexpr int SAMPLE_POINTS = 10000;  // Maximum points to plot
+    if (num_assocs > SAMPLE_POINTS)
+      std::cout << "To many frames (" << num_assocs << "), sampling only " << SAMPLE_POINTS << std::endl;
+
     int sample_points = std::min(SAMPLE_POINTS, num_assocs);
     int step = num_assocs / sample_points;
 
-    float prev_err = 0;
-    for (int i = 1; i < num_assocs; i += step) {
-      Eigen::Matrix4f T_ref_est = get_alignment(est_xyz, ref_xyz, 0, i);
-      float error = compute_ate(est_xyz, ref_xyz, T_ref_est, 0, i);
-      error_data_log.Log({float((ts(i - 1) - start_t_ns) * 1e-9), error * 1e3f, (error - prev_err) * 1e6f});
-      prev_err = error;
+    float final_ate = 0;
+    Eigen::Matrix4f T_ref_est{};
+    ate_data_log.Log({0, 0, 0});
+    for (int i = 1; i <= num_assocs; i += step) {
+      T_ref_est = get_alignment(est_xyz, ref_xyz, 0, i);
+      float ate = compute_ate(est_xyz, ref_xyz, T_ref_est, 0, i);
+      ate_data_log.Log({float((est_ts(i - 1) - start_t_ns) * 1e-9), ate * 1e5f, (ate - final_ate) * 1e6f});
+      final_ate = ate;
     }
 
-    // Ensure last frame error is computed and logged
-    int i = num_assocs;
-    Eigen::Matrix4f T_ref_est = get_alignment(est_xyz, ref_xyz, 0, i);
-    float error = compute_ate(est_xyz, ref_xyz, T_ref_est, 0, i);
-    error_data_log.Log({float((ts(i - 1) - start_t_ns) * 1e-9), error * 1e3f, (error - prev_err) * 1e6f});
-    prev_err = error;
+    // Compute RTE
 
-    std::cout << "[Final ATE]\n";
+    rte_data_log.Clear();
+    Eigen::Matrix<int64_t, Eigen::Dynamic, 1> rte_ts{};
+    Eigen::Matrix<float, Eigen::Dynamic, 1> rte_residuals{};
+    compute_rte(est_ts, est_xyz, est_quat, ref_xyz, ref_quat, rte_ts, rte_residuals, 0, num_assocs, rte_delta);
+
+    float sqres_sum = 0;
+    float final_rte = 0;
+    rte_data_log.Log({0, 0, 0, 0});
+    for (int i = 1; i < rte_residuals.rows(); i++) {
+      float residual = rte_residuals(i);
+      sqres_sum += residual * residual;
+      float rte = std::sqrt(sqres_sum / i);
+      rte_data_log.Log({float((rte_ts(i) - start_t_ns) * 1e-9), rte * 1e5f, (rte - final_rte) * 1e6f, residual * 1e6f});
+      final_rte = rte;
+    }
+
+    std::cout << "[Errors]\n";
+    std::cout << "ATE " << final_ate << std::endl;
+    std::cout << "RTE " << final_rte << std::endl;
     std::cout << "T_align\n" << T_ref_est.matrix() << std::endl;
-    std::cout << "error " << error << std::endl;
     std::cout << "number of associations " << num_assocs << std::endl;
 
     show_frames_ate = true;
     show_frames_ate.Meta().gui_changed = true;
+    show_frames_rte = true;
+    show_frames_rte.Meta().gui_changed = true;
   }
 
   void saveTrajectoryButton() {

@@ -98,4 +98,4 @@ unzip MOO09_short_1_updown.zip
 
 ## Development
 
-If you want to set up your build environment for developing and iterating on Basalt, see the [development guide](doc/monado/Development.md).
+If you want to set up your build environment for developing and iterating on Basalt, see the [development guide](doc/Development.md).

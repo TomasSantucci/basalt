@@ -7,6 +7,7 @@ build*/
 scripts/eval/eval_*
 scripts/eval_full/eval_*
 stats_*.*json
+*.csv
 __pycache__
 CMakeUserPresets.json
 clangd
