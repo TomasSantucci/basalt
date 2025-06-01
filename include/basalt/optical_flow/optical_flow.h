@@ -60,7 +60,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace basalt {
 
-enum class TrackingType : std::uint8_t {
+enum class TrackingAlgorithm : std::uint8_t {
   KLT,
   ORB,
 };
@@ -68,7 +68,7 @@ enum class TrackingType : std::uint8_t {
 using Keypoint = Eigen::AffineCompact2f;
 using KeypointId = size_t;
 using Keypoints = Eigen::aligned_map<KeypointId, Keypoint>;
-using TrackingTypes = Eigen::aligned_map<KeypointId, TrackingType>;
+using TrackingAlgorithms = Eigen::aligned_map<KeypointId, TrackingAlgorithm>;
 using KeypointLevels = std::map<KeypointId, size_t>;
 using KeypointResponses = std::map<KeypointId, float>;
 using LandmarkId = KeypointId;
@@ -111,11 +111,11 @@ struct OpticalFlowResult {
   int64_t t_ns;
   std::vector<Keypoints> keypoints;
   std::vector<Keypoints> tracking_guesses;
-  std::vector<TrackingTypes> tracking_types;
+  std::vector<TrackingAlgorithms> tracking_algorithms;
   std::vector<Keypoints> matching_guesses;
-  std::vector<TrackingTypes> matching_types;
+  std::vector<TrackingAlgorithms> matching_types;
   std::vector<Keypoints> recall_guesses;
-  std::vector<TrackingTypes> recall_guesses_types;
+  std::vector<TrackingAlgorithms> recall_guesses_types;
 
   std::vector<KeypointLevels> pyramid_levels;
   std::vector<KeypointResponses> keypoint_responses;

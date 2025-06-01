@@ -236,6 +236,27 @@ void load_minimal(const Archive& ar, basalt::OrbDetectionType& orb_detection_typ
 }
 
 template <class Archive>
+std::string save_minimal(const Archive& ar, const basalt::TrackingType& tracking_type) {
+  UNUSED(ar);
+  auto name = magic_enum::enum_name(tracking_type);
+  return std::string(name);
+}
+
+template <class Archive>
+void load_minimal(const Archive& ar, basalt::TrackingType& tracking_type, const std::string& name) {
+  UNUSED(ar);
+
+  auto tracking_type_enum = magic_enum::enum_cast<basalt::TrackingType>(name);
+
+  if (tracking_type_enum.has_value()) {
+    tracking_type = tracking_type_enum.value();
+  } else {
+    std::cerr << "Could not find the TrackingType for " << name << std::endl;
+    std::abort();
+  }
+}
+
+template <class Archive>
 void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.optical_flow_type));
   ar(CEREAL_NVP(config.optical_flow_detection_grid_size));
@@ -249,6 +270,8 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.optical_flow_epipolar_error));
   ar(CEREAL_NVP(config.optical_flow_levels));
   ar(CEREAL_NVP(config.optical_flow_skip_frames));
+  ar(CEREAL_NVP(config.optical_flow_window_size));
+  ar(CEREAL_NVP(config.optical_flow_tracking_type));
   ar(CEREAL_NVP(config.optical_flow_matching_guess_type));
   ar(CEREAL_NVP(config.optical_flow_matching_default_depth));
   ar(CEREAL_NVP(config.optical_flow_image_safe_radius));
@@ -259,9 +282,6 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.optical_flow_recall_update_patch_viewpoint));
   ar(CEREAL_NVP(config.optical_flow_recall_max_patch_dist));
   ar(CEREAL_NVP(config.optical_flow_recall_max_patch_norms));
-  ar(CEREAL_NVP(config.optical_flow_track_klt));
-  ar(CEREAL_NVP(config.optical_flow_track_orb));
-  ar(CEREAL_NVP(config.optical_flow_orb_max_level));
   ar(CEREAL_NVP(config.optical_flow_orb_window_size));
   ar(CEREAL_NVP(config.optical_flow_orb_second_best_test_ratio));
   ar(CEREAL_NVP(config.optical_flow_orb_max_hamming_distance));

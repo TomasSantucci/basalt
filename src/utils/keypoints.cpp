@@ -167,7 +167,7 @@ void detectKeypointsFAST(const basalt::Image<const uint16_t>& img_raw, Keypoints
   kd.corners.clear();
 
   cv::Mat subImg(img_raw.h, img_raw.w, CV_8U);
-  for (size_t y = 0; y < img_raw.w; y++) {
+  for (size_t y = 0; y < img_raw.h; y++) {
     uchar* sub_ptr = subImg.ptr(y);
     for (size_t x = 0; x < img_raw.w; x++) {
       sub_ptr[x] = (img_raw(x, y) >> 8);
@@ -180,13 +180,14 @@ void detectKeypointsFAST(const basalt::Image<const uint16_t>& img_raw, Keypoints
   for (size_t i = 0; i < points.size(); ++i) {
     const cv::KeyPoint& point = points[i];
     kd.corners.emplace_back(point.pt.x, point.pt.y);
+    kd.corner_responses.emplace_back(point.response);
   }
 }
 
 void detectKeypointsGFTT(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd, int num_features,
                          double quality_level, double min_distance) {
   cv::Mat image(img_raw.h, img_raw.w, CV_8U);
-  for (size_t y = 0; y < img_raw.w; y++) {
+  for (size_t y = 0; y < img_raw.h; y++) {
     uchar* sub_ptr = image.ptr(y);
     for (size_t x = 0; x < img_raw.w; x++) {
       sub_ptr[x] = (img_raw(x, y) >> 8);

@@ -337,12 +337,12 @@ struct VIOUIBase {
   void do_show_flow(size_t cam_id);
   void do_show_highlights(size_t cam_id);
   void do_show_tracking_guess(size_t cam_id, size_t frame_id, const VioVisualizationData::Ptr& prev_vis_data,
-                              TrackingType tracking_type);
+                              TrackingAlgorithm tracking_type, std::set<KeypointId>& kpids, int prev_number);
   void do_show_tracking_guess_vio(size_t cam_id, size_t frame_id, const VioDatasetPtr& vio_dataset,
                                   const std::unordered_map<int64_t, VioVisualizationData::Ptr>& vis_map,
-                                  TrackingType tracking_type);
-  void do_show_recall_guesses(size_t cam_id, TrackingType tracking_type);
-  void do_show_matching_guesses(size_t cam_id, TrackingType tracking_type);
+                                  TrackingAlgorithm tracking_type);
+  void do_show_recall_guesses(size_t cam_id, TrackingAlgorithm tracking_type);
+  void do_show_matching_guesses(size_t cam_id, TrackingAlgorithm tracking_type);
   void do_show_masks(size_t cam_id);
   void do_show_cam0_proj(size_t cam_id, double depth_guess);
   void do_show_grid();

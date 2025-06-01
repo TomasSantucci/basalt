@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace basalt {
 
+enum class TrackingType { KLT_FB_ORB, KLT, KLT_FB_ORB_PRIOR, KLT_ORB_PRIOR };
 enum class OrbDetectionType { FAST, GFTT };
 enum class LinearizationType { ABS_QR, ABS_SC, REL_SC };
 enum class MatchingGuessType { SAME_PIXEL, REPROJ_FIX_DEPTH, REPROJ_AVG_DEPTH };
@@ -61,6 +62,8 @@ struct VioConfig {
   int optical_flow_levels;
   float optical_flow_epipolar_error;
   int optical_flow_skip_frames;
+  int optical_flow_window_size;
+  TrackingType optical_flow_tracking_type;
   MatchingGuessType optical_flow_matching_guess_type;
   float optical_flow_matching_default_depth;
   float optical_flow_image_safe_radius;                    // Use to mask black corners in cameras
