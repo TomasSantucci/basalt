@@ -282,7 +282,6 @@ void VIOUIBase::do_show_tracking_guess(size_t cam_id, size_t frame_id, const Vio
 
   float radius = 3.0F;
 
-  size_t count_features = 0;
   // Draw tracked features in previous frame
   for (auto& [kpid, kpt] : new_kpts) {
     if (kpids.count(kpid)) continue;
@@ -296,7 +295,6 @@ void VIOUIBase::do_show_tracking_guess(size_t cam_id, size_t frame_id, const Vio
     }
 
     kpids.insert(kpid);
-    count_features++;
     bool show = !filter_highlights || is_selected(highlights, kpid);
     if (!show) continue;
 
