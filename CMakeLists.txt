@@ -56,7 +56,7 @@ string(REGEX MATCH "#define VIT_HEADER_VERSION_PATCH ([0-9]+)" _ ${VIT_INTERFACE
 set(VIT_VERSION_PATCH ${CMAKE_MATCH_1})
 
 set(CPACK_GENERATOR "DEB")
-set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Mateo de Mayo <mateo.demayo@collabora.com>")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Mateo de Mayo <mateo.demayo@tum.de>")
 set(CPACK_PACKAGE_VERSION_MAJOR ${VIT_VERSION_MAJOR})
 set(CPACK_PACKAGE_VERSION_MINOR ${VIT_VERSION_MINOR})
 set(CPACK_PACKAGE_VERSION_PATCH "${VIT_VERSION_PATCH}-${PROJECT_VERSION_REVISION}~${LSB_RELEASE_ID_SHORT}")
@@ -242,8 +242,8 @@ if(BASALT_BUILD_SHARED_LIBRARY_ONLY)
   if(NOT DEFINED BASALT_INSTANTIATIONS_DOUBLE)
     set(BASALT_INSTANTIATIONS_DOUBLE OFF)
   endif()
-  if(NOT DEFINED BUILD_TESTS)
-    set(BUILD_TESTS OFF)
+  if(NOT DEFINED BASALT_BUILD_TESTS)
+    set(BASALT_BUILD_TESTS OFF)
   endif()
 endif()
 
@@ -574,7 +574,7 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/basalt.pc DESTINATION ${CMAKE_INSTALL_
 macro(install)
 
 endmacro()
-if(BUILD_TESTS)
+if(BASALT_BUILD_TESTS)
   # Include subproject (or any other CMake code) with "disabled" install().
   enable_testing()
   add_subdirectory(thirdparty/basalt-headers/test)

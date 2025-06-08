@@ -79,6 +79,11 @@ struct Landmark {
     inv_dist = backup_inv_dist;
   }
 
+  friend std::ostream& operator<<(std::ostream& os, const Landmark& lm) {
+    os << "Landmark(id=" << lm.id << ", host_kf_id=" << lm.host_kf_id << ")";
+    return os;
+  }
+
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
  private:

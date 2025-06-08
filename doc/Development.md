@@ -68,13 +68,17 @@ you need to debug. Then press F5 to debug.
     {
       "type": "cppdbg",
       "request": "launch",
-      "name": "Debug calibration binary",
+      "name": "Debug basalt_vio",
       "program": "${workspaceFolder}/build/basalt_vio",
       "args": [
+        "--dataset-type",
+        "euroc",
         "--dataset-path",
         "MOO09_short_down/",
         "--config-path",
-        "data/config.json"
+        "data/msd/msdmo_config.json"
+        "--cam-calib",
+        "data/msd/msdmo_calib.json"
       ],
       "cwd": "${workspaceFolder}"
     },

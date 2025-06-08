@@ -102,7 +102,7 @@ SqrtKeypointVioEstimator<Scalar_>::SqrtKeypointVioEstimator(const Eigen::Vector3
     marg_data.H.diagonal().template segment<3>(12).array() = Scalar(config.vio_init_bg_weight);
   }
 
-  std::cout << "marg_H (sqrt:" << marg_data.is_sqrt << ")\n" << marg_data.H << std::endl;
+  std::cout << "SqrtKeypointVioEstimator initialized" << std::endl;
 
   gyro_bias_sqrt_weight = calib.gyro_bias_std.array().inverse();
   accel_bias_sqrt_weight = calib.accel_bias_std.array().inverse();
@@ -190,7 +190,7 @@ bool SqrtKeypointVioEstimator<Scalar>::resetState(typename IntegratedImuMeasurem
     marg_data.H.diagonal().template segment<3>(12).array() = Scalar(config.vio_init_bg_weight);
   }
 
-  std::cout << "marg_H (sqrt:" << marg_data.is_sqrt << ")\n" << marg_data.H << std::endl;
+  std::cout << "SqrtKeypointVioEstimator restarted" << std::endl;
 
   opt_started = false;
   schedule_reset = false;
@@ -346,6 +346,8 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
 
       bool success = measure(curr_frame, meas);
       if (!success) {
+        std::cerr << "Fatal failure in optimization, resetting state" << std::endl;
+        std::cerr << "Please report this issue with a reproducible example" << std::endl;
         schedule_reset = true;
         if (out_state_queue) {  // If optimization fails, push an empty state to the output queue
           auto data = std::make_shared<PoseVelBiasState<double>>();

@@ -117,7 +117,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   std::string marg_data_path;
   size_t last_frame_processed = 0;
 
-  tbb::concurrent_unordered_map<int64_t, int, std::hash<int64_t>> timestamp_to_id;
+  tbb::concurrent_unordered_map<int64_t, int> timestamp_to_id;
 
   std::mutex m;
   std::condition_variable cvar;
@@ -129,6 +129,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
   bool show_gui = true;
   std::string trajectory_fmt;
+  std::string trajectory_name = "trajectory.csv";
   std::string result_path;
   bool trajectory_groundtruth = false;
   bool print_queue = false;
@@ -189,7 +190,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     bool print_queue = false;
     std::string cam_calib_path;
     std::string dataset_path;
-    std::string dataset_type;
+    std::string dataset_type = "euroc";
     std::string config_path;
     int num_threads = 0;
     bool use_imu = true;
@@ -200,7 +201,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     app.add_option("--show-gui", show_gui, "Show GUI");
     app.add_option("--cam-calib", cam_calib_path, "Ground-truth camera calibration used for simulation.")->required();
     app.add_option("--dataset-path", dataset_path, "Path to dataset.")->required();
-    app.add_option("--dataset-type", dataset_type, "Dataset type <euroc, bag>.")->required();
+    app.add_option("--dataset-type", dataset_type, "Dataset type <euroc, bag>.");
     app.add_option("--marg-data", marg_data_path, "Path to folder where marginalization data will be stored.");
     app.add_option("--print-queue", print_queue, "Print queue.");
     app.add_option("--config-path", config_path, "Path to config file.");
@@ -208,6 +209,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     app.add_option("--num-threads", num_threads, "Number of threads.");
     app.add_option("--step-by-step", step_by_step, "Whether to wait for manual input before running the dataset");
     app.add_option("--save-trajectory", trajectory_fmt, "Save trajectory. Supported formats <tum, euroc, kitti>");
+    app.add_option("--save-trajectory-fn", trajectory_name, "Name of the saved trajectory (default: trajectory.csv)");
     app.add_option("--save-groundtruth", trajectory_groundtruth, "In addition to trajectory, save also ground turth");
     app.add_option("--use-imu", use_imu, "Use IMU: visual-inertial vs visual-only pipeline");
     app.add_option("--use-double", use_double, "Use double not float.");
@@ -486,12 +488,10 @@ struct basalt_vio_ui : vis::VIOUIBase {
         }
 
         if (show_frame.GuiChanged()) {
+          auto frame_id = static_cast<size_t>(show_frame);
+          int64_t timestamp = vio_dataset->get_image_timestamps()[frame_id];
+          std::vector<basalt::ImageData> img_vec = vio_dataset->get_image_data(timestamp);
           for (size_t cam_id = 0; cam_id < calib.intrinsics.size(); cam_id++) {
-            auto frame_id = static_cast<size_t>(show_frame);
-            int64_t timestamp = vio_dataset->get_image_timestamps()[frame_id];
-
-            std::vector<basalt::ImageData> img_vec = vio_dataset->get_image_data(timestamp);
-
             pangolin::GlPixFormat fmt;
             fmt.glformat = GL_LUMINANCE;
             fmt.gltype = GL_UNSIGNED_SHORT;
@@ -1006,7 +1006,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   void saveTrajectoryButton() {
     if (tum_rgbd_fmt) {
       {
-        std::ofstream os("trajectory.txt");
+        std::ofstream os(trajectory_name);
 
         os << "# timestamp tx ty tz qx qy qz qw" << std::endl;
 
@@ -1035,9 +1035,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
         os.close();
       }
 
-      std::cout << "Saved trajectory in TUM RGB-D Dataset format in trajectory.txt" << std::endl;
+      std::cout << "Saved trajectory in TUM RGB-D Dataset format in " << trajectory_name << std::endl;
     } else if (euroc_fmt) {
-      std::ofstream os("trajectory.csv");
+      std::ofstream os(trajectory_name);
 
       os << "#timestamp [ns],p_RS_R_x [m],p_RS_R_y [m],p_RS_R_z [m],q_RS_w "
             "[],q_RS_x [],q_RS_y [],q_RS_z []"
@@ -1051,9 +1051,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
            << std::endl;
       }
 
-      std::cout << "Saved trajectory in Euroc Dataset format in trajectory.csv" << std::endl;
+      std::cout << "Saved trajectory in Euroc Dataset format in " << trajectory_name << std::endl;
     } else {
-      std::ofstream os("trajectory_kitti.txt");
+      std::ofstream os(trajectory_name);
 
       for (size_t i = 0; i < vio_t_ns.size(); i++) {
         Eigen::Matrix<double, 3, 4> mat = vio_T_w_i[i].matrix3x4();
@@ -1063,7 +1063,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
       os.close();
 
-      std::cout << "Saved trajectory in KITTI Dataset format in trajectory_kitti.txt" << std::endl;
+      std::cout << "Saved trajectory in KITTI Dataset format in " << trajectory_name << std::endl;
     }
   }
 };

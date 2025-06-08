@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: CC0-1.0
 # SPDX-FileCopyrightText: 2023 Collabora, Ltd.
 
-# ccache?
-
 variables:
   GIT_SUBMODULE_STRATEGY: recursive
 
@@ -10,6 +8,7 @@ stages:
   - build
   - analyze
   - release
+  - evaluate
 
 cache:
   paths:
@@ -45,15 +44,16 @@ gcc-ubuntu-2204:
     reports:
       dotenv: release.env
 
-gcc-ubuntu-2404:
+gcc-ubuntu-2404-wtest:
   extends: .ccache
   image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
   stage: build
   when: manual
   script:
     - echo BUILD_UBUNTU_2404_JOB_ID=$CI_JOB_ID >> release.env
-    - cmake --preset=ci
+    - cmake --preset=ci-test
     - time cmake --build build
+    - ctest --output-on-failure --test-dir build
     - cd build && cpack
     - mv *.deb ../basalt-monado-ubuntu-24.04-haswell-amd64.deb
   artifacts:
@@ -104,7 +104,7 @@ release:
     - echo "Releasing artifacts of previous jobs"
     - curl --location --output /usr/local/bin/release-cli "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64"
     - chmod +x /usr/local/bin/release-cli
-  needs: ["gcc-ubuntu-2204", "gcc-ubuntu-2404"]
+  needs: ["gcc-ubuntu-2204", "gcc-ubuntu-2404-wtest"]
   release:
     name: "Release of $CI_COMMIT_SHORT_SHA"
     tag_name: "release-$CI_COMMIT_SHORT_SHA"
@@ -117,3 +117,70 @@ release:
         - name: "Ubuntu 24.04 .deb (amd64, -march=haswell)"
           url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_UBUNTU_2404_JOB_ID}/artifacts/raw/basalt-monado-ubuntu-24.04-haswell-amd64.deb"
           link_type: package
+
+create-evaluation:
+  stage: evaluate
+  when: manual
+  tags: [basalt-evaluation]
+  variables:
+    EVALSETS: "quickset1"
+    DETERMINISTIC: "1"
+  script:
+    - echo "Generating evaluation pipeline for evalsets $EVALSETS"
+    - .ci/cievalgen.py --deterministic $DETERMINISTIC .ci/evaluation.json $EVALSETS .ci/cieval.template.yaml .ci/cieval.yaml
+  artifacts:
+    paths:
+      - .ci/cieval.yaml
+
+do-evaluation:
+  stage: evaluate
+  needs: ["create-evaluation"]
+  trigger:
+    include:
+      - artifact: .ci/cieval.yaml
+        job: create-evaluation
+    strategy: depend
+
+get-results:
+  stage: evaluate
+  tags: [basalt-evaluation]
+  needs: ["do-evaluation"]
+  script:
+    - >
+      if [ -n "$READ_PROJECT_TOKEN" ]; then
+        echo "Using READ_PROJECT_TOKEN to access the API";
+        export AUTH="Authorization: Bearer ${READ_PROJECT_TOKEN}"
+      else
+        echo "READ_PROJECT_TOKEN is not set, job will only work if repo is public";
+        export AUTH=""
+      fi
+    - curl -H "$AUTH" -s "${CI_SERVER_URL}/api/v4/projects/${CI_PROJECT_ID}/pipelines/${CI_PIPELINE_ID}/bridges" > output.json
+    - export EVAL_PIPELINE_ID=$(cat output.json | jq '.[] | select(.name=="do-evaluation") | .downstream_pipeline.id')
+    - echo $EVAL_PIPELINE_ID
+    - curl -H "$AUTH" -s "${CI_SERVER_URL}/api/v4/projects/${CI_PROJECT_ID}/pipelines/${EVAL_PIPELINE_ID}/jobs" > output.json
+    - export ZIP_JOB_ID=$(cat output.json | jq -r '.[] | select(.name=="zip") | .id')
+    - echo $ZIP_JOB_ID
+    - curl -H "$AUTH" -L --output artifacts.zip "${CI_SERVER_URL}/api/v4/projects/${CI_PROJECT_ID}/jobs/${ZIP_JOB_ID}/artifacts"
+    - unzip -o artifacts.zip # Generates results.zip
+  artifacts:
+    name: "results"
+    paths:
+      - results.zip
+
+report:
+  stage: evaluate
+  tags: [basalt-evaluation]
+  needs: [get-results]
+  script:
+    - export xrtmet=/storage/local/ssd/mayom/Documents/projects/xrtslam-metrics
+    - source $xrtmet/.venv/bin/activate
+    - unzip -o results.zip
+    - $xrtmet/batch.py results $xrtmet/test/data/targets --metrics ate rte --save_file batch.json > metrics.md
+    - zip batch.zip batch.json
+  artifacts:
+    name: results
+    expose_as: "Results and metrics"
+    paths:
+      - results.zip
+      - metrics.md
+      - batch.zip

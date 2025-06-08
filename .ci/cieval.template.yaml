@@ -1,0 +1,118 @@
+# TODO:
+# [ ] Make this work with any runner, not just a custom "shell" one. Consider:
+#   - Used programs python3, xrtmet, jq, curl, unzip, tree, head, zip, fish, 7z
+#   - Get paths like msdmo/msdmi/msdmg/euroc/tumvi from runner environment variables
+#   - Prepare a more stable version of xrtslam-metrics (target_dirs)
+#   - Remove basalt-evaluation runner tag if any runner works
+#   - while having a single runner use a single build job first instead of parallelizing
+#     We don't use a build artifact because we don't want to share the build among runners for now (due to -march=native, maybe using march=x86-64-v3 would be reasonable?)
+#     the basalt_vio binary is relatively small, so we could download in each parallel job in the future
+# [ ] Add timing measurement job
+# [ ] Report metrics per evalset and not just all together
+# [ ] Document the evaluation: .ci/* files, how to compare configs (branches),
+#     token READ_PROJECT_TOKEN, EVALSETS/DETERMINISTIC vars
+#     Tutorial on tokens:
+#     In case you need to setup a new repository, you need to create a
+#     project access token with read_api (and for role, any should work, I used reporter)
+#     Then you go to CI/CD -> Variables and set a hidden/masked variable with that token called: READ_PROJECT_TOKEN
+# [ ] Many times I need this EVALSETS string:
+#     msdmg,msdmio,msdmipb,msdmipp,msdmipt,msdmo,euroc-v1,euroc-v2,euroc-mh,tumvi-room
+
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+  msdmo: "/storage/local/hdd/monado-slam-datasets/M_monado_datasets/MO_odyssey_plus"
+  msdmi: "/storage/local/hdd/monado-slam-datasets/M_monado_datasets/MI_valve_index"
+  msdmg: "/storage/local/hdd/monado-slam-datasets/M_monado_datasets/MG_reverb_g2"
+  euroc: "/storage/local/ssd/mayom/Documents/apps/datasets/euroc"
+  tumvi: "/storage/local/ssd/mayom/Documents/apps/datasets/tumvi"
+  GET_DATASET_LOCKFILE: "/tmp/uncompression.lock"
+
+stages:
+  - prepare
+  - evalsets
+  - results
+
+cache:
+  paths:
+    - ccache
+    - build
+
+.ccache:
+  before_script:
+    - export CCACHE_BASEDIR="$PWD"
+    - export CCACHE_DIR="$PWD/ccache"
+    - export CCACHE_COMPILERCHECK=content
+    - ccache --zero-stats || true
+    - ccache --show-stats || true
+  after_script:
+    - export CCACHE_DIR="$PWD/ccache"
+    - ccache --show-stats -v
+
+build:
+  stage: prepare
+  tags: [basalt-evaluation]
+  extends: .ccache
+  script:
+    - time cmake --preset=release
+    - time cmake --build build
+    - rm -f $GET_DATASET_LOCKFILE
+
+.run-dataset:
+  variables:
+    DATASET: ""
+    DETERMINISTIC: {deterministic}
+  script:
+    - echo "Running dataset $DATASET"
+    - export DS_DEV=$(jq -r ".sequences."$DATASET.device .ci/evaluation.json)
+    - export DS_REL_PATH=$(jq -r ".sequences."$DATASET.path .ci/evaluation.json)
+    - export DS_NAME=$(basename $DS_REL_PATH)
+    - export DS_PATH=${{!DS_DEV}}/$DS_REL_PATH
+    - export DS_CONFIG=$(jq -r ".configs."$DS_DEV .ci/evaluation.json)
+    - export DS_CALIB=$(jq -r ".calibs."$DS_DEV .ci/evaluation.json)
+    - echo $DATASET, $DS_DEV, $DS_REL_PATH, $DS_NAME, $DS_PATH, $DS_CONFIG, $DS_CALIB, $DETERMINISTIC
+    - echo Runner variables $GET_DATASET_LOCKFILE, $msdmo, $msdmi, $msdmg, $euroc, $tumvi
+    - .ci/get_dataset.py $DS_PATH . --lock_file $GET_DATASET_LOCKFILE | tee get_dataset.log
+    - export FINAL_DS_PATH=$(cat get_dataset.log | tail -n 1)
+    - echo $FINAL_DS_PATH
+    - ls
+    - ./build/basalt_vio --show-gui 0 --deterministic $DETERMINISTIC --dataset-path $FINAL_DS_PATH --dataset-type euroc --cam-calib $DS_CALIB --config-path $DS_CONFIG --save-trajectory euroc --save-trajectory-fn tracking-$DATASET.csv 2>&1 | tee output-$DATASET.log
+    - if [ "$FINAL_DS_PATH" != "$DS_PATH" ]; then echo "Deleting $FINAL_DS_PATH"; rm -rf $FINAL_DS_PATH; fi
+    - ls
+    - export RESDIR=results/$CI_COMMIT_SHORT_SHA/$DATASET
+    - echo "Results will be saved in $RESDIR"
+    - mkdir -p $RESDIR
+    - mv tracking-$DATASET.csv $RESDIR/tracking.csv
+    - mv output-$DATASET.log $RESDIR/output.log
+    - tree $RESDIR
+  artifacts:
+    paths:
+      - results
+    expire_in: 1 week
+    name: "results-$DATASET"
+
+{evalsets_jobs}
+
+zip:
+  stage: results
+  tags: [basalt-evaluation]
+  script:
+    - |
+      echo "# Results"
+      echo "- Project: $CI_PROJECT_URL" >> results/README.md
+      echo "- Deterministic: {deterministic}" >> results/README.md
+      echo "- Evaluation sets: {evalset_list}" >> results/README.md
+      echo "- Branch: $CI_COMMIT_REF_NAME" >> results/README.md
+      echo "- Commit: $CI_COMMIT_SHORT_SHA" >> results/README.md
+      echo "- Commit URL: $CI_PROJECT_URL/-/commit/$CI_COMMIT_SHA" >> results/README.md
+      echo "- Pipeline: $CI_PIPELINE_ID" >> results/README.md
+      echo "- Pipeline URL: $CI_PIPELINE_URL" >> results/README.md
+      echo "- Job: $CI_JOB_ID" >> results/README.md
+      echo "- Job URL: $CI_JOB_URL" >> results/README.md
+    - tree results
+    - zip -r results.zip results
+    - rm  -f $GET_DATASET_LOCKFILE
+  artifacts:
+    name: "results"
+    expose_as: "Archive of trajectories"
+    paths:
+      - results.zip

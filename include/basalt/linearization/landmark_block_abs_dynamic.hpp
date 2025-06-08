@@ -1,9 +1,10 @@
 #pragma once
 
 #include <fstream>
+#include <iostream>
 #include <memory>
-#include <mutex>
 
+#include <basalt/utils/assert.h>
 #include <basalt/utils/ba_utils.h>
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
@@ -31,7 +32,7 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
   using MatX = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>;
   using RowMatX = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 
-  virtual inline void allocateLandmark(
+  inline void allocateLandmark(
       Landmark<Scalar>& lm,
       const Eigen::aligned_unordered_map<std::pair<TimeCamId, TimeCamId>, RelPoseLin<Scalar>>& relative_pose_lin,
       const Calibration<Scalar>& calib, const AbsOrderMap& aom, const Options& options, bool is_fixed = false,
@@ -108,7 +109,7 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
   // unusable. Numeric check is only performed for residuals that were
   // considered to be used (valid), which depends on
   // use_valid_projections_only setting.
-  virtual inline Scalar linearizeLandmark() override {
+  inline Scalar linearizeLandmark() override {
     BASALT_ASSERT(state == State::Allocated || state == State::NumericalFailure || state == State::Linearized ||
                   state == State::Marginalized);
 
@@ -116,8 +117,6 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
     storage.setZero();
     damping_rotations.clear();
     damping_rotations.reserve(6);
-
-    bool numerically_valid = true;
 
     Scalar error_sum = 0;
 
@@ -153,8 +152,20 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
               if (is_fixed_) d_res_d_p.setZero();
 
               if (!options_->use_valid_projections_only || valid) {
-                numerically_valid =
-                    numerically_valid && d_res_d_xi.array().isFinite().all() && d_res_d_p.array().isFinite().all();
+                bool d_res_d_xi_valid = d_res_d_xi.array().isFinite().all();
+                if (BASALT_UNLIKELY(!d_res_d_xi_valid)) {  // Happens when inv_idst is too high (Jp has nans)
+                  std::cerr << "WARNING: d_res_d_xi is not valid, lm = " << *lm_ptr << std::endl;
+                  d_res_d_xi.setZero();
+                }
+
+                bool d_res_d_p_valid = d_res_d_p.array().isFinite().all();
+                if (BASALT_UNLIKELY(!d_res_d_p_valid)) {  // Happens on high inv_dist, and other conditions too
+                  std::cerr << "WARNING: d_res_d_p is not valid, lm = " << *lm_ptr << std::endl;
+                  d_res_d_p.setZero();
+                }
+
+                // NOTE: Previously, we would set state=NumericalFailure causing
+                // a VIO reset when not d_res_d_xi_valid && d_res_d_p_valid
 
                 const Scalar res_squared = res.squaredNorm();
                 const auto [weighted_error, weight] = compute_error_weight(res_squared);
@@ -176,16 +187,12 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
           calib_->intrinsics[tcid_t.cam_id].variant);
     }
 
-    if (numerically_valid) {
-      state = State::Linearized;
-    } else {
-      state = State::NumericalFailure;
-    }
+    state = State::Linearized;
 
     return error_sum;
   }
 
-  virtual inline void performQR() override {
+  inline void performQR() override {
     BASALT_ASSERT(state == State::Linearized);
 
     // Since we use dense matrices Householder QR might be better:
@@ -200,7 +207,7 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
     state = State::Marginalized;
   }
 
-  virtual inline UILandmarkBlock getUILandmarkBlock() const override {
+  inline UILandmarkBlock getUILandmarkBlock() const override {
     size_t w = num_cols;
     size_t h = num_rows - 3;  // Do not copy damping rows, they are zeroed
     auto s = std::make_shared<UILandmarkBlock::MatrixXfr>(storage.template block<>(0, 0, h, w).template cast<float>());
@@ -208,7 +215,7 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
   }
 
   // Sets damping and maintains upper triangular matrix for landmarks.
-  virtual inline void setLandmarkDamping(Scalar lambda) override {
+  inline void setLandmarkDamping(Scalar lambda) override {
     BASALT_ASSERT(state == State::Marginalized);
     BASALT_ASSERT(lambda >= 0);
 
@@ -245,7 +252,7 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
   }
 
   // lambda < 0 means computing exact model cost change
-  virtual inline void backSubstitute(const VecX& pose_inc, Scalar& l_diff) override {
+  inline void backSubstitute(const VecX& pose_inc, Scalar& l_diff) override {
     BASALT_ASSERT(state == State::Marginalized);
 
     if (is_fixed_) return;
@@ -254,6 +261,14 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
     BASALT_ASSERT(pose_inc.size() == signed_cast(padding_idx));
 
     const auto Q1Jl = storage.template block<3, 3>(0, lm_idx).template triangularView<Eigen::Upper>();
+
+    auto Q1Jl_det = abs(Q1Jl.determinant());
+    if (BASALT_UNLIKELY(Q1Jl_det == 0)) {
+      std::cout << "WARNING: det(Q1Jl) == 0, skipping backsubstitution for lm: " << *lm_ptr << std::endl;
+      return;
+    } else if (BASALT_UNLIKELY(Q1Jl_det < 0.01)) {
+      std::cout << "WARNING: Unusually small det(Q1Jl)=" << Q1Jl_det << ", lm: " << *lm_ptr << std::endl;
+    }
 
     const auto Q1Jr = storage.col(res_idx).template head<3>();
     const auto Q1Jp = storage.topLeftCorner(3, padding_idx);
@@ -303,14 +318,8 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
     QJinc.template head<3>() += Q1Jl * inc;
 
     auto Qr = storage.col(res_idx).head(num_rows - 3);
-    l_diff -= QJinc.transpose() * (Scalar(0.5) * QJinc + Qr);
-
-    // TODO: detect and handle case like ceres, allowing a few iterations but
-    // stopping eventually
-    if (!inc.array().isFinite().all() || !lm_ptr->direction.array().isFinite().all() ||
-        !std::isfinite(lm_ptr->inv_dist)) {
-      std::cerr << "Numerical failure in backsubstitution\n";
-    }
+    Scalar diff = QJinc.transpose() * (Scalar(0.5) * QJinc + Qr);
+    l_diff -= diff;
 
     // Note: scale only after computing model cost change
     inc.array() *= Jl_col_scale.array();
@@ -319,7 +328,7 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
     lm_ptr->inv_dist = std::max(Scalar(0), lm_ptr->inv_dist + inc[2]);
   }
 
-  virtual inline size_t numReducedCams() const override {
+  inline size_t numReducedCams() const override {
     BASALT_LOG_FATAL("check what we mean by numReducedCams for absolute poses");
     return pose_lin_vec.size();
   }
@@ -330,12 +339,12 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
     BASALT_LOG_FATAL("not implemented");
   }
 
-  virtual inline void addQ2JpTQ2r(VecX& res) const override {
+  inline void addQ2JpTQ2r(VecX& res) const override {
     UNUSED(res);
     BASALT_LOG_FATAL("not implemented");
   }
 
-  virtual inline void addJp_diag2(VecX& res) const override {
+  inline void addJp_diag2(VecX& res) const override {
     BASALT_ASSERT(state == State::Linearized);
 
     for (const auto& [frame_id, idx_set] : res_idx_by_abs_pose_) {
@@ -348,12 +357,12 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
     }
   }
 
-  virtual inline void addQ2JpTQ2Jp_blockdiag(BlockDiagonalAccumulator<Scalar>& accu) const override {
+  inline void addQ2JpTQ2Jp_blockdiag(BlockDiagonalAccumulator<Scalar>& accu) const override {
     UNUSED(accu);
     BASALT_LOG_FATAL("not implemented");
   }
 
-  virtual inline void scaleJl_cols() override {
+  inline void scaleJl_cols() override {
     BASALT_ASSERT(state == State::Linearized);
 
     // ceres uses 1.0 / (1.0 + sqrt(SquaredColumnNorm))
@@ -364,7 +373,7 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
     storage.block(0, lm_idx, num_rows - 3, 3) *= Jl_col_scale.asDiagonal();
   }
 
-  virtual inline void scaleJp_cols(const VecX& jacobian_scaling) override {
+  inline void scaleJp_cols(const VecX& jacobian_scaling) override {
     BASALT_ASSERT(state == State::Marginalized);
 
     // we assume we apply scaling before damping (we exclude the last 3 rows)
@@ -375,7 +384,7 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
 
   inline bool hasLandmarkDamping() const { return !damping_rotations.empty(); }
 
-  virtual inline void printStorage(const std::string& filename) const override {
+  inline void printStorage(const std::string& filename) const override {
     std::ofstream f(filename);
 
     Eigen::IOFormat CleanFmt(4, 0, " ", "\n", "", "");
@@ -387,7 +396,7 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
     f.close();
   }
 #if 0
-  virtual inline void stage2(
+   inline void stage2(
       Scalar lambda, const VecX* jacobian_scaling, VecX* precond_diagonal2,
       BlockDiagonalAccumulator<Scalar>* precond_block_diagonal,
       VecX& bref) override {
@@ -416,7 +425,7 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
 
   inline State getState() const override { return state; }
 
-  virtual inline size_t numQ2rows() const override { return num_rows - 3; }
+  inline size_t numQ2rows() const override { return num_rows - 3; }
 
  protected:
   inline void performQRGivens() {
@@ -515,7 +524,7 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
     BASALT_LOG_FATAL("not implemented");
   }
 
-  virtual TimeCamId getHostKf() const override { return lm_ptr->host_kf_id; }
+  TimeCamId getHostKf() const override { return lm_ptr->host_kf_id; }
 
  private:
   // Dense storage for pose Jacobians, padding, landmark Jacobians and

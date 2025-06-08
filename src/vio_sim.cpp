@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sophus/se3.hpp>
 
 #include <tbb/concurrent_unordered_map.h>
+#include <tbb/global_control.h>
 
 #include <pangolin/display/image_view.h>
 #include <pangolin/gl/gldraw.h>
@@ -78,19 +79,36 @@ void alignButton();
 // Parameters for simulations
 int NUM_POINTS = 1000;
 double POINT_DIST = 10.0;
-constexpr int NUM_FRAMES = 1000;
 constexpr int CAM_FREQ = 20;
 constexpr int IMU_FREQ = 200;
+int num_frames = 1000;
+tbb::concurrent_unordered_map<int64_t, int, std::hash<int64_t>> timestamp_to_id{};
 
 static const int knot_time = 3;
-static const double obs_std_dev = 0.5;
 
 Eigen::Vector3d g(0, 0, -9.81);
 
 // std::random_device rd{};
 // std::mt19937 gen{rd()};
 std::mt19937 gen{1};
-std::normal_distribution<> obs_noise_dist{0, obs_std_dev};
+
+// Default distribution parameters. Replaced by calib file and cli arguments.
+double obs_noise_mean = 0;
+double gyro_noise_mean = 0;
+double accel_noise_mean = 0;
+double gyro_bias_mean = 0;
+double accel_bias_mean = 0;
+double obs_noise_stdev = 0.5;
+double gyro_noise_stdev = 0.000282 * std::sqrt(IMU_FREQ);
+double accel_noise_stdev = 0.016 * std::sqrt(IMU_FREQ);
+double gyro_bias_stdev = 0.0001 * std::sqrt(IMU_FREQ);
+double accel_bias_stdev = 0.001 * std::sqrt(IMU_FREQ);
+
+std::normal_distribution<> obs_noise_dist{obs_noise_mean, obs_noise_stdev};
+std::normal_distribution<> gyro_noise_dist{gyro_noise_mean, gyro_noise_stdev};
+std::normal_distribution<> accel_noise_dist{accel_noise_mean, accel_noise_stdev};
+std::normal_distribution<> gyro_bias_dist{gyro_bias_mean, gyro_bias_stdev};
+std::normal_distribution<> accel_bias_dist{accel_bias_mean, accel_bias_stdev};
 
 // Simulated data
 
@@ -106,7 +124,7 @@ std::vector<int64_t> gt_imu_t_ns;
 std::map<basalt::TimeCamId, basalt::SimObservations> gt_observations;
 std::map<basalt::TimeCamId, basalt::SimObservations> noisy_observations;
 
-std::string marg_data_path;
+std::string marg_data_path = "";
 
 // VIO vars
 basalt::Calibration<double> calib;
@@ -124,31 +142,31 @@ constexpr int UI_WIDTH = 200;
 pangolin::DataLog imu_data_log, vio_data_log, error_data_log;
 pangolin::Plotter* plotter;
 
-pangolin::Var<int> show_frame("ui.show_frame", 0, 0, NUM_FRAMES - 1);
+pangolin::Var<int> show_frame("ui.show_frame", 0, 0, num_frames - 1);
 
-pangolin::Var<bool> show_obs("ui.show_obs", true, false, true);
-pangolin::Var<bool> show_obs_noisy("ui.show_obs_noisy", true, false, true);
-pangolin::Var<bool> show_obs_vio("ui.show_obs_vio", true, false, true);
+pangolin::Var<bool> show_obs{"ui.show_obs", true, true};
+pangolin::Var<bool> show_obs_noisy{"ui.show_obs_noisy", true, true};
+pangolin::Var<bool> show_obs_vio{"ui.show_obs_vio", true, true};
 
-pangolin::Var<bool> show_ids("ui.show_ids", false, false, true);
+pangolin::Var<bool> show_ids{"ui.show_ids", false, true};
 
-pangolin::Var<bool> show_accel("ui.show_accel", false, false, true);
-pangolin::Var<bool> show_gyro("ui.show_gyro", false, false, true);
-pangolin::Var<bool> show_gt_vel("ui.show_gt_vel", false, false, true);
-pangolin::Var<bool> show_gt_pos("ui.show_gt_pos", true, false, true);
-pangolin::Var<bool> show_gt_bg("ui.show_gt_bg", false, false, true);
-pangolin::Var<bool> show_gt_ba("ui.show_gt_ba", false, false, true);
+pangolin::Var<bool> show_accel{"ui.show_accel", false, true};
+pangolin::Var<bool> show_gyro{"ui.show_gyro", false, true};
+pangolin::Var<bool> show_gt_vel{"ui.show_gt_vel", false, true};
+pangolin::Var<bool> show_gt_pos{"ui.show_gt_pos", true, true};
+pangolin::Var<bool> show_gt_bg{"ui.show_gt_bg", false, true};
+pangolin::Var<bool> show_gt_ba{"ui.show_gt_ba", false, true};
 
-pangolin::Var<bool> show_est_vel("ui.show_est_vel", false, false, true);
-pangolin::Var<bool> show_est_pos("ui.show_est_pos", true, false, true);
-pangolin::Var<bool> show_est_bg("ui.show_est_bg", false, false, true);
-pangolin::Var<bool> show_est_ba("ui.show_est_ba", false, false, true);
+pangolin::Var<bool> show_est_vel{"ui.show_est_vel", false, true};
+pangolin::Var<bool> show_est_pos{"ui.show_est_pos", true, true};
+pangolin::Var<bool> show_est_bg{"ui.show_est_bg", false, true};
+pangolin::Var<bool> show_est_ba{"ui.show_est_ba", false, true};
 
 using Button = pangolin::Var<std::function<void(void)>>;
 
 Button next_step_btn("ui.next_step", &next_step);
 
-pangolin::Var<bool> continue_btn("ui.continue", true, false, true);
+pangolin::Var<bool> continue_btn{"ui.continue", true, true};
 
 Button align_step_btn("ui.align_se3", &alignButton);
 
@@ -162,13 +180,14 @@ int main(int argc, char** argv) {
   std::string cam_calib_path;
   std::string result_path;
   std::string config_path;
+  int num_threads = 0;
 
   CLI::App app{"App description"};
 
   app.add_option("--show-gui", show_gui, "Show GUI");
   app.add_option("--cam-calib", cam_calib_path, "Ground-truth camera calibration used for simulation.")->required();
 
-  app.add_option("--marg-data", marg_data_path, "Folder to store marginalization data.")->required();
+  app.add_option("--marg-data", marg_data_path, "Folder to store marginalization data.");
 
   app.add_option("--result-path", result_path, "Path to result file where the system will write RMSE ATE.");
 
@@ -176,6 +195,19 @@ int main(int argc, char** argv) {
 
   app.add_option("--num-points", NUM_POINTS, "Number of points in simulation.");
   app.add_option("--use-imu", use_imu, "Use IMU.");
+  app.add_option("--num-frames", num_frames, "Length of simulation.");
+  app.add_option("--num-threads", num_threads, "Number of threads.");
+
+  app.add_option("--obs_noise_mean", obs_noise_mean);
+  app.add_option("--gyro_noise_mean", gyro_noise_mean);
+  app.add_option("--accel_noise_mean", accel_noise_mean);
+  app.add_option("--gyro_bias_mean", gyro_bias_mean);
+  app.add_option("--accel_bias_mean", accel_bias_mean);
+  app.add_option("--obs_noise_stdev", obs_noise_stdev);
+  auto opt_gyro_noise_stdev = app.add_option("--gyro_noise_stdev", gyro_noise_stdev);
+  auto opt_accel_noise_stdev = app.add_option("--accel_noise_stdev", accel_noise_stdev);
+  auto opt_gyro_bias_stdev = app.add_option("--gyro_bias_stdev", gyro_bias_stdev);
+  auto opt_accel_bias_stdev = app.add_option("--accel_bias_stdev", accel_bias_stdev);
 
   try {
     app.parse(argc, argv);
@@ -183,12 +215,34 @@ int main(int argc, char** argv) {
     return app.exit(e);
   }
 
-  basalt::MargDataSaver::Ptr mds;
-  if (!marg_data_path.empty()) {
-    mds.reset(new basalt::MargDataSaver(marg_data_path));
+  // global thread limit is in effect until global_control object is destroyed
+  std::unique_ptr<tbb::global_control> tbb_global_control;
+  if (num_threads > 0) {
+    tbb_global_control =
+        std::make_unique<tbb::global_control>(tbb::global_control::max_allowed_parallelism, num_threads);
   }
 
+  // Update range of the frame slider
+  show_frame.Meta().range[1] = num_frames - 1;
+  show_frame.GuiChanged();
+
+  basalt::MargDataSaver::Ptr mds{};
+  if (!marg_data_path.empty()) mds = std::make_shared<basalt::MargDataSaver>(marg_data_path);
+
   load_data(cam_calib_path);
+
+  // If IMU stdevs are not set by CLI, use the values from calibration.
+  if (opt_gyro_noise_stdev->count() == 0) gyro_noise_stdev = calib.dicrete_time_gyro_noise_std()[0];
+  if (opt_accel_noise_stdev->count() == 0) accel_noise_stdev = calib.dicrete_time_accel_noise_std()[0];
+  if (opt_gyro_bias_stdev->count() == 0) gyro_bias_stdev = calib.gyro_bias_std[0];
+  if (opt_accel_bias_stdev->count() == 0) accel_bias_stdev = calib.accel_bias_std[0];
+
+  // Set up noise distributions
+  obs_noise_dist = std::normal_distribution<>{obs_noise_mean, obs_noise_stdev};
+  gyro_noise_dist = std::normal_distribution<>{gyro_noise_mean, gyro_noise_stdev};
+  accel_noise_dist = std::normal_distribution<>{accel_noise_mean, accel_noise_stdev};
+  gyro_bias_dist = std::normal_distribution<>{gyro_bias_mean, gyro_bias_stdev};
+  accel_bias_dist = std::normal_distribution<>{accel_bias_mean, accel_bias_stdev};
 
   gen_data();
 
@@ -197,9 +251,7 @@ int main(int argc, char** argv) {
   vio->out_vis_queue = &out_vis_queue;
   vio->out_state_queue = &out_state_queue;
 
-  if (mds.get()) {
-    vio->out_marg_queue = &mds->in_marg_queue;
-  }
+  if (mds) vio->out_marg_queue = &mds->in_marg_queue;
 
   std::thread t0([&]() {
     for (size_t i = 0; i < gt_imu_t_ns.size(); i++) {
@@ -235,6 +287,7 @@ int main(int argc, char** argv) {
         }
       }
 
+      timestamp_to_id[data->t_ns] = i;
       vio->vision_data_queue.push(data);
     }
 
@@ -334,7 +387,7 @@ int main(int argc, char** argv) {
     pangolin::View& plot_display = pangolin::CreateDisplay().SetBounds(0.0, 0.4, pangolin::Attach::Pix(UI_WIDTH), 1.0);
 
     plotter =
-        new pangolin::Plotter(&imu_data_log, 0.0, gt_frame_t_ns[NUM_FRAMES - 1] * 1e-9, -10.0, 10.0, 0.01f, 0.01f);
+        new pangolin::Plotter(&imu_data_log, 0.0, gt_frame_t_ns[num_frames - 1] * 1e-9, -10.0, 10.0, 0.01f, 0.01f);
     plot_display.AddDisplay(*plotter);
 
     pangolin::CreatePanel("ui").SetBounds(0.0, 1.0, 0.0, pangolin::Attach::Pix(UI_WIDTH));
@@ -578,12 +631,6 @@ void compute_projections() {
 }
 
 void gen_data() {
-  std::normal_distribution<> gyro_noise_dist{0, calib.dicrete_time_gyro_noise_std()[0]};
-  std::normal_distribution<> accel_noise_dist{0, calib.dicrete_time_accel_noise_std()[0]};
-
-  std::normal_distribution<> gyro_bias_dist{0, calib.gyro_bias_std[0]};
-  std::normal_distribution<> accel_bias_dist{0, calib.accel_bias_std[0]};
-
   for (size_t i = 0; i < calib.intrinsics.size(); i++) {
     images.emplace_back();
     images.back() =
@@ -593,7 +640,7 @@ void gen_data() {
   }
   show_frame.Meta().gui_changed = true;
 
-  double seconds = NUM_FRAMES / CAM_FREQ;
+  double seconds = num_frames / CAM_FREQ;
   int num_knots = seconds / knot_time + 5;
   // for (int i = 0; i < 2; i++) gt_spline.knots_push_back(Sophus::SE3d());
   gt_spline.genRandomTrajectory(num_knots);
@@ -601,7 +648,7 @@ void gen_data() {
   int64_t t_ns = 0;
   int64_t dt_ns = int64_t(1e9) / CAM_FREQ;
 
-  for (int i = 0; i < NUM_FRAMES; i++) {
+  for (int i = 0; i < num_frames; i++) {
     gt_frame_T_w_i.emplace_back(gt_spline.pose(t_ns));
     gt_frame_t_w_i.emplace_back(gt_frame_T_w_i.back().translation());
     gt_frame_t_ns.emplace_back(t_ns);
@@ -692,7 +739,7 @@ void gen_data() {
   compute_projections();
 
   // Save spline data
-  {
+  if (!marg_data_path.empty()) {
     std::string path = marg_data_path + "/gt_spline.cereal";
 
     std::cout << "Saving gt_spline " << path << std::endl;
@@ -837,8 +884,10 @@ void setup_vio(const std::string& config_path) {
 }
 
 bool next_step() {
-  if (show_frame < NUM_FRAMES - 1) {
+  if (show_frame < num_frames - 1) {  // Always go to the latest frame
     show_frame = show_frame + 1;
+    int64_t t_ns = vio->last_processed_t_ns;
+    show_frame = timestamp_to_id.count(t_ns) ? timestamp_to_id[t_ns] : show_frame + 1;
     show_frame.Meta().gui_changed = true;
     return true;
   } else {
