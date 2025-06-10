@@ -109,6 +109,7 @@ class VioEstimatorBase {
   tbb::concurrent_queue<PoseVelBiasState<double>::Ptr>* opt_flow_state_queue = nullptr;
   tbb::concurrent_queue<LandmarkBundle::Ptr>* opt_flow_lm_bundle_queue = nullptr;
   tbb::concurrent_queue<Masks>* opt_flow_masks_queue = nullptr;
+  tbb::concurrent_queue<int64_t>* opt_flow_keyframe_ts_queue = nullptr;
 
   virtual void initialize(int64_t t_ns, const Sophus::SE3d& T_w_i, const Eigen::Vector3d& vel_w_i,
                           const Eigen::Vector3d& bg, const Eigen::Vector3d& ba) = 0;

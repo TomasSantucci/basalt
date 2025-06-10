@@ -107,6 +107,8 @@ struct OpticalFlowResult {
   std::vector<Keypoints> tracking_guesses;
   std::vector<Keypoints> matching_guesses;
   std::vector<Keypoints> recall_guesses;
+  std::vector<Keypoints> window_tracks;
+  std::vector<std::map<KeypointId, int64_t>> window_tracks_ts;
 
   std::vector<KeypointLevels> pyramid_levels;
   std::vector<KeypointResponses> keypoint_responses;
@@ -155,6 +157,7 @@ class OpticalFlowBase {
   tbb::concurrent_queue<double> input_depth_queue;
   tbb::concurrent_queue<PoseVelBiasState<double>::Ptr> input_state_queue;
   tbb::concurrent_queue<LandmarkBundle::Ptr> input_lm_bundle_queue;
+  tbb::concurrent_queue<int64_t> input_keyframe_ts_queue;
   tbb::concurrent_bounded_queue<OpticalFlowResult::Ptr>* output_queue = nullptr;
 
   Eigen::MatrixXf patch_coord;

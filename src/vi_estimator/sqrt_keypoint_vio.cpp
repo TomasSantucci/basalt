@@ -481,9 +481,11 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
     take_ltkf = false;
   }
 
+  bool took_kf = false;
   if (take_kf) {
     // Triangulate new points from one of the observations (with sufficient
     // baseline) and make keyframe
+    took_kf = true;
     take_kf = false;
     frames_after_kf = 0;
     kf_ids.emplace(last_state_t_ns);
@@ -632,6 +634,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
     }
     if (out_state_queue) out_state_queue->push(data);
     if (opt_flow_state_queue) opt_flow_state_queue->push(data);
+    if (took_kf && config.optical_flow_window_size > 0) opt_flow_keyframe_ts_queue->push(opt_flow_meas->t_ns);
   }
 
   bool lm_bundle_needed = opt_flow_lm_bundle_queue && config.optical_flow_recall_enable;

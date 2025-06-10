@@ -334,6 +334,51 @@ void VIOUIBase::do_show_tracking_guess_vio(size_t cam_id, size_t frame_id, const
   do_show_tracking_guess(cam_id, frame_id, prev_vis_data);
 }
 
+void VIOUIBase::do_show_window_tracks(size_t cam_id, size_t frame_id,
+                                      const std::unordered_map<int64_t, VioVisualizationData::Ptr>& vis_map) {
+  const VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
+  if (curr_vis_data == nullptr) return;
+
+  if (frame_id < 1) return;
+
+  auto tracked_points = curr_vis_data->opt_flow_res->window_tracks[cam_id];
+  auto tracked_points_ts = curr_vis_data->opt_flow_res->window_tracks_ts[cam_id];
+
+  std::vector<Vector2f> prev_lines;
+  std::vector<Vector2f> prev_points;
+  std::vector<Vector2f> now_points;
+
+  prev_lines.reserve(tracked_points.size());
+  prev_points.reserve(tracked_points.size());
+  now_points.reserve(tracked_points.size());
+
+  float radius = 3.0F;
+
+  // Draw tracked features in previous frame
+  for (auto& [kpid, kpt] : tracked_points) {
+    if (tracked_points_ts.count(kpid) == 0) continue;
+
+    bool show = !filter_highlights || is_selected(highlights, kpid);
+    if (!show) continue;
+
+    auto n = kpt.translation();
+    auto p = vis_map.at(tracked_points_ts.at(kpid))->opt_flow_res->keypoints.at(cam_id).at(kpid).translation();
+
+    now_points.emplace_back(n);
+
+    prev_lines.emplace_back(p);
+    prev_lines.emplace_back(n);
+    prev_points.emplace_back(p);
+  }
+
+  glColor4f(1, 0.59, 0, 0.9);
+  glDrawCirclePerimeters(now_points, radius);
+
+  glColor4f(0.93, 0.42, 0, 0.3);
+  pangolin::glDrawLines(prev_lines);
+  glDrawCirclePerimeters(prev_points, radius);
+}
+
 void VIOUIBase::do_show_matching_guesses(size_t cam_id) {
   const VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
   if (curr_vis_data == nullptr) return;

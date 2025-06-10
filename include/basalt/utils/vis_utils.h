@@ -262,6 +262,7 @@ struct VIOUIBase {
   Var<bool> show_flow{"features_menu.show_flow", false, true};
   Var<bool> show_responses{"features_menu.show_responses", false, true};
   Var<bool> show_tracking_guess{"features_menu.show_tracking_guess", false, true};
+  Var<bool> show_window_tracks{"features_menu.show_window_tracks", false, true};
   Var<bool> show_matching_guess{"features_menu.show_matching_guess", false, true};
   Var<bool> show_recall_guess{"features_menu.show_recall_guess", false, true};
   Var<bool> show_obs{"features_menu.show_obs", true, true};
@@ -335,6 +336,8 @@ struct VIOUIBase {
   void do_show_tracking_guess(size_t cam_id, size_t frame_id, const VioVisualizationData::Ptr& prev_vis_data);
   void do_show_tracking_guess_vio(size_t cam_id, size_t frame_id, const VioDatasetPtr& vio_dataset,
                                   const std::unordered_map<int64_t, VioVisualizationData::Ptr>& vis_map);
+  void do_show_window_tracks(size_t cam_id, size_t frame_id,
+                             const std::unordered_map<int64_t, VioVisualizationData::Ptr>& vis_map);
   void do_show_recall_guesses(size_t cam_id);
   void do_show_matching_guesses(size_t cam_id);
   void do_show_masks(size_t cam_id);

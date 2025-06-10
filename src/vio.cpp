@@ -277,6 +277,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
       vio->opt_flow_depth_guess_queue = &opt_flow->input_depth_queue;
       vio->opt_flow_state_queue = &opt_flow->input_state_queue;
       vio->opt_flow_lm_bundle_queue = &opt_flow->input_lm_bundle_queue;
+      vio->opt_flow_keyframe_ts_queue = &opt_flow->input_keyframe_ts_queue;
     }
 
     basalt::MargDataSaver::Ptr marg_data_saver;
@@ -774,6 +775,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     if (show_flow) do_show_flow(cam_id);
     if (show_highlights) do_show_highlights(cam_id);
     if (show_tracking_guess) do_show_tracking_guess_vio(cam_id, show_frame, vio_dataset, vis_map);
+    if (show_window_tracks) do_show_window_tracks(cam_id, show_frame, vis_map);
     if (show_matching_guess) do_show_matching_guesses(cam_id);
     if (show_recall_guess) do_show_recall_guesses(cam_id);
     if (show_masks) do_show_masks(cam_id);
