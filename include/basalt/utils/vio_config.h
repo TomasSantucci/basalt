@@ -71,6 +71,7 @@ struct VioConfig {
   float optical_flow_recall_max_patch_dist;                // Maximum distance in % of width to accept a recall, or 0
   std::vector<float> optical_flow_recall_max_patch_norms;  // Maximum patch residual norm to accept a recall
   int optical_flow_window_size;
+  float optical_flow_window_max_recovered_dist2;
 
   LinearizationType vio_linearization_type;
   bool vio_sqrt_marg;

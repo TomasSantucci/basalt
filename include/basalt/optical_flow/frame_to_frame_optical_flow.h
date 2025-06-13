@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 
 #include <sophus/se2.hpp>
@@ -43,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "basalt/imu/imu_types.h"
 #include "basalt/imu/preintegration.h"
 #include "basalt/utils/common_types.h"
+#include "basalt/utils/eigen_utils.hpp"
 #include "basalt/utils/imu_types.h"
 #include "sophus/se3.hpp"
 
@@ -118,8 +120,9 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
     latest_state = std::make_shared<PoseVelBiasState<double>>();
     predicted_state = std::make_shared<PoseVelBiasState<double>>();
     if (config.optical_flow_recall_enable) patches.reserve(3000);
-    if (config.optical_flow_window_size > 0) kpt_ids_window.reserve(3000);
     if (config.optical_flow_window_size > 0) keyframes_poses.reserve(3000);
+    if (config.optical_flow_window_size > 0) keyframes_pyramids.reserve(3000);
+    if (config.optical_flow_window_size > 0) keyframes_keypoints.reserve(3000);
     if (config.optical_flow_window_size > 0) keyframes.reserve(3000);
     cells.resize(getNumCams());
     recalls.resize(getNumCams());
@@ -228,21 +231,6 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
       keyframes.erase(keyframes.begin(), keyframes.begin() + num_to_erase);
     }
 
-    // Remove unnecessary keypoints from the window
-    for (auto it = kpt_ids_window.begin(); it != kpt_ids_window.end();) {
-      const auto frame_id = it->first.frame_id;
-
-      if (frame_id < keyframes.back()) {
-        if (std::find(keyframes.begin(), keyframes.end(), frame_id) == keyframes.end() ||
-            frame_id < keyframes.front()) {
-          it = kpt_ids_window.erase(it);
-          continue;
-        }
-      }
-
-      ++it;
-    }
-
     // Remove unnecessary keyframes poses
     for (auto it = keyframes_poses.begin(); it != keyframes_poses.end();) {
       const auto frame_id = it->first;
@@ -251,6 +239,36 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
         if (std::find(keyframes.begin(), keyframes.end(), frame_id) == keyframes.end() ||
             frame_id < keyframes.front()) {
           it = keyframes_poses.erase(it);
+          continue;
+        }
+      }
+
+      ++it;
+    }
+
+    // Remove unnecessary pyramids
+    for (auto it = keyframes_pyramids.begin(); it != keyframes_pyramids.end();) {
+      const auto frame_id = it->first;
+
+      if (frame_id < keyframes.back()) {
+        if (std::find(keyframes.begin(), keyframes.end(), frame_id) == keyframes.end() ||
+            frame_id < keyframes.front()) {
+          it = keyframes_pyramids.erase(it);
+          continue;
+        }
+      }
+
+      ++it;
+    }
+
+    // Remove unnecessary keyframes keypoints
+    for (auto it = keyframes_keypoints.begin(); it != keyframes_keypoints.end();) {
+      const auto frame_id = it->first.frame_id;
+
+      if (frame_id < keyframes.back()) {
+        if (std::find(keyframes.begin(), keyframes.end(), frame_id) == keyframes.end() ||
+            frame_id < keyframes.front()) {
+          it = keyframes_keypoints.erase(it);
           continue;
         }
       }
@@ -328,7 +346,8 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
           SE3 T_c2 = T_i2 * calib.T_i_c[j];
           SE3 T_c1_c2 = T_c1.inverse() * T_c2;
           TimeCamId tcid(keyframes[i], j);
-          trackPointsFromWindow(pyramid->at(j), kpt_ids_window[tcid], new_transforms->keypoints[j],
+          trackPointsFromWindow(keyframes_pyramids[keyframes[i]]->at(j), pyramid->at(j),  //
+                                keyframes_keypoints[tcid], new_transforms->keypoints[j],
                                 new_transforms->window_tracks[j], new_transforms->window_tracks_ts[j],
                                 new_img_vec->masks.at(j), new_img_vec->masks.at(j), T_c1_c2, j, j, tracked_ids[j],
                                 keyframes[i]);
@@ -346,11 +365,11 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
     }
 
     if (config.optical_flow_window_size > 0) {
+      keyframes_pyramids[t_ns] = pyramid;
+
       for (size_t i = 0; i < num_cams; i++) {
         TimeCamId tcid(t_ns, i);
-        for (const auto& [kpid, _] : transforms->keypoints[i]) {
-          kpt_ids_window[tcid].push_back(kpid);
-        }
+        keyframes_keypoints[tcid] = transforms->keypoints[i];
       }
     }
 
@@ -362,22 +381,21 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
     frame_counter++;
   }
 
-  void trackPointsFromWindow(const ManagedImagePyr<uint16_t>& pyr_2,  //
-                             const std::vector<KeypointId>& kpt_ids_to_track, Keypoints& keypoint_map_2,
-                             Keypoints& guesses,  //
-                             std::map<KeypointId, int64_t>& guesses_ts, const Masks& masks1, const Masks& masks2,
-                             const SE3& T_c1_c2, size_t cam1, size_t cam2, std::set<KeypointId>& tracked_ids,
-                             int64_t keyframe_ts) const {
+  void trackPointsFromWindow(const ManagedImagePyr<uint16_t>& pyr_1, const ManagedImagePyr<uint16_t>& pyr_2,  //
+                             const Keypoints& keypoint_map_1, Keypoints& keypoint_map_2, Keypoints& guesses,
+                             std::map<KeypointId, int64_t>& guesses_ts,  //
+                             const Masks& masks1, const Masks& masks2, const SE3& T_c1_c2, size_t cam1, size_t cam2,
+                             std::set<KeypointId>& tracked_ids, int64_t keyframe_ts) const {
     std::vector<KeypointId> ids;
-    Eigen::aligned_vector<Eigen::aligned_vector<PatchT>> patches_vec;
+    Eigen::aligned_vector<Keypoint> init_vec;
 
-    ids.reserve(kpt_ids_to_track.size());
-    patches_vec.reserve(kpt_ids_to_track.size());
+    ids.reserve(keypoint_map_1.size());
+    init_vec.reserve(keypoint_map_1.size());
 
-    for (const auto& kpid : kpt_ids_to_track) {
+    for (const auto& [kpid, affine] : keypoint_map_1) {
       if (tracked_ids.count(kpid)) continue;
       ids.push_back(kpid);
-      patches_vec.push_back(patches.at(kpid));
+      init_vec.push_back(affine);
     }
     size_t num_points = ids.size();
 
@@ -395,11 +413,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
       for (size_t r = range.begin(); r != range.end(); ++r) {
         const KeypointId id = ids[r];
 
-        const Eigen::aligned_vector<PatchT>& patch_vec_1 = patches_vec[r];
-
-        Eigen::AffineCompact2f transform_1 = Eigen::AffineCompact2f::Identity();
-        transform_1.translation() = patch_vec_1.front().pos;
-
+        const Eigen::AffineCompact2f& transform_1 = init_vec[r];
         Eigen::AffineCompact2f transform_2 = transform_1;
 
         auto t1 = transform_1.translation();
@@ -427,13 +441,25 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
         valid = t2(0) >= 0 && t2(1) >= 0 && t2(0) < w && t2(1) < h;
         if (!valid) continue;
 
-        valid = trackPointFromPyrPatch(pyr_2, patch_vec_1, transform_2);
+        valid = trackPoint(pyr_1, pyr_2, transform_1, transform_2);
         if (!valid) continue;
 
         if (masks2.inBounds(t2.x(), t2.y())) continue;
 
-        result[id] = transform_2;
-        tracked_ids_tbb.insert(id);
+        Eigen::AffineCompact2f transform_1_recovered = transform_2;
+        auto t1_recovered = transform_1_recovered.translation();
+
+        t1_recovered += off;
+
+        valid = trackPoint(pyr_2, pyr_1, transform_2, transform_1_recovered);
+        if (!valid) continue;
+
+        Scalar dist2 = (t1 - t1_recovered).squaredNorm();
+
+        if (dist2 < config.optical_flow_window_max_recovered_dist2) {
+          result[id] = transform_2;
+          tracked_ids_tbb.insert(id);
+        }
       }
     };
 
@@ -752,7 +778,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
       const Eigen::Vector2d& corner = kd.corners[i];
       const float response = kd.corner_responses[i];
 
-      if (config.optical_flow_recall_enable || config.optical_flow_window_size > 0) {  // Save patch
+      if (config.optical_flow_recall_enable) {  // Save patch
         // TODO: Patches are never getting deleted
         Eigen::aligned_vector<PatchT>& p = patches[last_keypoint_id];
         Vector2 pos = corner.cast<Scalar>();
@@ -919,7 +945,8 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
   Eigen::aligned_vector<Eigen::MatrixXi> cells;  // Number of features in each gridcell
   std::vector<Keypoints> recalls;
   Eigen::aligned_unordered_map<int64_t, PoseVelBiasState<double>> keyframes_poses;
-  std::unordered_map<TimeCamId, std::vector<KeypointId>> kpt_ids_window;
+  std::unordered_map<int64_t, std::shared_ptr<std::vector<ManagedImagePyr<uint16_t>>>> keyframes_pyramids;
+  Eigen::aligned_unordered_map<TimeCamId, Keypoints> keyframes_keypoints;
   std::vector<int64_t> keyframes;
   const Vector3d accel_cov;
   const Vector3d gyro_cov;

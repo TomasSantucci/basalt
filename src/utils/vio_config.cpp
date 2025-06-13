@@ -239,6 +239,7 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.optical_flow_recall_max_patch_dist));
   ar(CEREAL_NVP(config.optical_flow_recall_max_patch_norms));
   ar(CEREAL_NVP(config.optical_flow_window_size));
+  ar(CEREAL_NVP(config.optical_flow_window_max_recovered_dist2));
 
   ar(CEREAL_NVP(config.vio_linearization_type));
   ar(CEREAL_NVP(config.vio_sqrt_marg));
