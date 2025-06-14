@@ -340,17 +340,18 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
                     new_img_vec->masks.at(i), new_img_vec->masks.at(i), T_c1_c2, i, i, tracked_ids[i]);
       }
 
-      for (int i = static_cast<int>(keyframes.size()) - 1; i >= 0; i--) {
-        for (size_t j = 0; j < num_cams; j++) {
-          SE3 T_c1 = keyframes_poses[keyframes[i]].T_w_i.template cast<Scalar>() * calib.T_i_c[j];
+      size_t num_keyframes = keyframes.size();
+      for (size_t i = 0; i < num_keyframes; ++i) {
+        size_t kf_idx = config.optical_flow_window_reverse_order ? i : num_keyframes - 1 - i;
+        for (size_t j = 0; j < num_cams; ++j) {
+          SE3 T_c1 = keyframes_poses[keyframes[kf_idx]].T_w_i.template cast<Scalar>() * calib.T_i_c[j];
           SE3 T_c2 = T_i2 * calib.T_i_c[j];
           SE3 T_c1_c2 = T_c1.inverse() * T_c2;
-          TimeCamId tcid(keyframes[i], j);
-          trackPointsFromWindow(keyframes_pyramids[keyframes[i]]->at(j), pyramid->at(j),  //
-                                keyframes_keypoints[tcid], new_transforms->keypoints[j],
-                                new_transforms->window_tracks[j], new_transforms->window_tracks_ts[j],
-                                new_img_vec->masks.at(j), new_img_vec->masks.at(j), T_c1_c2, j, j, tracked_ids[j],
-                                keyframes[i]);
+          TimeCamId tcid(keyframes[kf_idx], j);
+          trackPointsFromWindow(keyframes_pyramids[keyframes[kf_idx]]->at(j), pyramid->at(j), keyframes_keypoints[tcid],
+                                new_transforms->keypoints[j], new_transforms->window_tracks[j],
+                                new_transforms->window_tracks_ts[j], new_img_vec->masks.at(j), new_img_vec->masks.at(j),
+                                T_c1_c2, j, j, tracked_ids[j], keyframes[kf_idx]);
         }
       }
 

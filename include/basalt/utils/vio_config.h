@@ -72,6 +72,7 @@ struct VioConfig {
   std::vector<float> optical_flow_recall_max_patch_norms;  // Maximum patch residual norm to accept a recall
   int optical_flow_window_size;
   float optical_flow_window_max_recovered_dist2;
+  bool optical_flow_window_reverse_order;
 
   LinearizationType vio_linearization_type;
   bool vio_sqrt_marg;
