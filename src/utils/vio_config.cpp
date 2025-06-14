@@ -69,6 +69,9 @@ VioConfig::VioConfig() {
   optical_flow_recall_update_patch_viewpoint = false;
   optical_flow_recall_max_patch_dist = 3;
   optical_flow_recall_max_patch_norms = {1.74, 0.96, 0.99, 0.44};
+  optical_flow_window_size = 0;
+  optical_flow_window_max_recovered_dist2 = 0.01;
+  optical_flow_window_reverse_order = false;
 
   vio_linearization_type = LinearizationType::ABS_QR;
   vio_sqrt_marg = true;
