@@ -292,7 +292,9 @@ set_property(TARGET basalt::opencv PROPERTY INTERFACE_LINK_LIBRARIES ${OpenCV_LI
 find_package(fmt REQUIRED)
 message(STATUS "Found {fmt} ${fmt_VERSION} in: ${fmt_DIR}")
 
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5) # TODO: Patch for opengv, sophus, ros
 add_subdirectory(thirdparty)
+set(CMAKE_POLICY_VERSION_MINIMUM)
 
 # custom scoped vit target: https://gitlab.freedesktop.org/monado/utilities/vit/
 add_library(basalt::vit INTERFACE IMPORTED)
