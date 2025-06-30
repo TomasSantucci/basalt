@@ -68,7 +68,7 @@ void NfrMapper::initialize() {
         addMargData(marg_data);
 
         std::vector<int64_t> kf_ids;
-        for(const auto& [kf_id, _] : marg_data->frame_poses)
+        for (const auto& [kf_id, _] : marg_data->frame_poses)
           if (detected_keyframes.count(kf_id) == 0) kf_ids.push_back(kf_id);
         detect_keypoints(kf_ids);
         // detect_keypoints();       // --> Ajustar para que el mapper funcione bien con la detección del VIO
@@ -82,8 +82,19 @@ void NfrMapper::initialize() {
         // int num_opt_iter = 10;
         optimize(1); // --> Muy costoso. No debería hacerse en todas las iteraciones
 
-        // double outlier_threshold = 3;
-        // filterOutliers(outlier_threshold, 4);
+        if (out_vis_queue) {
+          mapper_visual_data = std::make_shared<NfrMapperVisualizationData>();
+
+          mapper_visual_data->t_ns = marg_data->t_ns;
+
+          for (const auto& kv : marg_data->frame_poses) {
+            SE3 T_w_i = kv.second.getPose();
+            mapper_visual_data->keyframe_poses[kv.first] = T_w_i.template cast<double>();
+          }
+          get_current_points(mapper_visual_data->landmarks, mapper_visual_data->landmarks_ids);
+
+          out_vis_queue->push(mapper_visual_data);
+        }
       } else {
         std::cout << "Done" << std::endl;
         break;
@@ -474,7 +485,6 @@ void NfrMapper::detect_keypoints() {
 }
 
 void NfrMapper::detect_keypoints(std::vector<int64_t> keys) {
-
   auto t1 = std::chrono::high_resolution_clock::now();
 
   tbb::parallel_for(tbb::blocked_range<size_t>(0, keys.size()), [&](const tbb::blocked_range<size_t>& r) {

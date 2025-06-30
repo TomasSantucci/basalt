@@ -720,7 +720,8 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
   }
   opt_flow_meas->input_images->addTime("landmarks_updated");
 
-  bool success = optimize_and_marg(opt_flow_meas->input_images, num_points_connected, lost_landmaks);
+  bool success =
+      optimize_and_marg(opt_flow_meas->input_images, num_points_connected, lost_landmaks, opt_flow_meas->t_ns);
   if (!success) return false;
 
   size_t num_cams = opt_flow_meas->keypoints.size();
@@ -860,7 +861,8 @@ bool SqrtKeypointVioEstimator<Scalar>::show_uimat(UIMAT m) const {
 
 template <class Scalar_>
 bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>& num_points_connected,
-                                                    const std::unordered_set<KeypointId>& lost_landmaks) {
+                                                    const std::unordered_set<KeypointId>& lost_landmaks,
+                                                    const int64_t curr_frame_t_ns) {
   if (!opt_started) return true;
 
   Timer t_total;
@@ -1105,6 +1107,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
 
       {
         MargData::Ptr m(new MargData);
+        m->t_ns = curr_frame_t_ns;
         m->aom = aom;
 
         if (is_lin_sqrt && marg_data.is_sqrt) {
@@ -1785,14 +1788,15 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
 template <class Scalar_>
 bool SqrtKeypointVioEstimator<Scalar_>::optimize_and_marg(const OpticalFlowInput::Ptr& input_images,
                                                           const std::map<int64_t, int>& num_points_connected,
-                                                          const std::unordered_set<KeypointId>& lost_landmaks) {
+                                                          const std::unordered_set<KeypointId>& lost_landmaks,
+                                                          const int64_t curr_frame_t_ns) {
   bool success = true;
 
   success &= optimize();
   if (!success) return false;
   input_images->addTime("optimized");
 
-  success &= marginalize(num_points_connected, lost_landmaks);
+  success &= marginalize(num_points_connected, lost_landmaks, curr_frame_t_ns);
   if (!success) return false;
   input_images->addTime("marginalized");
 

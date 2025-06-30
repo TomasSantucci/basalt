@@ -55,11 +55,26 @@ namespace basalt {
 template <size_t N>
 class HashBow;
 
+struct NfrMapperVisualizationData {
+  using Ptr = std::shared_ptr<NfrMapperVisualizationData>;
+
+  int64_t t_ns;
+
+  Eigen::aligned_vector<Eigen::Vector3d> landmarks;
+  std::vector<int> landmarks_ids;
+  Eigen::aligned_map<FrameId, size_t> keyframe_idx;
+  Eigen::aligned_map<int64_t, Sophus::SE3d> keyframe_poses;
+  //  std::map<int, Eigen::aligned_vector<Eigen::Vector3d>> observations;
+};
+
 class NfrMapper : public ScBundleAdjustmentBase<double> {
  public:
   using Scalar = double;
 
   using Ptr = std::shared_ptr<NfrMapper>;
+  using Vec3d = Eigen::Matrix<double, 3, 1>;
+  using Vec4d = Eigen::Matrix<double, 4, 1>;
+  using Mat4d = Eigen::Matrix<double, 4, 4>;
 
   template <class AccumT>
   struct MapperLinearizeAbsReduce : public ScBundleAdjustmentBase<Scalar>::LinearizeAbsReduce<AccumT> {
@@ -207,5 +222,8 @@ class NfrMapper : public ScBundleAdjustmentBase<double> {
 
   std::shared_ptr<std::thread> processing_thread;
 
+  NfrMapperVisualizationData::Ptr map_visual_data;
+  tbb::concurrent_bounded_queue<NfrMapperVisualizationData::Ptr>* out_vis_queue = nullptr;
+  NfrMapperVisualizationData::Ptr mapper_visual_data;
 };
 }  // namespace basalt

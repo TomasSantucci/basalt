@@ -125,10 +125,10 @@ class SqrtKeypointVioEstimator : public VioEstimatorBase, public SqrtBundleAdjus
   // void addNewState(int64_t data_t_ns);
 
   bool optimize_and_marg(const OpticalFlowInput::Ptr& input_images, const std::map<int64_t, int>& num_points_connected,
-                         const std::unordered_set<KeypointId>& lost_landmaks);
+                         const std::unordered_set<KeypointId>& lost_landmaks, const int64_t curr_frame_t_ns);
 
   bool marginalize(const std::map<int64_t, int>& num_points_connected,
-                   const std::unordered_set<KeypointId>& lost_landmaks);
+                   const std::unordered_set<KeypointId>& lost_landmaks, const int64_t curr_frame_t_ns);
   bool optimize();
 
   bool show_uimat(UIMAT m) const;
@@ -218,7 +218,7 @@ class SqrtKeypointVioEstimator : public VioEstimatorBase, public SqrtBundleAdjus
   std::set<int64_t> ltkfs;  // Long term keyframes
   bool take_ltkf;           // Whether the next keyframe should be made into ltkfs
   Eigen::aligned_map<int64_t, size_t> frame_idx;
-  bool get_map=false;
+  bool get_map = false;
   typename LandmarkDatabase<Scalar>::Ptr covisible_submap{};
 
   int64_t last_state_t_ns;

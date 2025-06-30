@@ -99,6 +99,8 @@ using UIMAT = vis::UIMAT;
 struct basalt_vio_ui : vis::VIOUIBase {
   std::unordered_map<int64_t, VioVisualizationData::Ptr> vis_map;
   std::unordered_map<int64_t, MapDatabaseVisualizationData::Ptr> mapper_vis_map;
+  NfrMapperVisualizationData::Ptr mapper_set_vis_data = nullptr;
+  std::unordered_map<int64_t, NfrMapperVisualizationData::Ptr> nfrmapper_vis_map;
 
   VioDatasetPtr vio_dataset;
   int64_t start_t_ns = -1;
@@ -110,6 +112,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
   tbb::concurrent_bounded_queue<basalt::VioVisualizationData::Ptr> out_vis_queue;
   tbb::concurrent_bounded_queue<basalt::MapDatabaseVisualizationData::Ptr> out_mapper_vis_queue;
+  tbb::concurrent_bounded_queue<basalt::NfrMapperVisualizationData::Ptr> out_nfrmapper_vis_queue;
   tbb::concurrent_bounded_queue<basalt::PoseVelBiasState<double>::Ptr> out_state_queue;
 
   std::vector<int64_t> vio_t_ns;
@@ -147,6 +150,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   thread vis_thread;
   thread ui_thread;
   thread map_vis_thread;
+  thread nfrmapper_vis_thread;
   thread state_consumer_thread;
   thread queues_printer_thread;
 
@@ -298,6 +302,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
       nfr_mapper.reset(new basalt::NfrMapper(calib, config));
       nfr_mapper->initialize();
       vio->out_marg_queue = &nfr_mapper->in_marg_queue;
+      if (show_gui) {
+        nfr_mapper->out_vis_queue = &out_nfrmapper_vis_queue;
+      }
     }
 
     basalt::MargDataSaver::Ptr marg_data_saver;
@@ -360,6 +367,22 @@ struct basalt_vio_ui : vis::VIOUIBase {
         }
 
         std::cout << "Finished map visualization thread" << std::endl;
+      });
+
+      nfrmapper_vis_thread = thread([&]() {
+        basalt::NfrMapperVisualizationData::Ptr data;
+
+        while (true) {
+          out_nfrmapper_vis_queue.pop(data);
+
+          if (data.get()) {
+            nfrmapper_vis_map[data->t_ns] = data;
+          } else {
+            break;
+          }
+        }
+
+        std::cout << "Finished NFR mapper visualization thread" << std::endl;
       });
     }
 
@@ -757,6 +780,17 @@ struct basalt_vio_ui : vis::VIOUIBase {
     }
   }
 
+  NfrMapperVisualizationData::Ptr get_curr_nfrmapper_vis_data() override {
+    int map_last_frame = show_frame;
+    while (true) {
+      if (map_last_frame == 0) return nullptr;
+      int64_t curr_ts = vio_dataset->get_image_timestamps().at(map_last_frame);
+      auto it = nfrmapper_vis_map.find(curr_ts);
+      if (it != nfrmapper_vis_map.end()) return it->second;
+      map_last_frame--;
+    }
+  }
+
   // Feed functions
   void feed_images() {
     std::cout << "Started input_data thread " << std::endl;
@@ -926,6 +960,30 @@ struct basalt_vio_ui : vis::VIOUIBase {
         glColor3ubv(vis::BLUE);
         glLineWidth(0.25);
         pangolin::glDrawLines(curr_map_vis_data->covisibility);
+      }
+    }
+    if (show_mapper) {
+      NfrMapperVisualizationData::Ptr curr_nfrmapper_vis_data = get_curr_nfrmapper_vis_data();
+      if (curr_nfrmapper_vis_data == nullptr) return;
+
+      glPointSize(3);
+      glEnable(GL_BLEND);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+      // SHOW NFR LANDMARKS
+      show_3d_points(curr_nfrmapper_vis_data->landmarks, curr_nfrmapper_vis_data->landmarks_ids, vis::ORANGE);
+
+      // SHOW NFR KEYFRAMES POSES
+      glLineWidth(0.25);
+      for (const auto& [kf_id, pose] : curr_nfrmapper_vis_data->keyframe_poses) {
+        pangolin::glDrawAxis(pose.matrix(), 0.1);
+        if (show_ids) {
+          glPushMatrix();
+          glMultMatrixd(pose.matrix().data());
+          glColor3ubv(vis::BLUE);
+          // FONT.Text("%d", curr_nfrmapper_vis_data->keyframe_idx[kf_id]).Draw(0, 0, -0.01F);
+          glPopMatrix();
+        }
       }
     }
   }

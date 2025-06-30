@@ -274,6 +274,7 @@ struct VIOUIBase {
 
   Var<bool> map_menu{"ui.Map Menu", false, true};
   Var<string> map_menu_title{"map_menu.MENU", "Map Menu", META_FLAG_READONLY};
+  Var<bool> show_mapper{"map_menu.show_mapper", false, true};
   Var<bool> show_vio{"map_menu.show_vio", true, true};
   Var<bool> show_map{"map_menu.show_map", false, true};
   Var<bool> show_covisibility{"map_menu.show_covisibility", false, true};
@@ -334,6 +335,7 @@ struct VIOUIBase {
 
   virtual VioVisualizationData::Ptr get_curr_vis_data() = 0;
   virtual MapDatabaseVisualizationData::Ptr get_curr_map_vis_data() = 0;
+  virtual NfrMapperVisualizationData::Ptr get_curr_nfrmapper_vis_data() = 0;
 
   KeypointId get_kpid_at(size_t cam_id, int x, int y, float radius = 10);
   bool is_highlighted(size_t lmid) const { return vis::is_selected(highlights, lmid); }
