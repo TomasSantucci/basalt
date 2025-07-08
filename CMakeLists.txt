@@ -5,6 +5,10 @@ project(basalt)
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules/" ${CMAKE_MODULE_PATH})
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if(CMAKE_TOOLCHAIN_FILE)
+  message(STATUS "Using CMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
+endif()
+
 # Try to use mold linker if found
 find_program(MOLD_PROGRAM mold)
 if(MOLD_PROGRAM)
@@ -20,13 +24,15 @@ if(NOT EIGEN_ROOT)
 endif()
 
 string(TOLOWER "${PROJECT_NAME}" PROJECT_NAME_LOWERCASE)
-find_program(DPKG_PROGRAM dpkg DOC "dpkg program of Debian-based systems")
-if(DPKG_PROGRAM)
-  execute_process(
-    COMMAND ${DPKG_PROGRAM} --print-architecture OUTPUT_VARIABLE CPACK_DEBIAN_PACKAGE_ARCHITECTURE
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-  )
-endif(DPKG_PROGRAM)
+if(NOT CPACK_DEBIAN_PACKAGE_ARCHITECTURE)
+  find_program(DPKG_PROGRAM dpkg DOC "dpkg program of Debian-based systems")
+  if(DPKG_PROGRAM)
+    execute_process(
+      COMMAND ${DPKG_PROGRAM} --print-architecture OUTPUT_VARIABLE CPACK_DEBIAN_PACKAGE_ARCHITECTURE
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+  endif()
+endif()
 
 find_program(LSB_RELEASE_PROGRAM lsb_release DOC "lsb_release program of Debian-based systems")
 if(LSB_RELEASE_PROGRAM)
@@ -95,6 +101,10 @@ if(NOT APPLE OR NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
   set(BASALT_MARCH_FLAGS "-march=${CXX_MARCH}")
 else()
   message(STATUS "Running on Apple ${CMAKE_SYSTEM_PROCESSOR}. Disabled -march flag.")
+endif()
+
+if(CXX_MCPU)
+  set(BASALT_MCPU_FLAGS "-mcpu=${CXX_MCPU}")
 endif()
 
 set(CMAKE_CXX_STANDARD 17)
@@ -255,7 +265,7 @@ if(BASALT_INSTANTIATIONS_FLOAT)
 endif()
 
 # setup combined compiler flags
-set(CMAKE_CXX_FLAGS "${BASALT_CXX_FLAGS} ${BASALT_MARCH_FLAGS} ${BASALT_PASSED_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "${BASALT_CXX_FLAGS} ${BASALT_MARCH_FLAGS} ${BASALT_MCPU_FLAGS} ${BASALT_PASSED_CXX_FLAGS}")
 
 set(EIGEN_INCLUDE_DIR_HINTS ${EIGEN_ROOT})
 find_package(Eigen3 3.4.0 EXACT REQUIRED MODULE)

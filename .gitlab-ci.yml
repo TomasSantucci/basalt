@@ -75,6 +75,64 @@ clang19-ubuntu-2404:
     - cmake --preset=ci
     - time cmake --build build
 
+aarch64-raspberry-bookworm:
+  extends: .ccache
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+  tags: [basalt-docker]
+  stage: build
+  when: manual
+  script:
+    - echo BUILD_RASPBERRY_BOOKWORM_JOB_ID=$CI_JOB_ID >> release.env
+    - apt-get update && apt-get install -y wget
+    - wget --no-verbose https://syncandshare.lrz.de/dl/fi2VEkRPgLW2mb6UHaXJk3/bookworm-arm64-sysroot.tar.xz # TODO: update to use basalt-lfs
+    - wget --no-verbose https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - tar -xf x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - tar -xf bookworm-arm64-sysroot.tar.xz
+    - git apply --directory thirdparty/Pangolin/ scripts/aarch64-patches/pangolin.patch
+    - cmake --preset=rpi4
+    - time cmake --build build
+    - cd build && cpack
+    - mv *.deb ../basalt-monado-raspberry-bookworm-pi4-aarch64.deb
+    - cd ..
+    - cmake --preset=rpi5
+    - time cmake --build build
+    - cd build && cpack
+    - mv *.deb ../basalt-monado-raspberry-bookworm-pi5-aarch64.deb
+  artifacts:
+    name: basalt-monado-raspberry-bookworm
+    expose_as: "basalt-monado-raspberry-bookworm-aarch64-debs"
+    paths:
+      - "basalt-monado-raspberry-bookworm-pi4-aarch64.deb"
+      - "basalt-monado-raspberry-bookworm-pi5-aarch64.deb"
+    reports:
+      dotenv: release.env
+
+aarch64-radxa-jammy:
+  extends: .ccache
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+  tags: [basalt-docker]
+  stage: build
+  when: manual
+  script:
+    - echo BUILD_RADXA_JAMMY_JOB_ID=$CI_JOB_ID >> release.env
+    - apt-get update && apt-get install -y wget
+    - wget --no-verbose https://syncandshare.lrz.de/dl/fiUqksbXqxo49qofyjgwUe/jammy-arm64-sysroot.tar.xz # TODO: update to use basalt-lfs
+    - wget --no-verbose https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - tar -xf x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - tar -xf jammy-arm64-sysroot.tar.xz
+    - git apply --directory thirdparty/Pangolin/ scripts/aarch64-patches/pangolin.patch
+    - cmake --preset=radxa
+    - time cmake --build build
+    - cd build && cpack
+    - mv *.deb ../basalt-monado-radxa-jammy-aarch64.deb
+  artifacts:
+    name: basalt-monado-radxa-jammy
+    expose_as: "basalt-monado-radxa-jammy-aarch64"
+    paths:
+      - "basalt-monado-radxa-jammy-aarch64.deb"
+    reports:
+      dotenv: release.env
+
 clangd-tidy-delta:
   stage: analyze
   image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
@@ -104,18 +162,27 @@ release:
     - echo "Releasing artifacts of previous jobs"
     - curl --location --output /usr/local/bin/release-cli "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64"
     - chmod +x /usr/local/bin/release-cli
-  needs: ["gcc-ubuntu-2204", "gcc-ubuntu-2404-wtest"]
+  needs: ["gcc-ubuntu-2204", "gcc-ubuntu-2404-wtest", "aarch64-raspberry-bookworm", "aarch64-radxa-jammy"]
   release:
     name: "Release of $CI_COMMIT_SHORT_SHA"
     tag_name: "release-$CI_COMMIT_SHORT_SHA"
     description: "Release of Monado's Basalt for $CI_COMMIT_SHORT_SHA"
     assets:
       links:
-        - name: "Ubuntu 22.04 .deb (amd64, -march=haswell)"
+        - name: "Ubuntu 22.04 .deb (lib only, amd64, -march=haswell)"
           url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_UBUNTU_2204_JOB_ID}/artifacts/raw/basalt-monado-ubuntu-22.04-haswell-amd64.deb"
           link_type: package
-        - name: "Ubuntu 24.04 .deb (amd64, -march=haswell)"
+        - name: "Ubuntu 24.04 .deb (lib only, amd64, -march=haswell)"
           url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_UBUNTU_2404_JOB_ID}/artifacts/raw/basalt-monado-ubuntu-24.04-haswell-amd64.deb"
+          link_type: package
+        - name: "Raspberry Pi 4: Raspberry OS Bookworm 12.5 .deb (aarch64, -mcpu=cortex-a72)"
+          url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_RASPBERRY_BOOKWORM_JOB_ID}/artifacts/raw/basalt-monado-raspberry-bookworm-pi4-aarch64.deb"
+          link_type: package
+        - name: "Raspberry Pi 5: Raspberry OS Bookworm 12.5 .deb (aarch64, -mcpu=cortex-a76)"
+          url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_RASPBERRY_BOOKWORM_JOB_ID}/artifacts/raw/basalt-monado-raspberry-bookworm-pi5-aarch64.deb"
+          link_type: package
+        - name: "Radxa Zero 3W: Ubuntu 22.04 .deb (aarch64, -mcpu=cortex-a55)"
+          url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_RADXA_JAMMY_JOB_ID}/artifacts/raw/basalt-monado-radxa-jammy-aarch64.deb"
           link_type: package
 
 create-evaluation:

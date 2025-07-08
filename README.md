@@ -7,10 +7,10 @@ Basalt authors.
 
 ## Installation
 
-- **Ubuntu**: Download [latest .deb](https://gitlab.freedesktop.org/mateosss/basalt/-/releases) and install with
+- **Prebuilt (Ubuntu/Raspberry/Radxa)**: Download [latest .deb](https://gitlab.freedesktop.org/mateosss/basalt/-/releases) and install with
 
   ```bash
-  sudo apt install -y ./basalt-monado-ubuntu-2?.04-haswell-amd64.deb
+  sudo apt install -y ./basalt-monado-*.deb
   ```
 
 - **From source (Linux)**
