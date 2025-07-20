@@ -69,6 +69,8 @@ struct Landmark {
 
   LandmarkId id;
 
+  std::bitset<256> descriptor;
+
   inline void backup() {
     backup_direction = direction;
     backup_inv_dist = inv_dist;

@@ -686,6 +686,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
             lm_pos.host_kf_id = tcidl;
             lm_pos.direction = StereographicParam<Scalar>::project(p0_triangulated);
             lm_pos.inv_dist = p0_triangulated[3];
+            lm_pos.descriptor = opt_flow_meas->keypoints_descriptors[i].at(lm_id);
             lmdb.addLandmark(lm_id, lm_pos);
 
             num_points_added++;
@@ -792,6 +793,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
       Vec4 pt_w = T_w_c * pt_c;
       lmb->lmids.emplace_back(lmid);
       lmb->lms.emplace_back(pt_w.template cast<float>());
+      lmb->descriptors.emplace_back(lm.descriptor);
     }
     opt_flow_lm_bundle_queue->push(lmb);
   }
