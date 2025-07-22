@@ -1,4 +1,47 @@
-# Cross-Compiling Basalt for Raspberry Pi (4 & 5)
+# Running Basalt on a Raspberry Pi (4 & 5)
+
+## Running the `.deb` without building
+
+Quick commands to get you up and running on a raspberry pi 4 or 5 running
+Raspberry Pi OS. Tested on a pi 400 running debian-based Raspberry Pi OS
+bookworm 12.5 aarch64, and on a Raspberry Pi 5 with bookworm 12 (thanks
+[KopterBuzz](https://github.com/KopterBuzz)).
+
+```bash
+sudo apt update && sudo apt upgrade
+
+wget https://gitlab.freedesktop.org/mateosss/basalt/-/raw/main/scripts/install_deps.sh
+sudo chmod +x ./install_deps.sh
+sudo ./install_deps.sh
+
+# Update libstdc++ (might not be necessary in future updates of Raspberry Pi OS)
+wget https://syncandshare.lrz.de/dl/fiNh64Rj72bKTypBoZSx2o/libstdc%2B%2B.so.6.0.33
+sudo mkdir -p /usr/local/lib/aarch64-linux-gnu
+sudo mv libstdc++.so.6.0.33 /usr/local/lib/aarch64-linux-gnu
+sudo ln -s libstdc++.so.6.0.33 /usr/local/lib/aarch64-linux-gnu/libstdc++.so.6
+sudo ldconfig
+
+# Install latest basalt .deb (see for newer versions here: https://gitlab.freedesktop.org/mateosss/basalt/-/releases)
+wget https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/80018889/artifacts/raw/basalt-monado-raspberry-bookworm-pi5-aarch64.deb
+sudo apt install -f ./basalt-monado-raspberry-bookworm-pi5-aarch64.deb
+basalt_vio --help # Check that the binary runs
+
+# Get a dataset
+wget https://huggingface.co/datasets/collabora/monado-slam-datasets/resolve/main/M_monado_datasets/MO_odyssey_plus/MOO_others/MOO11_short_3_backandforth.zip
+unzip MOO11_short_3_backandforth.zip
+
+# Let's tune the config file slightly for a bit more performance
+cp /usr/local/share/basalt/msdmo_config.json config.json
+sed -i -e 's/\("config.optical_flow_detection_grid_size": \)[0-9]\+/\140/' config.json
+sed -i -e 's/\("config.optical_flow_detection_min_threshold": \)[0-9]\+/\120/' config.json
+
+# Run and time for thrice to get accurate run durations (see the lowest "Total runtime" for ignoring dataset loading)
+time basalt_vio --show-gui 0 --dataset-path MOO11_short_3_backandforth --config-path config.json --cam-calib /usr/local/share/basalt/msdmo_calib.json
+time basalt_vio --show-gui 0 --dataset-path MOO11_short_3_backandforth --config-path config.json --cam-calib /usr/local/share/basalt/msdmo_calib.json
+time basalt_vio --show-gui 0 --dataset-path MOO11_short_3_backandforth --config-path config.json --cam-calib /usr/local/share/basalt/msdmo_calib.json
+```
+
+## Cross-Compiling from scratch
 
 This guide was made and tested under Ubuntu 24.04 with crosscompiling to a
 raspberry pi 400 running the latest raspberry pi OS (based on debian bookworm
