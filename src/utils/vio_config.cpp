@@ -280,6 +280,8 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.vio_obs_huber_thresh));
   ar(CEREAL_NVP(config.vio_min_triangulation_dist));
 
+  ar(CEREAL_NVP(config.vio_erase_old_vis_data));
+
   ar(CEREAL_NVP(config.vio_enforce_realtime));
 
   ar(CEREAL_NVP(config.vio_use_lm));
