@@ -424,6 +424,16 @@ struct basalt_vio_ui : vis::VIOUIBase {
           out_mapper_vis_queue.pop(data);
 
           if (data.get()) {
+            if (config.vio_erase_old_vis_data) {
+              int64_t last_frame_ts = vio_dataset->get_image_timestamps().at(show_frame);
+              for (auto it = mapper_vis_map.begin(); it != mapper_vis_map.end();) {
+                if (it->first < last_frame_ts) {
+                  it = mapper_vis_map.erase(it);
+                } else {
+                  ++it;
+                }
+              }
+            }
             mapper_vis_map[data->t_ns] = data;
           } else {
             break;

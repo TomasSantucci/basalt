@@ -91,6 +91,8 @@ struct VioConfig {
   double vio_obs_huber_thresh;
   double vio_min_triangulation_dist;
 
+  bool vio_erase_old_vis_data;
+
   bool vio_enforce_realtime;
 
   bool vio_use_lm;
