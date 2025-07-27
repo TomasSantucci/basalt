@@ -247,6 +247,12 @@ struct VIOUIBase {
   View* plot_display;
   View* blocks_display;
   shared_ptr<ImageView> blocks_view;
+  View* similar_keyframes_display;
+  shared_ptr<ImageView> similar_keyframes_view;
+  int64_t last_kf_with_similars;
+  bool show_similar_keyframes = false;
+  size_t similar_kf_idx = 0;
+  size_t similar_kf_count = 0;
   vector<shared_ptr<ImageView>> img_view;
   bool show_blocks = false;
   Selection highlights{};
@@ -277,6 +283,8 @@ struct VIOUIBase {
   Var<bool> show_mapper{"map_menu.show_mapper", false, true};
   Var<bool> show_vio{"map_menu.show_vio", true, true};
   Var<bool> show_map{"map_menu.show_map", false, true};
+  Button toggle_similar_keyframes_btn{"map_menu.toggle_similar_kfs", [this]() { toggle_similar_keyframes(); }};
+  Button next_similar_keyframe_btn{"map_menu.next_similar_kf", [this]() { next_similar_kf(); }};
   Var<bool> show_covisibility{"map_menu.show_covisibility", false, true};
   Var<bool> show_observations{"map_menu.show_observations", false, true};
   Button take_map_btn{"map_menu.Get Covisibility Map", [this]() { get_covisibility_map(); }};
@@ -335,6 +343,7 @@ struct VIOUIBase {
 
   virtual VioVisualizationData::Ptr get_curr_vis_data() = 0;
   virtual MapDatabaseVisualizationData::Ptr get_curr_map_vis_data() = 0;
+  virtual PlaceRecognitionVisualizationData::Ptr get_curr_pr_vis_data() = 0;
   virtual NfrMapperVisualizationData::Ptr get_curr_nfrmapper_vis_data() = 0;
 
   KeypointId get_kpid_at(size_t cam_id, int x, int y, float radius = 10);
@@ -368,6 +377,11 @@ struct VIOUIBase {
   void do_show_hessian(UIHessians& uih);
   void do_show_jacobian(UIJacobians& uij);
   bool do_follow_highlight(bool follow, bool smooth_zoom);
+  bool toggle_similar_keyframes();
+  bool do_toggle_similar_keyframes();
+  void draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
+                                      tbb::concurrent_unordered_map<int64_t, int>& timestamp_to_id);
+  void next_similar_kf();
 
   void do_render_camera(const Sophus::SE3d& T_w_c, size_t i, size_t ts, const uint8_t* color);
 };

@@ -1,12 +1,21 @@
 #include <basalt/vi_estimator/map_database.h>
+#include "basalt/utils/common_types.h"
+#include "basalt/utils/eigen_utils.hpp"
+#include "basalt/utils/keypoints.h"
+#include "basalt/vi_estimator/landmark_database.h"
+
+#include <opengv/absolute_pose/CentralAbsoluteAdapter.hpp>
+#include <opengv/absolute_pose/methods.hpp>
+#include <opengv/sac/Ransac.hpp>
+#include <opengv/sac_problems/absolute_pose/AbsolutePoseSacProblem.hpp>
 
 namespace basalt {
 
-MapDatabase::MapDatabase(const VioConfig& config, const Calibration<double>& calib)
-    : out_vis_queue(nullptr) {
+MapDatabase::MapDatabase(const VioConfig& config, const Calibration<double>& calib) {
   this->config = config;
   this->calib = calib;
   this->map = LandmarkDatabase<float>("Persistent Map");
+  hash_bow_database.reset(new HashBow<256>(config.mapper_bow_num_bits));
 }
 
 void MapDatabase::initialize() {
@@ -31,6 +40,7 @@ void MapDatabase::initialize() {
       if (map_stamp == nullptr) {
         map.print();
         if (out_vis_queue) out_vis_queue->push(nullptr);
+        if (out_pr_vis_queue) out_pr_vis_queue->push(nullptr);
         break;
       }
 
@@ -43,6 +53,22 @@ void MapDatabase::initialize() {
         computeSpatialDistributions(kfs_to_compute);
       }
 
+      // Use the last keyframe to detect loops
+      TimeCamId maps_last_kf = TimeCamId{map.getLastKeyframe().frame_id, 0};
+      std::vector<TimeCamId> similar_kfs;
+      std::unordered_map<TimeCamId, SE3> corrected_pose;
+      std::unordered_map<TimeCamId, SE3> candidate_pose;
+      if (out_pr_vis_queue) {
+        place_recognition_visualization_data = std::make_shared<PlaceRecognitionVisualizationData>();
+        place_recognition_visualization_data->t_ns = maps_last_kf.frame_id;
+      }
+      findSimilarKeyframes(maps_last_kf, similar_kfs);
+
+      if (out_pr_vis_queue && place_recognition_visualization_data->similar_kfs.size())
+        out_pr_vis_queue->push(place_recognition_visualization_data);
+
+      updateHashBowDatabase(map_stamp->lmdb);
+
       if (out_vis_queue) {
         map_visual_data = std::make_shared<MapDatabaseVisualizationData>();
         map_visual_data->t_ns = map_stamp->t_ns;
@@ -54,6 +80,190 @@ void MapDatabase::initialize() {
 
   reading_thread.reset(new std::thread(read_func));
   writing_thread.reset(new std::thread(write_func));
+}
+
+void MapDatabase::updateHashBowDatabase(const LandmarkDatabase<Scalar>::Ptr& lmdb) {
+  if (lmdb->getKeyframes().empty()) return;
+
+  size_t num_cams = calib.intrinsics.size();
+
+  for (const auto& [frameid, kf] : lmdb->getKeyframes()) {
+    for (size_t cam_id = 0; cam_id < num_cams; cam_id++) {
+      TimeCamId tcid{frameid, cam_id};
+      if (hash_bow_database->has_keyframe(tcid)) continue;
+
+      std::set<LandmarkId> landmarks = lmdb->getKeyframeObs().at(tcid);
+
+      std::vector<std::bitset<256>> descriptors;
+      descriptors.reserve(landmarks.size());
+      for (const auto& lm_id : landmarks) {
+        auto lm = lmdb->getLandmark(lm_id);
+        const auto& descriptor = lm.descriptor;
+        descriptors.emplace_back(descriptor);
+      }
+
+      HashBowVector bow_vector;
+      std::vector<FeatureHash> hashes;
+      hash_bow_database->compute_bow(descriptors, hashes, bow_vector);
+
+      hash_bow_database->add_to_database(tcid, bow_vector);
+    }
+  }
+}
+
+void MapDatabase::findSimilarKeyframes(const TimeCamId& kf, std::vector<TimeCamId>& similar_kfs) {
+  similar_kfs.clear();
+
+  // Obtain the landmarks observed by kf and its descriptors
+  std::set<LandmarkId> landmarks = map.getKeyframeObs().at(kf);
+  std::vector<std::bitset<256>> descriptors;
+  std::vector<Landmark<Scalar>> landmarks_vector;
+  descriptors.reserve(landmarks.size());
+  landmarks_vector.reserve(landmarks.size());
+  for (const auto& lm_id : landmarks) {
+    auto lm = map.getLandmark(lm_id);
+    const auto& descriptor = lm.descriptor;
+    descriptors.emplace_back(descriptor);
+    landmarks_vector.emplace_back(lm);
+  }
+
+  // Obtain similar keyframes using the hash bow database
+  HashBowVector bow_vector;
+  std::vector<FeatureHash> hashes;
+  hash_bow_database->compute_bow(descriptors, hashes, bow_vector);
+  std::vector<std::pair<TimeCamId, double>> results;
+  hash_bow_database->querry_database(bow_vector, config.mapper_num_frames_to_match, results);
+
+  if (out_pr_vis_queue) {
+    Sophus::SE3f T_w_i = map.getKeyframePose(kf.frame_id);
+    Sophus::SE3f T_i_c = calib.T_i_c[kf.cam_id].cast<float>();
+    Sophus::SE3f kf_pose = T_w_i * T_i_c;
+    place_recognition_visualization_data->keyframe_pose = kf_pose;
+  }
+
+  for (const auto& [candidate_kf_tcid, score] : results) {
+    if (candidate_kf_tcid.frame_id == kf.frame_id) continue;
+    if (score < config.mapper_frames_to_match_threshold) continue;
+
+    // Skip if the candidate keyframe is covisible with the last keyframe
+    std::set<LandmarkId> candidate_kf_landmarks = map.getKeyframeObs().at(candidate_kf_tcid);
+    std::vector<LandmarkId> common;
+    std::set_intersection(candidate_kf_landmarks.begin(), candidate_kf_landmarks.end(), landmarks.begin(),
+                          landmarks.end(), std::back_inserter(common));
+    if (!common.empty()) continue;
+
+    // Obtain the landmarks observed by the candidate keyframe and its descriptors
+    std::vector<std::bitset<256>> candidate_kf_descriptors;
+    std::vector<Landmark<Scalar>> candidate_kf_landmarks_vector;
+    candidate_kf_descriptors.reserve(candidate_kf_landmarks.size());
+    candidate_kf_landmarks_vector.reserve(candidate_kf_landmarks.size());
+    for (const auto& lm_id : candidate_kf_landmarks) {
+      auto lm = map.getLandmark(lm_id);
+      const auto& descriptor = lm.descriptor;
+      candidate_kf_descriptors.emplace_back(descriptor);
+      candidate_kf_landmarks_vector.emplace_back(lm);
+    }
+
+    // Match descriptors between the keyframes
+    std::vector<std::pair<int, int>> matches;
+    matchDescriptors(descriptors, candidate_kf_descriptors, matches, config.mapper_max_hamming_distance,
+                     config.mapper_second_best_test_ratio);
+
+    // Skip if there are less than mapper_min_matches matches
+    if (matches.size() < config.mapper_min_matches) continue;
+
+    // Perform geometric verification
+    std::vector<std::pair<int, int>> inlier_matches;
+    Sophus::SE3d T_last_kf;
+    bool valid =
+        computeAbsolutePose(kf, landmarks_vector, candidate_kf_landmarks_vector, matches, inlier_matches, T_last_kf);
+    if (!valid) continue;
+
+    // The candidate keyframe is valid
+    similar_kfs.emplace_back(candidate_kf_tcid);
+
+    if (out_pr_vis_queue) {
+      Sophus::SE3f T_w_i = map.getKeyframePose(candidate_kf_tcid.frame_id);
+      Sophus::SE3f T_i_c = calib.T_i_c[candidate_kf_tcid.cam_id].cast<float>();
+      Sophus::SE3f candidate_pose = T_w_i * T_i_c;
+      place_recognition_visualization_data->similar_kfs.emplace_back(candidate_kf_tcid);
+      place_recognition_visualization_data->corrected_pose[candidate_kf_tcid] = T_last_kf.cast<float>();
+      place_recognition_visualization_data->candidate_pose[candidate_kf_tcid] = candidate_pose;
+
+      for (const auto& [left, right] : inlier_matches) {
+        Vec2 left_pos = landmarks_vector[left].obs.at(kf);
+        Vec2 right_pos = candidate_kf_landmarks_vector[right].obs.at(candidate_kf_tcid);
+
+        place_recognition_visualization_data->matches[candidate_kf_tcid].emplace_back(
+            std::make_pair(left_pos, right_pos));
+      }
+    }
+  }
+}
+
+bool MapDatabase::computeAbsolutePose(const TimeCamId& last_kf_tcid,
+                                      const std::vector<Landmark<Scalar>>& last_kf_landmarks,
+                                      const std::vector<Landmark<Scalar>>& candidate_kf_landmarks,
+                                      const std::vector<std::pair<int, int>>& matches,
+                                      std::vector<std::pair<int, int>>& inlier_matches, Sophus::SE3d& absolute_pose) {
+  opengv::bearingVectors_t bearingVectors;
+  opengv::points_t points;
+
+  for (auto& [left, right] : matches) {
+    Eigen::Vector4d tmp;
+    if (!calib.intrinsics[last_kf_tcid.cam_id].unproject(last_kf_landmarks[left].obs.at(last_kf_tcid).cast<double>(),
+                                                         tmp)) {
+      continue;
+    }
+    Eigen::Vector3d bearing = tmp.head<3>();
+    bearing.normalize();
+    bearingVectors.push_back(bearing);
+
+    Landmark<Scalar> lm = candidate_kf_landmarks[right];
+    TimeCamId host_kf_id = lm.host_kf_id;
+    Sophus::SE3f T_w_i = map.getKeyframePose(host_kf_id.frame_id);
+    Sophus::SE3f T_i_c = calib.T_i_c[host_kf_id.cam_id].cast<float>();
+    Sophus::SE3f T_w_candidate = T_w_i * T_i_c;
+
+    Vec4f pt_c = StereographicParam<Scalar>::unproject(lm.direction);
+    pt_c *= 1 / lm.inv_dist;
+    pt_c[3] = 1;
+    Vec4f pt_w = T_w_candidate * pt_c;
+    Eigen::Vector3d point = pt_w.head<3>().template cast<double>();
+    points.push_back(point);
+  }
+
+  opengv::absolute_pose::CentralAbsoluteAdapter adapter(bearingVectors, points);
+
+  opengv::sac::Ransac<opengv::sac_problems::absolute_pose::AbsolutePoseSacProblem> ransac;
+  std::shared_ptr<opengv::sac_problems::absolute_pose::AbsolutePoseSacProblem> absposeproblem_ptr(
+      new opengv::sac_problems::absolute_pose::AbsolutePoseSacProblem(
+          adapter, opengv::sac_problems::absolute_pose::AbsolutePoseSacProblem::KNEIP));
+  ransac.sac_model_ = absposeproblem_ptr;
+  ransac.threshold_ = config.mapper_pnp_ransac_threshold;
+  ransac.max_iterations_ = config.mapper_pnp_ransac_iterations;
+
+  ransac.computeModel();
+
+  adapter.sett(ransac.model_coefficients_.topRightCorner<3, 1>());
+  adapter.setR(ransac.model_coefficients_.topLeftCorner<3, 3>());
+
+  const opengv::transformation_t nonlinear_transformation =
+      opengv::absolute_pose::optimize_nonlinear(adapter, ransac.inliers_);
+
+  ransac.sac_model_->selectWithinDistance(nonlinear_transformation, ransac.threshold_, ransac.inliers_);
+
+  absolute_pose =
+      Sophus::SE3d(nonlinear_transformation.topLeftCorner<3, 3>(), nonlinear_transformation.topRightCorner<3, 1>());
+
+  size_t num_inliers = ransac.inliers_.size();
+
+  inlier_matches.reserve(num_inliers);
+  for (size_t i = 0; i < num_inliers; i++) {
+    inlier_matches.emplace_back(matches[ransac.inliers_[i]]);
+  }
+
+  return num_inliers >= static_cast<size_t>(config.mapper_pnp_min_inliers);
 }
 
 void MapDatabase::get_map_points(Eigen::aligned_vector<Vec3d>& points, std::vector<int>& ids) {
@@ -139,12 +349,10 @@ void MapDatabase::handleCovisibilityReq(const std::vector<size_t>& curr_kpts) {
   if (config.map_covisibility_criteria == MapCovisibilityCriteria::MAP_COV_DEFAULT) {
     covisible_submap = std::make_shared<LandmarkDatabase<Scalar>>("Covisible Submap");
     map.getCovisibilityMap(covisible_submap);
-  }
-  else if (config.map_covisibility_criteria == MapCovisibilityCriteria::MAP_COV_STS) {
+  } else if (config.map_covisibility_criteria == MapCovisibilityCriteria::MAP_COV_STS) {
     computeSTSMap(curr_kpts);
     covisible_submap = std::make_shared<LandmarkDatabase<Scalar>>(*sts_map);
-  }
-  else {
+  } else {
     BASALT_LOG_FATAL("Unexpected covisibility criteria");
   }
   if (out_covi_res_queue) out_covi_res_queue->push(covisible_submap);

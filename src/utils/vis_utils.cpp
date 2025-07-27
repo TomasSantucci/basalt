@@ -154,6 +154,17 @@ bool VIOUIBase::toggle_blocks() {
   return show_blocks;
 }
 
+bool VIOUIBase::toggle_similar_keyframes() {
+  show_similar_keyframes = do_toggle_similar_keyframes();
+  return show_similar_keyframes;
+}
+
+void VIOUIBase::next_similar_kf() {
+  if (similar_kf_count) {
+    similar_kf_idx = (similar_kf_idx + 1) % similar_kf_count;
+  }
+}
+
 bool VIOUIBase::take_ltkf() {
   vio->takeLongTermKeyframe();
   return true;
@@ -688,6 +699,68 @@ void VIOUIBase::draw_blocks_overlay() {
   }
 }
 
+void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
+                                               tbb::concurrent_unordered_map<int64_t, int>& timestamp_to_id) {
+  const PlaceRecognitionVisualizationData::Ptr curr_pr_vis_data = get_curr_pr_vis_data();
+  if (curr_pr_vis_data == nullptr) return;
+
+  const std::vector<TimeCamId>& similar_kfs = curr_pr_vis_data->similar_kfs;
+
+  if (similar_kfs.empty()) return;
+
+  int64_t t_ns = curr_pr_vis_data->t_ns;
+
+  if (t_ns != last_kf_with_similars) {
+    last_kf_with_similars = t_ns;
+    similar_kf_idx = 0;
+    similar_kf_count = similar_kfs.size();
+  }
+
+  TimeCamId candidate_tcid = similar_kfs[similar_kf_idx];
+  basalt::ManagedImage<uint16_t>::Ptr current_img = vio_dataset->get_image_data(t_ns)[0].img;
+  basalt::ManagedImage<uint16_t>::Ptr candidate_img =
+      vio_dataset->get_image_data(candidate_tcid.frame_id)[candidate_tcid.cam_id].img;
+
+  basalt::ManagedImage<uint16_t> combined_imgs(current_img->w + candidate_img->w, current_img->h);
+  for (size_t j = 0; j < current_img->h; ++j) {
+    uint16_t* row = combined_imgs.RowPtr(j);
+    const uint16_t* row1 = current_img->RowPtr(j);
+    const uint16_t* row2 = candidate_img->RowPtr(j);
+
+    std::memcpy(row, row1, current_img->w * sizeof(uint16_t));
+    std::memcpy(row + current_img->w, row2, candidate_img->w * sizeof(uint16_t));
+  }
+
+  Eigen::aligned_vector<std::pair<Eigen::Matrix<float, 2, 1>, Eigen::Matrix<float, 2, 1>>> matches =
+      curr_pr_vis_data->matches[candidate_tcid];
+
+  glColor3ubv(BLUE);
+  for (const auto& match : matches) {
+    Eigen::Vector2f p1 = match.first;
+    Eigen::Vector2f p2 = match.second;
+    p2[0] += current_img->w;
+
+    glBegin(GL_LINES);
+    glVertex2f(p1[0], p1[1]);
+    glVertex2f(p2[0], p2[1]);
+    glEnd();
+
+    pangolin::glDrawCirclePerimeter(p1.cast<double>(), 3.0f);
+    pangolin::glDrawCirclePerimeter(p2.cast<double>(), 3.0f);
+  }
+
+  pangolin::GlPixFormat fmt;
+  fmt.glformat = GL_LUMINANCE;
+  fmt.gltype = GL_UNSIGNED_SHORT;
+  fmt.scalable_internal_format = GL_LUMINANCE16;
+  similar_keyframes_view->SetImage(combined_imgs.ptr, combined_imgs.w, combined_imgs.h, combined_imgs.pitch, fmt);
+
+  FONT.Text("%d of %d - %d", similar_kf_idx + 1, similar_kf_count, timestamp_to_id[candidate_tcid.frame_id])
+      .Draw(5 + current_img->w, 20);
+
+  FONT.Text("%d", timestamp_to_id[t_ns]).Draw(5, 20);
+}
+
 void VIOUIBase::draw_jacobian_overlay(const UIJacobians& uij) {
   const VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
   if (curr_vis_data == nullptr) return;
@@ -839,6 +912,33 @@ bool VIOUIBase::do_toggle_blocks() {
   plot_display->SetBounds(0.0, 0.4, X_ATTACH, 1.0);
 
   return show_blocks;
+}
+
+bool VIOUIBase::do_toggle_similar_keyframes() {
+  similar_keyframes_display->ToggleShow();
+  bool show_similar_keyframes = similar_keyframes_display->IsShown();
+
+  size_t child_count = img_view_display->NumVisibleChildren();
+  if (child_count == 0) return show_similar_keyframes;
+
+  if (!show_similar_keyframes) {
+    plot_display->SetBounds(0.0, 0.4, UI_WIDTH, 1.0);
+    return show_similar_keyframes;
+  }
+
+  View* last_view = &img_view_display->VisibleChild(child_count - 1);
+  auto* last_img_view = dynamic_cast<pangolin::ImageView*>(last_view);
+  pangolin::XYRangef range = last_img_view->GetDefaultView();
+  float xmax = -1;
+  float ymax = -1;
+  last_img_view->ImageToScreen(last_img_view->v, range.x.max, range.y.max, xmax, ymax);
+
+  auto X_ATTACH = pangolin::Attach::Pix(xmax * 2 - UI_WIDTH_PIX);
+  auto Y_ATTACH = pangolin::Attach::Pix(ymax);
+  similar_keyframes_display->SetBounds(0.0, Y_ATTACH, UI_WIDTH, X_ATTACH);
+  plot_display->SetBounds(0.0, 0.4, X_ATTACH, 1.0);
+
+  return show_similar_keyframes;
 }
 
 void VIOUIBase::do_show_blocks() {
