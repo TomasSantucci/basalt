@@ -297,7 +297,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
       map_db->out_covi_res_queue = &vio->in_covi_res_queue;
       if (show_gui) map_db->out_vis_queue = &out_mapper_vis_queue;
     }
-    {
+    if (config.enable_mapper) {
       nfr_mapper = std::make_shared<basalt::NfrMapper>(calib, config);
       nfr_mapper.reset(new basalt::NfrMapper(calib, config));
       nfr_mapper->initialize();

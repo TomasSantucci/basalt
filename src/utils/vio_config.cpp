@@ -318,6 +318,7 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.mapper_min_triangulation_dist));
   ar(CEREAL_NVP(config.mapper_no_factor_weights));
   ar(CEREAL_NVP(config.mapper_use_factors));
+  ar(CEREAL_NVP(config.enable_mapper));
 
   ar(CEREAL_NVP(config.mapper_use_lm));
   ar(CEREAL_NVP(config.mapper_lm_lambda_min));

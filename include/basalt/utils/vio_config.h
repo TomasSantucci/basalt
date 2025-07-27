@@ -128,6 +128,7 @@ struct VioConfig {
   double mapper_min_triangulation_dist;
   bool mapper_no_factor_weights;
   bool mapper_use_factors;
+  bool enable_mapper;
 
   bool mapper_use_lm;
   double mapper_lm_lambda_min;
