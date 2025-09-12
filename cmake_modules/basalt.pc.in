@@ -1,5 +1,10 @@
 prefix=@CMAKE_INSTALL_PREFIX@
-libdir=${prefix}/lib
+case `uname -m` in
+  x86_64|s390x|ppc64) libdir=${prefix}/lib64
+    ;;
+  *) libdir=${prefix}/lib
+    ;;
+esac
 includedir=${prefix}/include
 
 Name: Basalt
