@@ -170,6 +170,11 @@ bool VIOUIBase::take_ltkf() {
   return true;
 }
 
+bool VIOUIBase::trigger_loop_closure() {
+  loop_closing->triggerLoopClosure();
+  return true;
+}
+
 bool VIOUIBase::reset_state() {
   vio->scheduleResetState();
   return true;
@@ -701,14 +706,14 @@ void VIOUIBase::draw_blocks_overlay() {
 
 void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
                                                tbb::concurrent_unordered_map<int64_t, int>& timestamp_to_id) {
-  const PlaceRecognitionVisualizationData::Ptr curr_pr_vis_data = get_curr_pr_vis_data();
-  if (curr_pr_vis_data == nullptr) return;
+  const LoopClosingVisualizationData::Ptr curr_lc_vis_data = get_curr_lc_vis_data();
+  if (curr_lc_vis_data == nullptr) return;
 
-  const std::vector<TimeCamId>& similar_kfs = curr_pr_vis_data->similar_kfs;
+  const std::vector<TimeCamId>& similar_kfs = curr_lc_vis_data->similar_kfs;
 
   if (similar_kfs.empty()) return;
 
-  int64_t t_ns = curr_pr_vis_data->t_ns;
+  int64_t t_ns = curr_lc_vis_data->t_ns;
 
   if (t_ns != last_kf_with_similars) {
     last_kf_with_similars = t_ns;
@@ -732,7 +737,7 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
   }
 
   Eigen::aligned_vector<std::pair<Eigen::Matrix<float, 2, 1>, Eigen::Matrix<float, 2, 1>>> matches =
-      curr_pr_vis_data->matches[candidate_tcid];
+      curr_lc_vis_data->matches[candidate_tcid];
 
   glColor3ubv(BLUE);
   for (const auto& match : matches) {
@@ -749,16 +754,39 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
     pangolin::glDrawCirclePerimeter(p2.cast<double>(), 3.0f);
   }
 
+  Eigen::aligned_vector<std::pair<Eigen::Matrix<float, 2, 1>, Eigen::Matrix<float, 2, 1>>> inlier_matches =
+      curr_lc_vis_data->inlier_matches[candidate_tcid];
+
+  glColor3ubv(GREEN);
+  for (const auto& match : inlier_matches) {
+    Eigen::Vector2f p1 = match.first;
+    Eigen::Vector2f p2 = match.second;
+    p2[0] += current_img->w;
+
+    glBegin(GL_LINES);
+    glVertex2f(p1[0], p1[1]);
+    glVertex2f(p2[0], p2[1]);
+    glEnd();
+
+    pangolin::glDrawCirclePerimeter(p1.cast<double>(), 1.5f);
+    pangolin::glDrawCirclePerimeter(p2.cast<double>(), 1.5f);
+  }
+
   pangolin::GlPixFormat fmt;
   fmt.glformat = GL_LUMINANCE;
   fmt.gltype = GL_UNSIGNED_SHORT;
   fmt.scalable_internal_format = GL_LUMINANCE16;
   similar_keyframes_view->SetImage(combined_imgs.ptr, combined_imgs.w, combined_imgs.h, combined_imgs.pitch, fmt);
 
-  FONT.Text("%d of %d - %d", similar_kf_idx + 1, similar_kf_count, timestamp_to_id[candidate_tcid.frame_id])
-      .Draw(5 + current_img->w, 20);
+  std::ostringstream ss;
+  ss << (similar_kf_idx + 1) << " of " << similar_kf_count << " - " << timestamp_to_id[candidate_tcid.frame_id] << " : "
+     << candidate_tcid.frame_id << " (" << candidate_tcid.cam_id << ")";
 
-  FONT.Text("%d", timestamp_to_id[t_ns]).Draw(5, 20);
+  FONT.Text(ss.str()).Draw(5 + current_img->w, 20);
+
+  std::ostringstream ss1;
+  ss1 << timestamp_to_id[t_ns] << " : " << t_ns << " (0)";
+  FONT.Text(ss1.str()).Draw(5, 20);
 }
 
 void VIOUIBase::draw_jacobian_overlay(const UIJacobians& uij) {

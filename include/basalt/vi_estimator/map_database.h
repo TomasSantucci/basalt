@@ -1,7 +1,9 @@
 #pragma once
 
 #include <basalt/hash_bow/hash_bow.h>
+#include <basalt/utils/sync_utils.h>
 #include <basalt/vi_estimator/landmark_database.h>
+#include <basalt/vi_estimator/map_interface.h>
 #include <basalt/vi_estimator/vio_estimator.h>
 #include <Eigen/Dense>
 #include <memory>
@@ -50,19 +52,9 @@ struct SpatialDistributionCube {
   Vec2 Cx, Cy, Cz;
 };
 
-struct PlaceRecognitionVisualizationData {
-  using Ptr = std::shared_ptr<PlaceRecognitionVisualizationData>;
-  using Vec2 = Eigen::Matrix<float, 2, 1>;
-  using SE3 = Sophus::SE3<float>;
-
-  int64_t t_ns;
-
-  std::vector<TimeCamId> similar_kfs;
-  Eigen::aligned_unordered_map<TimeCamId, Eigen::aligned_vector<std::pair<Vec2, Vec2>>> matches;
-
-  SE3 keyframe_pose;
-  std::unordered_map<TimeCamId, SE3> corrected_pose;
-  std::unordered_map<TimeCamId, SE3> candidate_pose;
+struct MapUpdate {
+  using Ptr = std::shared_ptr<MapUpdate>;
+  Eigen::aligned_map<int64_t, Sophus::SE3f> keyframe_poses;
 };
 
 struct MapDatabaseVisualizationData {
@@ -100,18 +92,17 @@ class MapDatabase {
 
   void initialize();
 
+  void write_map_stamp(basalt::MapStamp::Ptr& map_stamp);
+
+  void write_map_update(basalt::LandmarkDatabase<Scalar>::Ptr& map_update);
+
+  void read_covisibility_req(std::shared_ptr<std::vector<KeypointId>>& keypoints_ptr);
+
+  void read_map_req(bool req);
+
   void get_map_points(Eigen::aligned_vector<Vec3d>& points, std::vector<int>& ids);
 
   Eigen::aligned_map<LandmarkId, Vec3d> get_landmarks_3d_pos(std::set<LandmarkId> landmarks);
-
-  void updateHashBowDatabase(const LandmarkDatabase<Scalar>::Ptr& lmdb);
-
-  void findSimilarKeyframes(const TimeCamId& kf, std::vector<TimeCamId>& similar_kfs);
-
-  bool computeAbsolutePose(const TimeCamId& last_kf_tcid, const std::vector<Landmark<Scalar>>& last_kf_landmarks,
-                           const std::vector<Landmark<Scalar>>& candidate_kf_landmarks,
-                           const std::vector<std::pair<int, int>>& matches,
-                           std::vector<std::pair<int, int>>& inlier_matches, Sophus::SE3d& absolute_pose);
 
   void computeMapVisualData();
 
@@ -136,20 +127,24 @@ class MapDatabase {
 
   basalt::Calibration<double> calib;
 
-  tbb::concurrent_bounded_queue<MapStamp::Ptr> in_map_stamp_queue;
+  tbb::concurrent_bounded_queue<std::shared_ptr<WriteMessage>> write_queue;
+  tbb::concurrent_bounded_queue<std::shared_ptr<ReadMessage>> read_queue;
+
+  tbb::concurrent_bounded_queue<MapUpdate::Ptr>* out_map_update_queue = nullptr;
   tbb::concurrent_bounded_queue<MapDatabaseVisualizationData::Ptr>* out_vis_queue = nullptr;
-  tbb::concurrent_bounded_queue<PlaceRecognitionVisualizationData::Ptr>* out_pr_vis_queue = nullptr;
-  tbb::concurrent_bounded_queue<std::shared_ptr<std::vector<KeypointId>>> in_covi_req_queue;
   tbb::concurrent_bounded_queue<LandmarkDatabase<Scalar>::Ptr>* out_covi_res_queue = nullptr;
-  std::shared_ptr<HashBow<256>> hash_bow_database;
+  tbb::concurrent_bounded_queue<LandmarkDatabase<Scalar>::Ptr>* out_map_res_queue;
+
+  SyncState* sync_map_stamp = nullptr;
+  SyncState* sync_lc_finished = nullptr;
+  bool deterministic;
 
  private:
   VioConfig config;
   std::shared_ptr<std::thread> reading_thread;
   std::shared_ptr<std::thread> writing_thread;
   MapDatabaseVisualizationData::Ptr map_visual_data;
-  PlaceRecognitionVisualizationData::Ptr place_recognition_visualization_data;
-  LandmarkDatabase<Scalar> map;
+  LandmarkDatabase<Scalar>::Ptr map;
   std::mutex mutex;
 
   // Covisibility

@@ -323,6 +323,10 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.mapper_pnp_ransac_threshold));
   ar(CEREAL_NVP(config.enable_mapper));
 
+  ar(CEREAL_NVP(config.enable_loop_closing));
+  ar(CEREAL_NVP(config.loop_closing_frequency));
+  ar(CEREAL_NVP(config.loop_closing_timestamps));
+
   ar(CEREAL_NVP(config.mapper_use_lm));
   ar(CEREAL_NVP(config.mapper_lm_lambda_min));
   ar(CEREAL_NVP(config.mapper_lm_lambda_max));

@@ -33,6 +33,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <basalt/vi_estimator/map_interface.h>
 #include <basalt/vi_estimator/marg_helper.h>
 #include <basalt/vi_estimator/sqrt_keypoint_vio.h>
 
@@ -474,7 +475,9 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
         for (size_t i = 0; i < curr_frame->keypoints.size(); i++) {
           for (const auto& kv : curr_frame->keypoints[i]) keypoint_ids.emplace_back(kv.first);
         }
-        out_covi_req_queue->push(std::make_shared<std::vector<KeypointId>>(keypoint_ids));
+        auto msg = std::make_shared<ReadCovisibilityReqMsg>();
+        msg->keypoints = std::make_shared<std::vector<KeypointId>>(keypoint_ids);
+        out_covi_req_queue->push(msg);
         get_map = false;
       }
 
@@ -503,6 +506,7 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
     if (out_vio_data_queue) out_vio_data_queue->push(nullptr);
     if (out_state_queue) out_state_queue->push(nullptr);
     if (out_covi_req_queue) out_covi_req_queue->push(nullptr);
+    if (out_opt_flow_queue_loop_closing) out_opt_flow_queue_loop_closing->push(nullptr);
 
     finished = true;
 
@@ -619,9 +623,19 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
     take_ltkf = false;
   }
 
+  bool sent_keyframe_to_lc = false;
   if (take_kf) {
     // Triangulate new points from one of the observations (with sufficient
     // baseline) and make keyframe
+    if (out_opt_flow_queue_loop_closing) {
+      out_opt_flow_queue_loop_closing->push(opt_flow_meas);
+      sent_keyframe_to_lc = true;
+    }
+    if (sync_hashbow_index != nullptr) {
+      std::unique_lock<std::mutex> lk(sync_hashbow_index->m);
+      sync_hashbow_index->cvar.wait(lk, [&] { return sync_hashbow_index->ready; });
+      sync_hashbow_index->ready = false;
+    }
     take_kf = false;
     frames_after_kf = 0;
     kf_ids.emplace(last_state_t_ns);
@@ -735,6 +749,18 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
   if (features_ext || out_vis_queue || avg_depth_needed) {
     projections = std::make_shared<Projections>(num_cams);
     computeProjections(*projections, last_state_t_ns);
+  }
+
+  if (sync_vio_finished != nullptr) {
+    std::lock_guard<std::mutex> lk(sync_vio_finished->m);
+    sync_vio_finished->ready = true;
+    sync_vio_finished->cvar.notify_one();
+  }
+
+  if (sent_keyframe_to_lc && sync_lc_finished != nullptr) {
+    std::unique_lock<std::mutex> lk(sync_lc_finished->m);
+    sync_lc_finished->cvar.wait(lk, [&] { return sync_lc_finished->ready; });
+    sync_lc_finished->ready = false;
   }
 
   if (out_state_queue) {
@@ -1138,7 +1164,15 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
     // Send a map stamp to the MapDatabase
     if (out_vio_data_queue && !kfs_to_marg.empty()) {
       map_stamp->lmdb = std::make_shared<LandmarkDatabase<Scalar_>>(lmdb);
-      out_vio_data_queue->push(map_stamp);
+      auto msg = std::make_shared<WriteMapStampMsg>();
+      msg->map_stamp = map_stamp;
+      out_vio_data_queue->push(msg);
+
+      if (sync_map_stamp != nullptr) {
+        std::unique_lock<std::mutex> lk(sync_map_stamp->m);
+        sync_map_stamp->cvar.wait(lk, [&] { return sync_map_stamp->ready; });
+        sync_map_stamp->ready = false;
+      }
     }
 
     std::set<int> idx_to_keep, idx_to_marg;

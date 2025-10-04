@@ -51,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <CLI/CLI.hpp>
 
 #include <sophus/se3.hpp>
+#include "basalt/vi_estimator/loop_closing.h"
 #include "basalt/vi_estimator/nfr_mapper.h"
 
 #include <pangolin/display/display.h>
@@ -112,6 +113,7 @@ class vit_tracker_ui : public vis::VIOUIBase {
   VioVisualizationData::Ptr get_curr_vis_data() override { return curr_vis_data; }
   MapDatabaseVisualizationData::Ptr get_curr_map_vis_data() override { return curr_map_vis_data; }
   NfrMapperVisualizationData::Ptr get_curr_nfrmapper_vis_data() override { return curr_nfrmapper_vis_data; }
+  LoopClosingVisualizationData::Ptr get_curr_lc_vis_data() override { return nullptr; }
 
   void initialize(int ncams) {
     vio_data_log.Clear();

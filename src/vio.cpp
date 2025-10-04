@@ -63,6 +63,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/io/marg_data_io.h>
 #include <basalt/spline/se3_spline.h>
 #include <basalt/utils/assert.h>
+#include <basalt/vi_estimator/loop_closing.h>
 #include <basalt/vi_estimator/map_database.h>
 #include <basalt/vi_estimator/nfr_mapper.h>
 #include <basalt/vi_estimator/vio_estimator.h>
@@ -71,6 +72,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/serialization/headers_serialization.h>
 
 #include <basalt/utils/keypoints.h>
+#include <basalt/utils/sync_utils.h>
 #include <basalt/utils/system_utils.h>
 #include <basalt/utils/vio_config.h>
 #include <basalt/utils/vis_matrices.h>
@@ -99,7 +101,7 @@ using UIMAT = vis::UIMAT;
 struct basalt_vio_ui : vis::VIOUIBase {
   std::unordered_map<int64_t, VioVisualizationData::Ptr> vis_map;
   std::unordered_map<int64_t, MapDatabaseVisualizationData::Ptr> mapper_vis_map;
-  std::unordered_map<int64_t, PlaceRecognitionVisualizationData::Ptr> pr_vis_map;
+  std::unordered_map<int64_t, LoopClosingVisualizationData::Ptr> loop_closing_vis_map;
   NfrMapperVisualizationData::Ptr mapper_set_vis_data = nullptr;
   std::unordered_map<int64_t, NfrMapperVisualizationData::Ptr> nfrmapper_vis_map;
 
@@ -113,9 +115,10 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
   tbb::concurrent_bounded_queue<basalt::VioVisualizationData::Ptr> out_vis_queue;
   tbb::concurrent_bounded_queue<basalt::MapDatabaseVisualizationData::Ptr> out_mapper_vis_queue;
-  tbb::concurrent_bounded_queue<basalt::PlaceRecognitionVisualizationData::Ptr> out_pr_vis_queue;
+  tbb::concurrent_bounded_queue<basalt::LoopClosingVisualizationData::Ptr> out_lc_vis_queue;
   tbb::concurrent_bounded_queue<basalt::NfrMapperVisualizationData::Ptr> out_nfrmapper_vis_queue;
   tbb::concurrent_bounded_queue<basalt::PoseVelBiasState<double>::Ptr> out_state_queue;
+  tbb::concurrent_bounded_queue<basalt::MapUpdate::Ptr> out_map_update_queue;
 
   std::vector<int64_t> vio_t_ns;
   Eigen::aligned_vector<Eigen::Vector3d> vio_t_w_i;
@@ -129,6 +132,11 @@ struct basalt_vio_ui : vis::VIOUIBase {
   size_t last_frame_processed = 0;
 
   tbb::concurrent_unordered_map<int64_t, int> timestamp_to_id;
+
+  SyncState sync_hashbow_index;
+  SyncState sync_map_stamp;
+  SyncState sync_vio_finished;
+  SyncState sync_lc_finished;
 
   std::mutex m;
   std::condition_variable cvar;
@@ -152,8 +160,10 @@ struct basalt_vio_ui : vis::VIOUIBase {
   thread vis_thread;
   thread ui_thread;
   thread map_vis_thread;
+  thread loop_closing_vis_thread;
   thread nfrmapper_vis_thread;
   thread state_consumer_thread;
+  thread map_updates_thread;
   thread queues_printer_thread;
 
   Var<bool> trajectory_menu{"ui.Trajectory Menu", false, true};
@@ -290,17 +300,25 @@ struct basalt_vio_ui : vis::VIOUIBase {
       vio->opt_flow_depth_guess_queue = &opt_flow->input_depth_queue;
       vio->opt_flow_state_queue = &opt_flow->input_state_queue;
       vio->opt_flow_lm_bundle_queue = &opt_flow->input_lm_bundle_queue;
+      if (deterministic) {
+        vio->sync_hashbow_index = &sync_hashbow_index;
+        vio->sync_map_stamp = &sync_map_stamp;
+        vio->sync_vio_finished = &sync_vio_finished;
+        vio->sync_lc_finished = &sync_lc_finished;
+      }
     }
     {
       map_db = std::make_shared<basalt::MapDatabase>(config, calib);
       map_db->initialize();
-      vio->out_vio_data_queue = &map_db->in_map_stamp_queue;
-      vio->out_covi_req_queue = &map_db->in_covi_req_queue;
+      vio->out_vio_data_queue = &map_db->write_queue;
+      vio->out_covi_req_queue = &map_db->read_queue;
       map_db->out_covi_res_queue = &vio->in_covi_res_queue;
-      if (show_gui) {
-        map_db->out_vis_queue = &out_mapper_vis_queue;
-        map_db->out_pr_vis_queue = &out_pr_vis_queue;
+      map_db->out_map_update_queue = &out_map_update_queue;
+      if (deterministic) {
+        map_db->sync_map_stamp = &sync_map_stamp;
+        map_db->sync_lc_finished = &sync_lc_finished;
       }
+      if (show_gui) map_db->out_vis_queue = &out_mapper_vis_queue;
     }
     if (config.enable_mapper) {
       nfr_mapper = std::make_shared<basalt::NfrMapper>(calib, config);
@@ -310,6 +328,21 @@ struct basalt_vio_ui : vis::VIOUIBase {
       if (show_gui) {
         nfr_mapper->out_vis_queue = &out_nfrmapper_vis_queue;
       }
+    }
+    if (config.enable_loop_closing) {
+      loop_closing = std::make_shared<basalt::LoopClosing>(config, calib);
+      loop_closing->initialize();
+      loop_closing->deterministic = deterministic;
+      loop_closing->out_map_req_queue = &map_db->read_queue;
+      map_db->out_map_res_queue = &loop_closing->in_map_res_queue;
+      loop_closing->out_map_update_queue = &map_db->write_queue;
+      vio->out_opt_flow_queue_loop_closing = &loop_closing->in_optical_flow_queue;
+      if (deterministic) {
+        loop_closing->sync_hashbow_index = &sync_hashbow_index;
+        loop_closing->sync_vio_finished = &sync_vio_finished;
+        loop_closing->sync_lc_finished = &sync_lc_finished;
+      }
+      if (show_gui) loop_closing->out_lc_vis_queue = &out_lc_vis_queue;
     }
 
     basalt::MargDataSaver::Ptr marg_data_saver;
@@ -370,7 +403,6 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
       map_vis_thread = thread([&]() {
         basalt::MapDatabaseVisualizationData::Ptr data;
-        basalt::PlaceRecognitionVisualizationData::Ptr pr_data;
 
         while (true) {
           out_mapper_vis_queue.pop(data);
@@ -390,15 +422,25 @@ struct basalt_vio_ui : vis::VIOUIBase {
           } else {
             break;
           }
-
-          out_pr_vis_queue.try_pop(pr_data);
-
-          if (pr_data.get()) {
-            pr_vis_map[pr_data->t_ns] = pr_data;
-          }
         }
 
         std::cout << "Finished map visualization thread" << std::endl;
+      });
+
+      loop_closing_vis_thread = thread([&]() {
+        basalt::LoopClosingVisualizationData::Ptr data;
+
+        while (true) {
+          out_lc_vis_queue.pop(data);
+
+          if (data.get()) {
+            loop_closing_vis_map[data->t_ns] = data;
+          } else {
+            break;
+          }
+        }
+
+        std::cout << "Finished loop closing visualization thread" << std::endl;
       });
 
       nfrmapper_vis_thread = thread([&]() {
@@ -433,6 +475,10 @@ struct basalt_vio_ui : vis::VIOUIBase {
       });
     }
 
+    map_updates_thread = thread([&]() {
+      while (pop_map_updates()) continue;
+    });
+
     time_start = std::chrono::high_resolution_clock::now();
 
     // record if we close the GUI before VIO is finished.
@@ -441,6 +487,26 @@ struct basalt_vio_ui : vis::VIOUIBase {
     if (show_gui) run_ui();
 
     return 0;
+  }
+
+  bool pop_map_updates() {
+    basalt::MapUpdate::Ptr map_update;
+    out_map_update_queue.pop(map_update);
+
+    if (map_update.get() == nullptr) return false;
+
+    Sophus::SE3d T_correction = Sophus::SE3d();
+    for (size_t i = 0; i < vio_t_w_i.size(); i++) {
+      int64_t ts = vio_t_ns[i];
+
+      if (map_update->keyframe_poses.count(ts))
+        T_correction = vio_T_w_i[i].inverse() * map_update->keyframe_poses.at(ts).cast<double>();
+
+      vio_T_w_i[i] = vio_T_w_i[i] * T_correction;
+      vio_t_w_i[i] = vio_T_w_i[i].translation();
+    }
+
+    return true;
   }
 
   bool pop_state() {
@@ -821,13 +887,13 @@ struct basalt_vio_ui : vis::VIOUIBase {
     }
   }
 
-  PlaceRecognitionVisualizationData::Ptr get_curr_pr_vis_data() override {
+  LoopClosingVisualizationData::Ptr get_curr_lc_vis_data() override {
     int map_last_frame = show_frame;
     while (true) {
       if (map_last_frame == 0) return nullptr;
       int64_t curr_ts = vio_dataset->get_image_timestamps().at(map_last_frame);
-      auto it = pr_vis_map.find(curr_ts);
-      if (it != pr_vis_map.end()) return it->second;
+      auto it = loop_closing_vis_map.find(curr_ts);
+      if (it != loop_closing_vis_map.end()) return it->second;
       map_last_frame--;
     }
   }
@@ -1015,20 +1081,20 @@ struct basalt_vio_ui : vis::VIOUIBase {
       }
     }
     if (show_similar_keyframes) {
-      PlaceRecognitionVisualizationData::Ptr curr_pr_vis_data = get_curr_pr_vis_data();
-      if (curr_pr_vis_data == nullptr) return;
+      LoopClosingVisualizationData::Ptr curr_lc_vis_data = get_curr_lc_vis_data();
+      if (curr_lc_vis_data == nullptr) return;
 
       glLineWidth(0.25);
-      pangolin::glDrawAxis(curr_pr_vis_data->keyframe_pose.matrix(), 0.1);
+      pangolin::glDrawAxis(curr_lc_vis_data->keyframe_pose.matrix(), 0.1);
 
-      TimeCamId candidate_tcid = curr_pr_vis_data->similar_kfs[similar_kf_idx];
-      Sophus::SE3f candidate_pose = curr_pr_vis_data->candidate_pose[candidate_tcid];
+      TimeCamId candidate_tcid = curr_lc_vis_data->similar_kfs[similar_kf_idx];
+      Sophus::SE3f candidate_pose = curr_lc_vis_data->candidate_pose[candidate_tcid];
       pangolin::glDrawAxis(candidate_pose.matrix(), 0.1);
 
-      Sophus::SE3f corrected_pose = curr_pr_vis_data->corrected_pose[candidate_tcid];
+      Sophus::SE3f corrected_pose = curr_lc_vis_data->corrected_pose[candidate_tcid];
       pangolin::glDrawAxis(corrected_pose.matrix(), 0.1);
 
-      Eigen::Vector3f t_actual_curr = curr_pr_vis_data->keyframe_pose.translation();
+      Eigen::Vector3f t_actual_curr = curr_lc_vis_data->keyframe_pose.translation();
       Eigen::Vector3f t_corrected_curr = corrected_pose.translation();
       Eigen::Vector3f t_actual_candidate = candidate_pose.translation();
 
@@ -1043,6 +1109,21 @@ struct basalt_vio_ui : vis::VIOUIBase {
       glVertex3d(t_corrected_curr.x(), t_corrected_curr.y(), t_corrected_curr.z());
       glVertex3d(t_actual_candidate.x(), t_actual_candidate.y(), t_actual_candidate.z());
       glEnd();
+
+      for (const auto& pose : curr_lc_vis_data->corrected_loop_poses) {
+        pangolin::glDrawAxis(pose.matrix(), 0.1);
+      }
+
+      glColor3f(0.0f, 1.0f, 0.0f);
+      glLineWidth(0.5);
+      for (size_t i = 0; i < curr_lc_vis_data->corrected_loop_poses.size() - 1; i++) {
+        const auto& pose1 = curr_lc_vis_data->corrected_loop_poses[i];
+        const auto& pose2 = curr_lc_vis_data->corrected_loop_poses[i + 1];
+        glBegin(GL_LINES);
+        glVertex3d(pose1.translation().x(), pose1.translation().y(), pose1.translation().z());
+        glVertex3d(pose2.translation().x(), pose2.translation().y(), pose2.translation().z());
+        glEnd();
+      }
     }
     if (show_mapper) {
       NfrMapperVisualizationData::Ptr curr_nfrmapper_vis_data = get_curr_nfrmapper_vis_data();

@@ -133,6 +133,10 @@ struct VioConfig {
   double mapper_pnp_ransac_threshold;
   bool enable_mapper;
 
+  bool enable_loop_closing;
+  int loop_closing_frequency;
+  std::vector<int64_t> loop_closing_timestamps;
+
   bool mapper_use_lm;
   double mapper_lm_lambda_min;
   double mapper_lm_lambda_max;

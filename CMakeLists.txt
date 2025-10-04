@@ -366,6 +366,7 @@ target_sources(basalt_internal
     ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/vis_utils.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/ba_base.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/landmark_database.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/loop_closing.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/marg_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/sc_ba_base.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/sqrt_ba_base.h
@@ -373,6 +374,7 @@ target_sources(basalt_internal
     ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/sqrt_keypoint_vo.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/vio_estimator.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/map_database.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/map_interface.h
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/io/marg_data_io.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/linearization/landmark_block.cpp
@@ -388,6 +390,7 @@ target_sources(basalt_internal
     ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/vis_utils.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/ba_base.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/landmark_database.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/loop_closing.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/marg_helper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/sc_ba_base.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/sqrt_ba_base.cpp
@@ -395,6 +398,7 @@ target_sources(basalt_internal
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/sqrt_keypoint_vo.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/vio_estimator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/map_database.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/map_interface.cpp
 )
 
 target_link_libraries(
@@ -476,8 +480,10 @@ if(NOT BASALT_BUILD_SHARED_LIBRARY_ONLY)
   add_executable(basalt_opt_flow src/opt_flow.cpp)
   target_link_libraries(basalt_opt_flow basalt_internal pangolin basalt::cli11)
 
+  set(Eigen3_DIR "/usr/share/eigen3/cmake" CACHE PATH "Eigen3 dir")
+  find_package(Ceres REQUIRED)
   add_executable(basalt_vio src/vio.cpp)
-  target_link_libraries(basalt_vio basalt_internal pangolin basalt::cli11)
+  target_link_libraries(basalt_vio basalt_internal pangolin basalt::cli11 Ceres::ceres)
 
   add_executable(basalt_time_alignment src/time_alignment.cpp)
   target_link_libraries(basalt_time_alignment basalt_internal pangolin basalt::cli11)

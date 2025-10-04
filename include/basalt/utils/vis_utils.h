@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pangolin/gl/glfont.h>
 
 #include <basalt/utils/vis_matrices.h>
+#include <basalt/vi_estimator/loop_closing.h>
 #include <basalt/vi_estimator/map_database.h>
 #include <basalt/vi_estimator/nfr_mapper.h>
 #include <basalt/vi_estimator/vio_estimator.h>
@@ -59,7 +60,7 @@ using basalt::vis::FONT;
 const uint8_t cam_color[3]{250, 0, 125};
 const uint8_t state_color[3]{250, 0, 26};
 const uint8_t pose_color[3]{0, 50, 255};
-const uint8_t gt_color[3]{0, 171, 47};
+const uint8_t gt_color[3]{40, 40, 40};
 constexpr float MIN_DEPTH_COLOR[3]{0.27, 0.79, 1};      // blue
 constexpr float MAX_DEPTH_COLOR[3]{1, 0.1, 0.42};       // pink
 constexpr uint8_t MIN_DEPTH_COLOR_UB[3]{69, 201, 255};  // blue
@@ -264,6 +265,7 @@ struct VIOUIBase {
   unordered_map<int64_t, VioVisualizationData::Ptr> vis_map;
   MapDatabase::Ptr map_db;
   NfrMapper::Ptr nfr_mapper;
+  LoopClosing::Ptr loop_closing;
 
   Var<int> show_frame{"ui.show_frame", 0, META_FLAG_READONLY};
 
@@ -283,6 +285,7 @@ struct VIOUIBase {
   Var<bool> show_mapper{"map_menu.show_mapper", false, true};
   Var<bool> show_vio{"map_menu.show_vio", true, true};
   Var<bool> show_map{"map_menu.show_map", false, true};
+  Button trigger_loop_closure_btn{"map_menu.Close Loop", [this]() { trigger_loop_closure(); }};
   Button toggle_similar_keyframes_btn{"map_menu.toggle_similar_kfs", [this]() { toggle_similar_keyframes(); }};
   Button next_similar_keyframe_btn{"map_menu.next_similar_kf", [this]() { next_similar_kf(); }};
   Var<bool> show_covisibility{"map_menu.show_covisibility", false, true};
@@ -343,7 +346,7 @@ struct VIOUIBase {
 
   virtual VioVisualizationData::Ptr get_curr_vis_data() = 0;
   virtual MapDatabaseVisualizationData::Ptr get_curr_map_vis_data() = 0;
-  virtual PlaceRecognitionVisualizationData::Ptr get_curr_pr_vis_data() = 0;
+  virtual LoopClosingVisualizationData::Ptr get_curr_lc_vis_data() = 0;
   virtual NfrMapperVisualizationData::Ptr get_curr_nfrmapper_vis_data() = 0;
 
   KeypointId get_kpid_at(size_t cam_id, int x, int y, float radius = 10);
@@ -354,6 +357,7 @@ struct VIOUIBase {
   void clear_highlights();
   bool toggle_blocks();
   bool take_ltkf();
+  bool trigger_loop_closure();
   bool reset_state();
   bool get_covisibility_map();
   void do_show_flow(size_t cam_id);
