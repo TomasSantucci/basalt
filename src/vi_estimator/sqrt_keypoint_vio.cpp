@@ -468,6 +468,7 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
             if (ltkfs.count(kf_id) > 0) {
               kf_ids.emplace(kf_id);
               ltkfs.erase(kf_id);
+              removed_ltkfs.emplace(kf_id);
             }
           }
         }
@@ -1058,6 +1059,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
       poses_to_marg.emplace(id_to_marg);
 
       kf_ids.erase(id_to_marg);
+      if (removed_ltkfs.count(id_to_marg) > 0) removed_ltkfs.erase(id_to_marg);
     }
 
     //    std::cout << "marg order" << std::endl;
@@ -1103,6 +1105,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
       }
 
       std::set<FrameId> fixed_kfs = config.vio_fix_long_term_keyframes ? ltkfs : std::set<FrameId>{};
+      for (const int64_t& ts : removed_ltkfs) fixed_kfs.insert(ts);
       auto lqr = LinearizationBase<Scalar, POSE_SIZE>::create(this, aom, lqr_options, &marg_data, &ild, &kfs_to_marg,
                                                               &lost_landmaks, last_state_to_marg, &fixed_kfs);
 
@@ -1230,6 +1233,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
       }
 
       std::set<FrameId> fixed_kfs = config.vio_fix_long_term_keyframes ? ltkfs : std::set<FrameId>{};
+      for (const int64_t& ts : removed_ltkfs) fixed_kfs.insert(ts);
       auto lqr =
           LinearizationBase<Scalar, POSE_SIZE>::create(this, aom, lqr_options, &nullspace_marg_data, &ild, &kfs_to_marg,
                                                        &lost_landmaks, last_state_to_marg, &fixed_kfs);
@@ -1463,6 +1467,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
     }
 
     std::set<FrameId> fixed_kfs = config.vio_fix_long_term_keyframes ? ltkfs : std::set<FrameId>{};
+    for (const int64_t& ts : removed_ltkfs) fixed_kfs.insert(ts);
 
     {
       Timer t;
@@ -1595,6 +1600,16 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
             for (const int64_t& ts : ltkfs) {
               if (aom.abs_order_map.count(ts) == 0) {
                 std::cerr << "[UNEXPECTED] ltkfs ts=" << ts << " not in aom" << std::endl;
+                continue;
+              }
+              const auto& [idx, size] = aom.abs_order_map.at(ts);
+              H.template block<>(idx, 0, size, H.cols()).setZero();
+              H.diagonal().template segment<POSE_SIZE>(idx).array() = 1e20;
+              b.template segment<>(idx, size).setZero();
+            }
+            for (const int64_t& ts : removed_ltkfs) {
+              if (aom.abs_order_map.count(ts) == 0) {
+                std::cerr << "[UNEXPECTED] kfs ts=" << ts << " not in aom" << std::endl;
                 continue;
               }
               const auto& [idx, size] = aom.abs_order_map.at(ts);
