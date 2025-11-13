@@ -192,9 +192,12 @@ create-evaluation:
   variables:
     EVALSETS: "quickset1"
     DETERMINISTIC: "1"
+    TIMING_EVALSETS: "MOO02"
+    TIMING_DETERMINISTIC: "1"
+    TIMING_REPETITIONS: "3"
   script:
     - echo "Generating evaluation pipeline for evalsets $EVALSETS"
-    - .ci/cievalgen.py --deterministic $DETERMINISTIC .ci/evaluation.json $EVALSETS .ci/cieval.template.yaml .ci/cieval.yaml
+    - .ci/cievalgen.py --deterministic $DETERMINISTIC --timing_deterministic $TIMING_DETERMINISTIC --timing_repetitions $TIMING_REPETITIONS .ci/evaluation.json $EVALSETS $TIMING_EVALSETS .ci/cieval.template.yaml .ci/cieval.yaml
   artifacts:
     paths:
       - .ci/cieval.yaml
@@ -228,12 +231,14 @@ get-results:
     - export ZIP_JOB_ID=$(cat output.json | jq -r '.[] | select(.name=="zip") | .id')
     - echo $ZIP_JOB_ID
     - curl -H "$AUTH" -L --output artifacts.zip "${CI_SERVER_URL}/api/v4/projects/${CI_PROJECT_ID}/jobs/${ZIP_JOB_ID}/artifacts"
-    - unzip -o artifacts.zip # Generates results.zip
+    - unzip -o artifacts.zip # Generates results.zip and timing-results.zip
   artifacts:
     name: "results"
     paths:
       - results.zip
+      - timing-results.zip
 
+# TOOD@mateosss: do the plot
 report:
   stage: evaluate
   tags: [basalt-evaluation]

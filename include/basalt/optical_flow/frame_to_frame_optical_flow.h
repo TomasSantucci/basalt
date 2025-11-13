@@ -638,6 +638,34 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
     return masks;
   }
 
+  // TODO@mateosss: Why main branch even with same code doesnt produce same result on CI?
+  // void addPoints() {
+  //   Masks& ms0 = transforms->input_images->masks.at(0);
+  //   Keypoints kpts0 = addPointsForCamera(0);
+  //   transforms->input_images->addTime("frontend_detection_cam0_ended");
+  //   if (config.optical_flow_recall_enable) kpts0.insert(recalls[0].begin(), recalls[0].end());
+
+  //   for (size_t i = 1; i < getNumCams(); i++) {
+  //     Masks& ms = transforms->input_images->masks.at(i);
+  //     Keypoints& mgs = transforms->matching_guesses.at(i);
+
+  //     // Match features on areas that overlap with cam0 using optical flow
+  //     auto& pyr0 = pyramid->at(0);
+  //     auto& pyri = pyramid->at(i);
+  //     Keypoints kpts;
+  //     SE3 T_c0_ci = calib.T_i_c[0].inverse() * calib.T_i_c[i];
+  //     trackPoints(pyr0, pyri, kpts0, kpts, mgs, ms0, ms, T_c0_ci, 0, i);
+  //     addKeypoints(i, kpts);
+
+  //     // Update masks and detect features on area not overlapping with cam0
+  //     if (!config.optical_flow_detection_nonoverlap) continue;
+  //     ms += cam0OverlapCellsMasksForCam(i);
+  //     Keypoints kpts_no = addPointsForCamera(i);
+  //   }
+  //   transforms->input_images->addTime("frontend_matching_ended");
+  //   transforms->input_images->addTime("frontend_detection_cami_ended");
+  // }
+
   void addPoints() {
     ManagedImagePyr<uint16_t>& pyr0 = pyramid->at(0);
     Keypoints kpts0 = addPointsForCamera(0);
