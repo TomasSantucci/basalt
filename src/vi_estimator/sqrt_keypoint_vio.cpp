@@ -127,9 +127,7 @@ void SqrtKeypointVioEstimator<Scalar>::takeLongTermKeyframe() {
 }
 
 template <class Scalar>
-bool SqrtKeypointVioEstimator<Scalar>::resetState(typename IntegratedImuMeasurement<Scalar>::Ptr& meas,
-                                                  OpticalFlowResult::Ptr& curr_frame,
-                                                  OpticalFlowResult::Ptr& prev_frame) {
+bool SqrtKeypointVioEstimator<Scalar>::resetState(typename IntegratedImuMeasurement<Scalar>::Ptr& meas) {
   meas = nullptr;
   curr_frame = nullptr;
   prev_frame = nullptr;
@@ -225,7 +223,6 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
   Vec3 ba_init = ba_.cast<Scalar>();
 
   auto proc_func = [&, bg = bg_init, ba = ba_init] {
-    OpticalFlowResult::Ptr prev_frame, curr_frame;
     typename IntegratedImuMeasurement<Scalar>::Ptr meas;
 
     const Vec3 accel_cov = calib.dicrete_time_accel_noise_std().array().square();
@@ -242,7 +239,7 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
     while (run) {
       bool reset_performed = schedule_reset;
       if (reset_performed) {
-        bool exit_requested = resetState(meas, curr_frame, prev_frame);
+        bool exit_requested = resetState(meas);
         if (exit_requested) break;
       }
 
@@ -253,10 +250,8 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
         while (!vision_data_queue.empty()) vision_data_queue.pop(curr_frame);
       }
 
-      if (!curr_frame.get()) {
-        break;
-      }
-      curr_frame->input_images->addTime("vio_start");
+      if (curr_frame == nullptr) break;
+      curr_frame->input_images->addTime("backend_keypoints_received");
       curr_frame->input_images->state_reset = reset_performed;
 
       // Correct camera time offset
@@ -342,7 +337,6 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
           data->t_ns = tmp;
         }
       }
-      curr_frame->input_images->addTime("imu_preintegrated");
 
       bool success = measure(curr_frame, meas);
       if (!success) {
@@ -353,7 +347,7 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
           auto data = std::make_shared<PoseVelBiasState<double>>();
           data->t_ns = curr_frame->t_ns;
           data->input_images = curr_frame->input_images;
-          data->input_images->addTime("pose_produced");
+          data->input_images->addTime("backend_state_pushed");
           out_state_queue->push(data);
         }
         continue;
@@ -578,9 +572,9 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
       }
     }
   }
-  opt_flow_meas->input_images->addTime("landmarks_updated");
+  opt_flow_meas->input_images->addTime("backend_observations_processed");
 
-  bool success = optimize_and_marg(opt_flow_meas->input_images, num_points_connected, lost_landmaks);
+  bool success = optimize_and_marg(num_points_connected, lost_landmaks);
   if (!success) return false;
 
   size_t num_cams = opt_flow_meas->keypoints.size();
@@ -601,7 +595,6 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
     typename PoseVelBiasState<double>::Ptr data(new PoseVelBiasState<double>(p.getState().template cast<double>()));
 
     data->input_images = opt_flow_meas->input_images;
-    data->input_images->addTime("pose_produced");
 
     if (avg_depth_needed) {
       double avg_invdepth = 0;
@@ -630,6 +623,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
         }
       }
     }
+    curr_frame->input_images->addTime("backend_state_pushed");
     if (out_state_queue) out_state_queue->push(data);
     if (opt_flow_state_queue) opt_flow_state_queue->push(data);
   }
@@ -721,7 +715,10 @@ bool SqrtKeypointVioEstimator<Scalar>::show_uimat(UIMAT m) const {
 template <class Scalar_>
 bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>& num_points_connected,
                                                     const std::unordered_set<KeypointId>& lost_landmaks) {
-  if (!opt_started) return true;
+  if (!opt_started) {
+    curr_frame->input_images->addTime("backend_marginalization_ended");
+    return true;
+  }
 
   Timer t_total;
 
@@ -1207,6 +1204,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
   }
 
   stats_sums_.add("marginalize", t_total.elapsed()).format("ms");
+  curr_frame->input_images->addTime("backend_marginalization_ended");
 
   return true;
 }
@@ -1216,6 +1214,9 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
   if (config.vio_debug) {
     std::cout << "=================================" << std::endl;
   }
+
+  int64_t initial_ts = std::chrono::steady_clock::now().time_since_epoch().count();
+  std::array<int64_t, 4> times = {0, 0, 0, 0};  // linearize, solver, backsub, error
 
   if (opt_started || frame_states.size() > 4) {
     opt_started = true;
@@ -1307,6 +1308,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
         // TODO: execution could be done staged
 
         Timer t;
+        Timer tt;  // TODO: Unify timing measurements
 
         // linearize residuals
         bool numerically_valid;
@@ -1337,6 +1339,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
         if (show_uimat(UIMAT::JR_QR)) visual_data->getj(UIMAT::JR_QR).Jr = lqr->getUILandmarkBlocks();
 
         stats.add("performQR", t.reset()).format("ms");
+        times[0] += tt.elapsed_ns();
       }
 
       if (config.vio_debug) {
@@ -1401,6 +1404,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
         VecX inc;
         {
           Timer t;
+          Timer tt;  // TODO: Unify timing measurements
 
           // get dense reduced camera system
           MatX H;
@@ -1454,6 +1458,8 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
             visual_data->geth(UIMAT::HB).b = std::make_shared<Eigen::VectorXf>(b.template cast<float>());
             visual_data->geth(UIMAT::HB).aom = std::make_shared<AbsOrderMap>(aom);
           }
+
+          times[1] += tt.elapsed_ns();
         }
 
         // backup state (then apply increment and check cost decrease)
@@ -1466,8 +1472,11 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
           inc = -inc;
 
           Timer t;
+          Timer tt;  // TODO: Unify timing measurements
           l_diff = lqr->backSubstitute(inc);
           stats.add("backSubstitute", t.reset()).format("ms");
+
+          times[2] += tt.elapsed_ns();
         }
 
         // undo jacobian scaling before applying increment to poses
@@ -1495,6 +1504,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
 
         {
           Timer t;
+          Timer tt;  // TODO: Unify timing measurements
           computeError(after_update_vision_and_inertial_error);
           computeMargPriorError(marg_data, after_update_marg_prior_error);
 
@@ -1506,6 +1516,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
           after_update_vision_and_inertial_error += after_update_imu_error + after_bg_error + after_ba_error;
 
           stats.add("computerError2", t.reset()).format("ms");
+          times[3] += tt.elapsed_ns();
         }
 
         Scalar after_error_total = after_update_vision_and_inertial_error + after_update_marg_prior_error;
@@ -1635,22 +1646,30 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
     }
   }
 
+  times[0] += initial_ts;
+  times[1] += times[0];
+  times[2] += times[1];
+  times[3] += times[2];
+
+  curr_frame->input_images->addTime("backend_cumulative_linearization_ended", times[0]);
+  curr_frame->input_images->addTime("backend_cumulative_solver_ended", times[1]);
+  curr_frame->input_images->addTime("backend_cumulative_backsubstitution_ended", times[2]);
+  curr_frame->input_images->addTime("backend_cumulative_error_computed", times[3]);
+  curr_frame->input_images->addTime("backend_optimization_ended");
+
   return true;
 }
 
 template <class Scalar_>
-bool SqrtKeypointVioEstimator<Scalar_>::optimize_and_marg(const OpticalFlowInput::Ptr& input_images,
-                                                          const std::map<int64_t, int>& num_points_connected,
+bool SqrtKeypointVioEstimator<Scalar_>::optimize_and_marg(const std::map<int64_t, int>& num_points_connected,
                                                           const std::unordered_set<KeypointId>& lost_landmaks) {
   bool success = true;
 
   success &= optimize();
   if (!success) return false;
-  input_images->addTime("optimized");
 
   success &= marginalize(num_points_connected, lost_landmaks);
   if (!success) return false;
-  input_images->addTime("marginalized");
 
   return success;
 }

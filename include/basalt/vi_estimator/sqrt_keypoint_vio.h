@@ -96,8 +96,7 @@ class SqrtKeypointVioEstimator : public VioEstimatorBase, public SqrtBundleAdjus
                   const Eigen::Vector3d& ba) override;
 
   void scheduleResetState() override;
-  bool resetState(typename IntegratedImuMeasurement<Scalar>::Ptr& meas, OpticalFlowResult::Ptr& curr_frame,
-                  OpticalFlowResult::Ptr& prev_frame);
+  bool resetState(typename IntegratedImuMeasurement<Scalar>::Ptr& meas);
 
   void initialize(const Eigen::Vector3d& bg, const Eigen::Vector3d& ba) override;
 
@@ -121,7 +120,7 @@ class SqrtKeypointVioEstimator : public VioEstimatorBase, public SqrtBundleAdjus
   // int64_t propagate();
   // void addNewState(int64_t data_t_ns);
 
-  bool optimize_and_marg(const OpticalFlowInput::Ptr& input_images, const std::map<int64_t, int>& num_points_connected,
+  bool optimize_and_marg(const std::map<int64_t, int>& num_points_connected,
                          const std::unordered_set<KeypointId>& lost_landmaks);
 
   bool marginalize(const std::map<int64_t, int>& num_points_connected,
@@ -208,6 +207,9 @@ class SqrtKeypointVioEstimator : public VioEstimatorBase, public SqrtBundleAdjus
   using BundleAdjustmentBase<Scalar>::calib;
 
  private:
+  OpticalFlowResult::Ptr prev_frame;
+  OpticalFlowResult::Ptr curr_frame;
+
   bool take_kf;
   int frames_after_kf;
   size_t frame_count = 0;
