@@ -252,10 +252,13 @@ struct VIOUIBase {
   shared_ptr<ImageView> similar_keyframes_view;
   int64_t last_kf_with_similars;
   bool show_similar_keyframes = false;
+  size_t island_idx = 0;
+  size_t islands_count = 0;
   size_t similar_kf_idx = 0;
   size_t similar_kf_count = 0;
   vector<shared_ptr<ImageView>> img_view;
   bool show_blocks = false;
+  bool print_loop_detection_error = false;
   Selection highlights{};
   VioConfig config;
   Calibration<double> calib;
@@ -285,11 +288,22 @@ struct VIOUIBase {
   Var<bool> show_mapper{"map_menu.show_mapper", false, true};
   Var<bool> show_vio{"map_menu.show_vio", true, true};
   Var<bool> show_map{"map_menu.show_map", false, true};
+  Var<bool> show_keyframe_poses{"map_menu.show_keyframe_poses", true, true};
   Button trigger_loop_closure_btn{"map_menu.Close Loop", [this]() { trigger_loop_closure(); }};
   Button toggle_similar_keyframes_btn{"map_menu.toggle_similar_kfs", [this]() { toggle_similar_keyframes(); }};
+  Button next_island_btn{"map_menu.next_island", [this]() { next_island(); }};
   Button next_similar_keyframe_btn{"map_menu.next_similar_kf", [this]() { next_similar_kf(); }};
+  Var<bool> show_reprojections{"map_menu.show_reprojections", false, true};
+  Var<bool> show_redetections{"map_menu.show_redetections", false, true};
+  Var<bool> show_rematches{"map_menu.show_rematches", false, true};
+  Var<bool> show_similar_kf_kpts{"map_menu.show_similar_kf_kpts", false, true};
+  Var<bool> loop_closing_show_aligned_gt{"map_menu.loop_closing_show_aligned_gt", false, true};
+  Var<bool> loop_closing_show_gt_poses{"map_menu.loop_closing_show_gt_poses", false, true};
+  Button get_loop_detection_error_btn{"map_menu.get_loop_detection_error", [this]() { get_loop_detection_error(); }};
   Var<bool> show_covisibility{"map_menu.show_covisibility", false, true};
   Var<bool> show_observations{"map_menu.show_observations", false, true};
+  Var<int> recent_kf_cam_id{"map_menu.recent_kf_cam_id", 0};
+  Var<int> candidate_kf_cam_id{"map_menu.candidate_kf_cam_id", 0};
   Button take_map_btn{"map_menu.Get Covisibility Map", [this]() { get_covisibility_map(); }};
 
   Var<bool> highlights_menu{"ui.Highlights Menu", false, true};
@@ -386,6 +400,8 @@ struct VIOUIBase {
   void draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
                                       tbb::concurrent_unordered_map<int64_t, int>& timestamp_to_id);
   void next_similar_kf();
+  void next_island();
+  void get_loop_detection_error();
 
   void do_render_camera(const Sophus::SE3d& T_w_c, size_t i, size_t ts, const uint8_t* color);
 };

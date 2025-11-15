@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <magic_enum.hpp>
 
+#include <sophus/interpolate.hpp>
 #include <sophus/se3.hpp>
 
 #include <Eigen/src/Core/Matrix.h>
@@ -170,6 +171,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   Var<string> trajectory_menu_title{"trajectory_menu.MENU", "Trajectory Menu", META_FLAG_READONLY};
   Var<bool> show_gt{"trajectory_menu.show_gt", true, true};
   Button align_se3_btn{"trajectory_menu.align_se3", [this]() { alignButton(); }};
+  Button get_distance_travelled_btn{"trajectory_menu.get_distance_travelled", [this]() { getDistanceTravelled(); }};
   Var<bool> euroc_fmt{"trajectory_menu.euroc_fmt", true, true};
   Var<bool> tum_rgbd_fmt{"trajectory_menu.tum_rgbd_fmt", false, true};
   Var<bool> kitti_fmt{"trajectory_menu.kitti_fmt", false, true};
@@ -278,6 +280,11 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
       show_frame.Meta().range[1] = vio_dataset->get_image_timestamps().size() - 1;
       show_frame.Meta().gui_changed = true;
+
+      recent_kf_cam_id.Meta().range[1] = calib.intrinsics.size() - 1;
+      recent_kf_cam_id.Meta().gui_changed = true;  // es necesario?
+      candidate_kf_cam_id.Meta().range[1] = calib.intrinsics.size() - 1;
+      candidate_kf_cam_id.Meta().gui_changed = true;  // es necesario?
 
       opt_flow = basalt::OpticalFlowFactory::getOpticalFlow(config, calib);
       opt_flow->start();
@@ -496,14 +503,34 @@ struct basalt_vio_ui : vis::VIOUIBase {
     if (map_update.get() == nullptr) return false;
 
     Sophus::SE3d T_correction = Sophus::SE3d();
+    Sophus::SE3d current_kf_pose, next_kf_pose;
+    FrameId current_kf_ns = 0, next_kf_ns = 0;
     for (size_t i = 0; i < vio_t_w_i.size(); i++) {
       int64_t ts = vio_t_ns[i];
 
-      if (map_update->keyframe_poses.count(ts))
-        T_correction = vio_T_w_i[i].inverse() * map_update->keyframe_poses.at(ts).cast<double>();
-
-      vio_T_w_i[i] = vio_T_w_i[i] * T_correction;
-      vio_t_w_i[i] = vio_T_w_i[i].translation();
+      if (map_update->keyframe_poses.count(ts)) {
+        vio_T_w_i[i] = map_update->keyframe_poses.at(ts).cast<double>();
+        vio_t_w_i[i] = vio_T_w_i[i].translation();
+        current_kf_pose = vio_T_w_i[i];
+        current_kf_ns = ts;
+        // get the next keyframe pose in keyframe poses
+        auto it = map_update->keyframe_poses.find(ts);
+        it++;
+        if (it != map_update->keyframe_poses.end()) {
+          next_kf_pose = it->second.cast<double>();
+          next_kf_ns = it->first;
+        } else {
+          next_kf_pose = current_kf_pose;
+          next_kf_ns = current_kf_ns;
+        }
+      } else {
+        // interpolate the pose
+        if (current_kf_ns > 0 && next_kf_ns > current_kf_ns) {
+          double ratio = double(ts - current_kf_ns) / double(next_kf_ns - current_kf_ns);
+          vio_T_w_i[i] = Sophus::interpolate(current_kf_pose, next_kf_pose, ratio);
+          vio_t_w_i[i] = vio_T_w_i[i].translation();
+        }
+      }
     }
 
     return true;
@@ -1061,15 +1088,17 @@ struct basalt_vio_ui : vis::VIOUIBase {
       }
 
       // SHOW KEYFRAMES POSES
-      glLineWidth(0.25);
-      for (const auto& [kf_id, pose] : curr_map_vis_data->keyframe_poses) {
-        pangolin::glDrawAxis(pose.matrix(), 0.1);
-        if (show_ids) {
-          glPushMatrix();
-          glMultMatrixd(pose.matrix().data());
-          glColor3ubv(vis::BLUE);
-          FONT.Text("%d", curr_map_vis_data->keyframe_idx[kf_id]).Draw(0, 0, -0.01F);
-          glPopMatrix();
+      if (show_keyframe_poses) {
+        glLineWidth(0.25);
+        for (const auto& [kf_id, pose] : curr_map_vis_data->keyframe_poses) {
+          pangolin::glDrawAxis(pose.matrix(), 0.1);
+          if (show_ids) {
+            glPushMatrix();
+            glMultMatrixd(pose.matrix().data());
+            glColor3ubv(vis::BLUE);
+            FONT.Text("%d", curr_map_vis_data->keyframe_idx[kf_id]).Draw(0, 0, -0.01F);
+            glPopMatrix();
+          }
         }
       }
 
@@ -1087,42 +1116,151 @@ struct basalt_vio_ui : vis::VIOUIBase {
       glLineWidth(0.25);
       pangolin::glDrawAxis(curr_lc_vis_data->keyframe_pose.matrix(), 0.1);
 
-      TimeCamId candidate_tcid = curr_lc_vis_data->similar_kfs[similar_kf_idx];
-      Sophus::SE3f candidate_pose = curr_lc_vis_data->candidate_pose[candidate_tcid];
-      pangolin::glDrawAxis(candidate_pose.matrix(), 0.1);
+      FrameId candidate_id = curr_lc_vis_data->islands[island_idx][0];
 
-      Sophus::SE3f corrected_pose = curr_lc_vis_data->corrected_pose[candidate_tcid];
-      pangolin::glDrawAxis(corrected_pose.matrix(), 0.1);
+      for (const auto& kf_id : curr_lc_vis_data->islands[island_idx]) {
+        int kf_idx = timestamp_to_id[kf_id];
+        Sophus::SE3f candidate_pose = vio_T_w_i[kf_idx].cast<float>();
+        pangolin::glDrawAxis(candidate_pose.matrix(), 0.1);
+      }
+
+      FrameId main_candidate_id = curr_lc_vis_data->islands[island_idx][0];
+      FrameId actual_frame_id = curr_lc_vis_data->islands[island_idx][similar_kf_idx];
+      int actual_frame_idx = timestamp_to_id[actual_frame_id];
+      int main_candidate_idx = timestamp_to_id[main_candidate_id];
+
+      Sophus::SE3f main_candidate_pose = vio_T_w_i[main_candidate_idx].cast<float>();
+
+      Sophus::SE3f corrected_pose = curr_lc_vis_data->corrected_pose[candidate_id];
+      if (!config.close_loops) {
+        pangolin::glDrawAxis(corrected_pose.matrix(), 0.1);
+      }
 
       Eigen::Vector3f t_actual_curr = curr_lc_vis_data->keyframe_pose.translation();
       Eigen::Vector3f t_corrected_curr = corrected_pose.translation();
-      Eigen::Vector3f t_actual_candidate = candidate_pose.translation();
+      Eigen::Vector3f t_actual_candidate = vio_T_w_i[actual_frame_idx].cast<float>().translation();
 
-      glColor3f(1.0f, 1.0f, 0.0f);
-      glBegin(GL_LINES);
-      glVertex3d(t_actual_curr.x(), t_actual_curr.y(), t_actual_curr.z());
-      glVertex3d(t_corrected_curr.x(), t_corrected_curr.y(), t_corrected_curr.z());
-      glEnd();
+      if (!config.close_loops) {
+        glColor3f(1.0f, 1.0f, 0.0f);
+        glBegin(GL_LINES);
+        glVertex3d(t_actual_curr.x(), t_actual_curr.y(), t_actual_curr.z());
+        glVertex3d(t_corrected_curr.x(), t_corrected_curr.y(), t_corrected_curr.z());
+        glEnd();
 
-      glColor3f(0.0f, 1.0f, 1.0f);
-      glBegin(GL_LINES);
-      glVertex3d(t_corrected_curr.x(), t_corrected_curr.y(), t_corrected_curr.z());
-      glVertex3d(t_actual_candidate.x(), t_actual_candidate.y(), t_actual_candidate.z());
-      glEnd();
-
-      for (const auto& pose : curr_lc_vis_data->corrected_loop_poses) {
-        pangolin::glDrawAxis(pose.matrix(), 0.1);
+        glColor3f(0.0f, 1.0f, 1.0f);
+        glBegin(GL_LINES);
+        glVertex3d(t_corrected_curr.x(), t_corrected_curr.y(), t_corrected_curr.z());
+        glVertex3d(t_actual_candidate.x(), t_actual_candidate.y(), t_actual_candidate.z());
+        glEnd();
+      } else {
+        glColor3f(0.0f, 1.0f, 1.0f);
+        glBegin(GL_LINES);
+        glVertex3d(t_actual_curr.x(), t_actual_curr.y(), t_actual_curr.z());
+        glVertex3d(t_actual_candidate.x(), t_actual_candidate.y(), t_actual_candidate.z());
+        glEnd();
       }
 
-      glColor3f(0.0f, 1.0f, 0.0f);
-      glLineWidth(0.5);
-      for (size_t i = 0; i < curr_lc_vis_data->corrected_loop_poses.size() - 1; i++) {
-        const auto& pose1 = curr_lc_vis_data->corrected_loop_poses[i];
-        const auto& pose2 = curr_lc_vis_data->corrected_loop_poses[i + 1];
-        glBegin(GL_LINES);
-        glVertex3d(pose1.translation().x(), pose1.translation().y(), pose1.translation().z());
-        glVertex3d(pose2.translation().x(), pose2.translation().y(), pose2.translation().z());
-        glEnd();
+      MapDatabaseVisualizationData::Ptr curr_map_vis_data = get_curr_map_vis_data();
+      if (curr_map_vis_data != nullptr) {
+        std::vector<int> landmark_ids = curr_map_vis_data->landmarks_ids;
+        Eigen::aligned_vector<Eigen::Vector3d> landmark_positions = curr_map_vis_data->landmarks;
+
+        std::vector<LandmarkId> island_landmark_ids = curr_lc_vis_data->landmark_ids[island_idx];
+        Eigen::aligned_vector<Eigen::Vector3d> curr_island_points;
+
+        for (const auto& lm_id : island_landmark_ids) {
+          auto it = std::find(landmark_ids.begin(), landmark_ids.end(), lm_id);
+          if (it != landmark_ids.end()) {
+            size_t lm_idx = std::distance(landmark_ids.begin(), it);
+            Eigen::Vector3d lm_pos = landmark_positions[lm_idx];
+
+            curr_island_points.push_back(lm_pos);
+          }
+        }
+
+        // show the points without using show_3d_points to avoid filtering by highlights
+        glPointSize(10);
+        glColor3ubv(vis::GREEN);
+        pangolin::glDrawPoints(curr_island_points);
+        glPointSize(3);
+      }
+
+      //      Eigen::aligned_vector<Eigen::Vector3d> curr_island_landmarks = curr_lc_vis_data->landmarks[island_idx];
+      //      // show the points without using show_3d_points to avoid filtering by highlights
+      //      glPointSize(10);
+      //      glColor3ubv(vis::GREEN);
+      //      pangolin::glDrawPoints(curr_island_landmarks);
+      //      glPointSize(3);
+
+      /*
+            for (const auto& pose : curr_lc_vis_data->corrected_loop_poses) {
+              pangolin::glDrawAxis(pose.matrix(), 0.1);
+            }
+
+            glColor3f(0.0f, 1.0f, 0.0f);
+            glLineWidth(0.5);
+            for (size_t i = 0; i < curr_lc_vis_data->corrected_loop_poses.size() - 1; i++) {
+              const auto& pose1 = curr_lc_vis_data->corrected_loop_poses[i];
+              const auto& pose2 = curr_lc_vis_data->corrected_loop_poses[i + 1];
+              glBegin(GL_LINES);
+              glVertex3d(pose1.translation().x(), pose1.translation().y(), pose1.translation().z());
+              glVertex3d(pose2.translation().x(), pose2.translation().y(), pose2.translation().z());
+              glEnd();
+            }
+      */
+      if (show_gt) {
+        Sophus::SE3d T_gt_start, T_gt_end;
+        associate_loop(candidate_id, curr_lc_vis_data->t_ns, gt_t_ns, gt_T_w_i, T_gt_start, T_gt_end);
+
+        // obtain the transformation from the T_gt_start to candidate_pose
+        Sophus::SE3f T_start_correction =
+            main_candidate_pose * T_gt_start.inverse().cast<float>();  // T_w_cand * T_gt_start^-1 = T_start_correction
+
+        if (loop_closing_show_aligned_gt) {
+          Eigen::aligned_vector<Eigen::Vector3d> gt_aligned_pre_loop;
+          Eigen::aligned_vector<Eigen::Vector3d> gt_aligned_loop;
+          Eigen::aligned_vector<Eigen::Vector3d> gt_aligned_post_loop;
+          for (size_t i = 0; i < gt_t_ns.size(); i++) {
+            if (gt_t_ns[i] < candidate_id) {
+              gt_aligned_pre_loop.push_back(
+                  (T_start_correction * gt_T_w_i[i].cast<float>()).translation().cast<double>());
+            } else if (gt_t_ns[i] >= candidate_id && gt_t_ns[i] <= curr_lc_vis_data->t_ns) {
+              gt_aligned_loop.push_back((T_start_correction * gt_T_w_i[i].cast<float>()).translation().cast<double>());
+            } else {
+              gt_aligned_post_loop.push_back(
+                  (T_start_correction * gt_T_w_i[i].cast<float>()).translation().cast<double>());
+            }
+          }
+
+          glColor4f(0.0f, 1.0f, 0.0f, 0.3f);
+          pangolin::glDrawLineStrip(gt_aligned_pre_loop);
+
+          glColor3ubv(vis::GREEN);
+          pangolin::glDrawLineStrip(gt_aligned_loop);
+
+          glColor4f(0.0f, 1.0f, 0.0f, 0.3f);
+          pangolin::glDrawLineStrip(gt_aligned_post_loop);
+        }
+
+        if (loop_closing_show_gt_poses) {
+          // draw the T_gt_start and T_gt_end poses also aligned
+          glColor3ubv(vis::GREEN);
+          pangolin::glDrawAxis((T_start_correction * T_gt_start.cast<float>()).matrix(), 0.1);
+          pangolin::glDrawAxis((T_start_correction * T_gt_end.cast<float>()).matrix(), 0.1);
+        }
+
+        if (print_loop_detection_error) {
+          Sophus::SE3f T_aligned_gt_end = T_start_correction * T_gt_end.cast<float>();
+          Eigen::Vector3f t_corrected_error = T_aligned_gt_end.translation() - corrected_pose.translation();
+          double corrected_ate = t_corrected_error.norm();
+
+          Eigen::Vector3f t_uncorrected_error = T_aligned_gt_end.translation() - t_actual_curr;
+          double uncorrected_ate = t_uncorrected_error.norm();
+
+          std::cout << "Loop detection ATE (uncorrected / corrected): " << uncorrected_ate << " / " << corrected_ate
+                    << std::endl;
+          print_loop_detection_error = false;
+        }
       }
     }
     if (show_mapper) {
@@ -1149,6 +1287,32 @@ struct basalt_vio_ui : vis::VIOUIBase {
         }
       }
     }
+  }
+
+  void associate_loop(const int64_t& filter_start_ns, const int64_t& filter_end_ns, const std::vector<int64_t>& gt_t_ns,
+                      const Eigen::aligned_vector<Sophus::SE3d>& gt_T_w_i, Sophus::SE3d& T_gt_start,
+                      Sophus::SE3d& T_gt_end) {
+    size_t j = 0;
+
+    while (j < gt_t_ns.size() && gt_t_ns[j] < filter_start_ns) j++;
+    j--;
+
+    double dt_ns = filter_start_ns - gt_t_ns[j];
+    double int_t_ns = gt_t_ns[j + 1] - gt_t_ns[j];
+
+    double ratio = dt_ns / int_t_ns;
+
+    T_gt_start = Sophus::interpolate(gt_T_w_i[j], gt_T_w_i[j + 1], ratio);
+
+    while (j < gt_t_ns.size() && gt_t_ns[j] < filter_end_ns) j++;
+    j--;
+
+    dt_ns = filter_end_ns - gt_t_ns[j];
+    int_t_ns = gt_t_ns[j + 1] - gt_t_ns[j];
+
+    ratio = dt_ns / int_t_ns;
+
+    T_gt_end = Sophus::interpolate(gt_T_w_i[j], gt_T_w_i[j + 1], ratio);
   }
 
   void show_3d_points(Eigen::aligned_vector<Eigen::Matrix<double, 3, 1>>& points, std::vector<int>& ids,
@@ -1269,6 +1433,18 @@ struct basalt_vio_ui : vis::VIOUIBase {
   }
 
   void alignButton() { basalt::alignSVD(vio_t_ns, vio_t_w_i, gt_t_ns, gt_t_w_i); }
+
+  void getDistanceTravelled() {
+    // distance is the distance between the first and the last pose
+    if (vio_t_w_i.size() < 2) {
+      std::cout << "Not enough poses to compute distance travelled." << std::endl;
+      return;
+    }
+    Eigen::Vector3d start_pos = vio_t_w_i.front();
+    Eigen::Vector3d end_pos = vio_t_w_i.back();
+    double distance = (end_pos - start_pos).norm();
+    std::cout << "Distance travelled: " << distance << " meters." << std::endl;
+  }
 
   void compute_frames_error() {
     Eigen::Matrix<int64_t, Eigen::Dynamic, 1> est_ts{};

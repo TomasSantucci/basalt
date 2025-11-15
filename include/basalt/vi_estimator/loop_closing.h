@@ -100,13 +100,37 @@ struct LoopClosingVisualizationData {
 
   int64_t t_ns;
 
-  std::vector<TimeCamId> similar_kfs;
-  Eigen::aligned_unordered_map<TimeCamId, Eigen::aligned_vector<std::pair<Vec2, Vec2>>> inlier_matches;
-  Eigen::aligned_unordered_map<TimeCamId, Eigen::aligned_vector<std::pair<Vec2, Vec2>>> matches;
+  // a vector of candidate keyframe ids
+  std::vector<FrameId> candidate_kfs;
+
+  // a vector of points for each camera
+  std::vector<Eigen::aligned_vector<Vec2>> current_keypoints;
+  // a map where the key is the tcid of the candidate keyframe and the value is the vector of points
+  std::unordered_map<TimeCamId, Eigen::aligned_vector<Vec2>> candidate_keypoints;
+
+  // a map where the key is the tcid of the candidate keyframe and the value is the vector of matches
+  std::vector<std::vector<Eigen::aligned_unordered_map<TimeCamId, Eigen::aligned_vector<std::pair<Vec2, Vec2>>>>>
+      matches;
+  std::vector<std::vector<Eigen::aligned_unordered_map<TimeCamId, Eigen::aligned_vector<std::pair<Vec2, Vec2>>>>>
+      inlier_matches;
+
+  // a vector of islands, where each island is a vector of keyframe ids
+  std::vector<std::vector<FrameId>> islands;
+
+  std::vector<Eigen::aligned_unordered_map<KeypointId, Vec2>> reprojected_keypoints;
+  std::vector<std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>>> redetected_keypoints;
+
+  std::vector<Eigen::aligned_vector<Vec2>> rematched_keypoints;
+
+  // for each island, the landmarks used for gP3P
+  std::vector<Eigen::aligned_vector<Eigen::Vector3d>> landmarks;
+  std::vector<std::vector<LandmarkId>> landmark_ids;
+
+  // add the matches that remain after removing the redundant ones for gP3P
 
   SE3 keyframe_pose;
-  std::unordered_map<TimeCamId, SE3> corrected_pose;
-  std::unordered_map<TimeCamId, SE3> candidate_pose;
+  std::unordered_map<FrameId, SE3> corrected_pose;  // should change this to be FrameId, for the IMU pose
+  std::unordered_map<FrameId, SE3> candidate_pose;  // should change this to be FrameId, for the IMU pose
 
   std::vector<SE3> corrected_loop_poses;
 };
@@ -161,6 +185,18 @@ class PoseGraph3dErrorTerm {
   const Eigen::Matrix<double, 6, 6> sqrt_information_;
 };
 
+struct MatchSource {
+  FrameId candidate_kf;
+  size_t pair_idx;
+};
+
+struct KeyframesMatch {
+  CamId source_cam;
+  CamId target_cam;
+  KeypointId source_kpt_id;
+  KeypointId target_kpt_id;
+};
+
 class LoopClosing {
  public:
   using Scalar = float;
@@ -209,10 +245,45 @@ class LoopClosing {
                            const std::vector<std::pair<int, int>>& matches,
                            std::vector<std::pair<int, int>>& inlier_matches, Sophus::SE3d& absolute_pose);
 
-  void detectLoopCandidates(const TimeCamId& curr_kf_tcid, std::vector<TimeCamId>& loop_candidates,
-                            std::vector<Landmark<Scalar>>& curr_kf_landmarks,
-                            std::unordered_map<TimeCamId, std::vector<Landmark<Scalar>>>& candidate_kf_landmarks_map,
-                            std::unordered_map<TimeCamId, std::vector<std::pair<int, int>>>& matches_map);
+  bool runLoopClosure(const OpticalFlowResult::Ptr& optical_flow_res, TimeCamId& best_candidate_tcid,
+                      Sophus::SE3f& best_corrected_pose);
+
+  bool closeLoop(const TimeCamId& best_candidate_tcid, const Sophus::SE3f& best_corrected_pose);
+
+  void query_hashbow_database(FrameId curr_kf_id, HashBowVector& bow_vector, std::vector<FrameId>& results);
+
+  void discard_covisible_keyframes(const FrameId& curr_kf_id, std::vector<FrameId>& candidate_kfs);
+
+  bool redetect_kpts(const Vec2& center_kpt, std::bitset<256>& center_kpt_descriptor,
+                     Eigen::aligned_vector<Vec2>& redetected_kpts, const basalt::ManagedImage<uint16_t>& img,
+                     Vec2& best_keypoint_pos);
+
+  void reproject_landmarks(const Sophus::SE3d& absolute_pose, FrameId candidate_kf,
+                           Eigen::aligned_unordered_map<KeypointId, Vec2>& reprojected_keypoints);
+
+  void filter_matches(std::vector<FrameId>& kfs_island,
+                      std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches);
+
+  bool are_covisible(const FrameId& kf1_id, const FrameId& kf2_id);
+
+  void match_keyframe(const FrameId& curr_kf_id,
+                      const std::vector<Eigen::aligned_unordered_map<KeypointId, Keypoint>>& curr_kf_kpts,
+                      const FrameId& candidate_kf_id, std::vector<KeyframesMatch>& matches);
+
+  void get_neighboring_keyframes(const FrameId& kf_id, int neighbors_num, std::vector<FrameId>& neighboring_kfs);
+
+  void match_candidate_keyframes(const FrameId& curr_kf_id,
+                                 const std::vector<Eigen::aligned_unordered_map<KeypointId, Keypoint>>& curr_kf_kpts,
+                                 std::vector<FrameId>& candidate_kfs,
+                                 std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches);
+
+  size_t computeAbsolutePoseMultiCam(const FrameId& last_kf_id,  // id of the viewpoint we're solving for
+                                     const std::vector<FrameId>& candidate_kf_ids,  // ids of the candidate keyframes
+                                     const std::vector<Eigen::aligned_unordered_map<KeypointId, Keypoint>>&
+                                         last_kf_kpts,  // keypoints of the last kf, per camera
+                                     const std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches,
+                                     std::unordered_map<FrameId, std::vector<KeyframesMatch>>& inlier_matches,
+                                     Sophus::SE3d& absolute_pose);
 
   void validateLoopCandidates(
       const TimeCamId& curr_kf_tcid, const std::vector<Landmark<Scalar>>& curr_kf_landmarks,
@@ -240,7 +311,7 @@ class LoopClosing {
   VioConfig config;
   basalt::Calibration<double> calib;
 
-  std::unordered_map<KeypointId, std::bitset<256>> kpt_descriptors;
+  std::unordered_map<TimeCamId, std::unordered_map<KeypointId, std::bitset<256>>> kpt_descriptors;
   std::shared_ptr<HashBow<256>> hash_bow_database;
 
   LandmarkDatabase<Scalar>::Ptr map;

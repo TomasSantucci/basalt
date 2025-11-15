@@ -176,24 +176,28 @@ void SqrtKeypointVioEstimator<Scalar>::addZeroKeyframeToMargData(FrameId toadd_t
   size_t i = added_idx;                         // Index to insert at
   size_t s = POSE_SIZE;                         // Number of inserted vars
 
-  if (old_total_rows < added_idx) {                                                                                    // If cols > rows
-    Hm.template block(0, 0, old_total_rows, bef) = marg_data.H.template block(0, 0, old_total_rows, bef);              // left
-    Hm.template block(0, i + s, old_total_rows, aft_col) = marg_data.H.template block(0, i, old_total_rows, aft_col);  // right
-  } else if (old_total_cols < added_idx) {                                                                             // If rows > cols
-    Hm.template block(0, 0, bef, old_total_cols) = marg_data.H.template block(0, 0, bef, old_total_cols);              // left
-    Hm.template block(0, i + s, aft_row, old_total_cols) = marg_data.H.template block(0, i, aft_row, old_total_cols);  // right
-  } else {                                                                                                     // If H is square
-    if (i == 0) {                                                                                              // If at the beginning
-      Hm.template block(i + s, i + s, aft_row, aft_col) = marg_data.H.template block(i, i, aft_row, aft_col);  // bottomright
+  if (old_total_rows < added_idx) {  // If cols > rows
+    Hm.template block(0, 0, old_total_rows, bef) = marg_data.H.template block(0, 0, old_total_rows, bef);  // left
+    Hm.template block(0, i + s, old_total_rows, aft_col) =
+        marg_data.H.template block(0, i, old_total_rows, aft_col);  // right
+  } else if (old_total_cols < added_idx) {                          // If rows > cols
+    Hm.template block(0, 0, bef, old_total_cols) = marg_data.H.template block(0, 0, bef, old_total_cols);  // left
+    Hm.template block(0, i + s, aft_row, old_total_cols) =
+        marg_data.H.template block(0, i, aft_row, old_total_cols);  // right
+  } else {                                                          // If H is square
+    if (i == 0) {                                                   // If at the beginning
+      Hm.template block(i + s, i + s, aft_row, aft_col) =
+          marg_data.H.template block(i, i, aft_row, aft_col);  // bottomright
       bm.tail(aft_row) = marg_data.b.tail(aft_row);
-    } else if (i + s == order.total_size) {                                                                    // If at the end
-      Hm.template block(0, 0, bef, bef) = marg_data.H.template block(0, 0, bef, bef);                          // topleft
+    } else if (i + s == order.total_size) {                                            // If at the end
+      Hm.template block(0, 0, bef, bef) = marg_data.H.template block(0, 0, bef, bef);  // topleft
       bm.head(bef) = marg_data.b.head(bef);
-    } else {                                                                                                   // If in the middle
-      Hm.template block(0, 0, bef, bef) = marg_data.H.template block(0, 0, bef, bef);                          // topleft
-      Hm.template block(0, i + s, bef, aft_col) = marg_data.H.template block(0, i, bef, aft_col);              // topright
-      Hm.template block(i + s, 0, aft_row, bef) = marg_data.H.template block(i, 0, aft_row, bef);              // bottomleft
-      Hm.template block(i + s, i + s, aft_row, aft_col) = marg_data.H.template block(i, i, aft_row, aft_col);  // bottomright
+    } else {                                                                                       // If in the middle
+      Hm.template block(0, 0, bef, bef) = marg_data.H.template block(0, 0, bef, bef);              // topleft
+      Hm.template block(0, i + s, bef, aft_col) = marg_data.H.template block(0, i, bef, aft_col);  // topright
+      Hm.template block(i + s, 0, aft_row, bef) = marg_data.H.template block(i, 0, aft_row, bef);  // bottomleft
+      Hm.template block(i + s, i + s, aft_row, aft_col) =
+          marg_data.H.template block(i, i, aft_row, aft_col);  // bottomright
       bm.head(bef) = marg_data.b.head(bef);
       bm.tail(aft_row) = marg_data.b.tail(aft_row);
     }
@@ -718,6 +722,18 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
     }
 
     num_points_kf[opt_flow_meas->t_ns] = num_points_added;
+
+    // Send a map stamp to the Map Database
+    map_stamp->lmdb = std::make_shared<LandmarkDatabase<Scalar_>>(lmdb);
+    auto msg = std::make_shared<WriteMapStampMsg>();
+    msg->map_stamp = map_stamp;
+    out_vio_data_queue->push(msg);
+
+    if (sync_map_stamp != nullptr) {
+      std::unique_lock<std::mutex> lk(sync_map_stamp->m);
+      sync_map_stamp->cvar.wait(lk, [&] { return sync_map_stamp->ready; });
+      sync_map_stamp->ready = false;
+    }
   } else {
     frames_after_kf++;
   }
@@ -752,7 +768,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
     computeProjections(*projections, last_state_t_ns);
   }
 
-  if (sync_vio_finished != nullptr) {
+  if (sent_keyframe_to_lc && sync_vio_finished != nullptr) {
     std::lock_guard<std::mutex> lk(sync_vio_finished->m);
     sync_vio_finished->ready = true;
     sync_vio_finished->cvar.notify_one();
@@ -1161,20 +1177,6 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
         }
 
         out_marg_queue->push(m);
-      }
-    }
-
-    // Send a map stamp to the MapDatabase
-    if (out_vio_data_queue && !kfs_to_marg.empty()) {
-      map_stamp->lmdb = std::make_shared<LandmarkDatabase<Scalar_>>(lmdb);
-      auto msg = std::make_shared<WriteMapStampMsg>();
-      msg->map_stamp = map_stamp;
-      out_vio_data_queue->push(msg);
-
-      if (sync_map_stamp != nullptr) {
-        std::unique_lock<std::mutex> lk(sync_map_stamp->m);
-        sync_map_stamp->cvar.wait(lk, [&] { return sync_map_stamp->ready; });
-        sync_map_stamp->ready = false;
       }
     }
 
