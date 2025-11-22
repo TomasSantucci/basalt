@@ -806,10 +806,18 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
     }
   }
 
-  if (show_reprojections && similar_kf_idx == 0 && recent_kf_cam_id == 0 && candidate_kf_cam_id == 0) {
+  if (show_reprojections && similar_kf_idx == 0 && recent_kf_cam_id == candidate_kf_cam_id &&
+      std::find(config.loop_closing_cameras_to_reproject.begin(), config.loop_closing_cameras_to_reproject.end(),
+                recent_kf_cam_id) != config.loop_closing_cameras_to_reproject.end()) {
     // draw the reprojections
+    // get the index of the recent_kf_cam_id in the vector config.loop_closing_cameras_to_reproject
+    auto it = std::find(config.loop_closing_cameras_to_reproject.begin(),
+                        config.loop_closing_cameras_to_reproject.end(), recent_kf_cam_id);
+
+    size_t index = std::distance(config.loop_closing_cameras_to_reproject.begin(), it);
+
     Eigen::aligned_unordered_map<KeypointId, Eigen::Matrix<float, 2, 1>> reprojected_keypoints =
-        curr_lc_vis_data->reprojected_keypoints[island_idx];
+        curr_lc_vis_data->reprojected_keypoints[island_idx][index];
 
     glColor3ubv(YELLOW);
     for (const auto& [kpt_id, p] : reprojected_keypoints) {
@@ -827,7 +835,7 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
 
     if (show_redetections) {
       std::unordered_map<KeypointId, Eigen::aligned_vector<Eigen::Matrix<float, 2, 1>>>& redetected_kpts =
-          curr_lc_vis_data->redetected_keypoints[island_idx];
+          curr_lc_vis_data->redetected_keypoints[island_idx][index];
 
       glColor3ubv(ORANGE);
       for (const auto& [kpid, kpts] : redetected_kpts) {
@@ -839,7 +847,7 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
 
     if (show_rematches) {
       Eigen::aligned_vector<Eigen::Matrix<float, 2, 1>>& rematched_keypoints =
-          curr_lc_vis_data->rematched_keypoints[island_idx];
+          curr_lc_vis_data->rematched_keypoints[island_idx][index];
       glColor3ubv(BLUE);
       for (const auto& p : rematched_keypoints) {
         pangolin::glDrawCirclePerimeter(p.cast<double>(), 3.0f);

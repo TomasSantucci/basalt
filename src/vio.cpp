@@ -308,10 +308,12 @@ struct basalt_vio_ui : vis::VIOUIBase {
       vio->opt_flow_state_queue = &opt_flow->input_state_queue;
       vio->opt_flow_lm_bundle_queue = &opt_flow->input_lm_bundle_queue;
       if (deterministic) {
-        vio->sync_hashbow_index = &sync_hashbow_index;
+        if (config.enable_loop_closing) {
+          vio->sync_hashbow_index = &sync_hashbow_index;
+          vio->sync_vio_finished = &sync_vio_finished;
+          vio->sync_lc_finished = &sync_lc_finished;
+        }
         vio->sync_map_stamp = &sync_map_stamp;
-        vio->sync_vio_finished = &sync_vio_finished;
-        vio->sync_lc_finished = &sync_lc_finished;
       }
     }
     {
@@ -320,10 +322,10 @@ struct basalt_vio_ui : vis::VIOUIBase {
       vio->out_vio_data_queue = &map_db->write_queue;
       vio->out_covi_req_queue = &map_db->read_queue;
       map_db->out_covi_res_queue = &vio->in_covi_res_queue;
-      map_db->out_map_update_queue = &out_map_update_queue;
+      if (config.enable_loop_closing) map_db->out_map_update_queue = &out_map_update_queue;
       if (deterministic) {
         map_db->sync_map_stamp = &sync_map_stamp;
-        map_db->sync_lc_finished = &sync_lc_finished;
+        if (config.enable_loop_closing) map_db->sync_lc_finished = &sync_lc_finished;
       }
       if (show_gui) map_db->out_vis_queue = &out_mapper_vis_queue;
     }
@@ -434,37 +436,41 @@ struct basalt_vio_ui : vis::VIOUIBase {
         std::cout << "Finished map visualization thread" << std::endl;
       });
 
-      loop_closing_vis_thread = thread([&]() {
-        basalt::LoopClosingVisualizationData::Ptr data;
+      if (config.enable_loop_closing) {
+        loop_closing_vis_thread = thread([&]() {
+          basalt::LoopClosingVisualizationData::Ptr data;
 
-        while (true) {
-          out_lc_vis_queue.pop(data);
+          while (true) {
+            out_lc_vis_queue.pop(data);
 
-          if (data.get()) {
-            loop_closing_vis_map[data->t_ns] = data;
-          } else {
-            break;
+            if (data.get()) {
+              loop_closing_vis_map[data->t_ns] = data;
+            } else {
+              break;
+            }
           }
-        }
 
-        std::cout << "Finished loop closing visualization thread" << std::endl;
-      });
+          std::cout << "Finished loop closing visualization thread" << std::endl;
+        });
+      }
 
-      nfrmapper_vis_thread = thread([&]() {
-        basalt::NfrMapperVisualizationData::Ptr data;
+      if (config.enable_mapper) {
+        nfrmapper_vis_thread = thread([&]() {
+          basalt::NfrMapperVisualizationData::Ptr data;
 
-        while (true) {
-          out_nfrmapper_vis_queue.pop(data);
+          while (true) {
+            out_nfrmapper_vis_queue.pop(data);
 
-          if (data.get()) {
-            nfrmapper_vis_map[data->t_ns] = data;
-          } else {
-            break;
+            if (data.get()) {
+              nfrmapper_vis_map[data->t_ns] = data;
+            } else {
+              break;
+            }
           }
-        }
 
-        std::cout << "Finished NFR mapper visualization thread" << std::endl;
-      });
+          std::cout << "Finished NFR mapper visualization thread" << std::endl;
+        });
+      }
     }
 
     if (!deterministic) {
@@ -482,9 +488,11 @@ struct basalt_vio_ui : vis::VIOUIBase {
       });
     }
 
-    map_updates_thread = thread([&]() {
-      while (pop_map_updates()) continue;
-    });
+    if (config.enable_loop_closing) {
+      map_updates_thread = thread([&]() {
+        while (pop_map_updates()) continue;
+      });
+    }
 
     time_start = std::chrono::high_resolution_clock::now();
 

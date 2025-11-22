@@ -160,6 +160,15 @@ struct VioConfig {
   bool always_detect_loop;
   bool close_loops;
   bool loop_closing_use_rematches;
+  std::vector<size_t> loop_closing_cameras_to_reproject;
+
+  bool debug1;
+  bool debug2;
+  bool debug3;
+  bool debug4;
+  bool debug5;
+
+  int loop_closing_frame_time_margin_s;
 
   bool mapper_use_lm;
   double mapper_lm_lambda_min;

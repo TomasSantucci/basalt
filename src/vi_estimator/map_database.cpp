@@ -176,22 +176,26 @@ void MapDatabase::computeMapVisualData() {
   }
 
   // show covisibility
-  for (const auto& [tcid_h, target_map] : map->getObservations()) {
-    for (const auto& [tcid_t, obs] : target_map) {
-      Eigen::Vector3d p1 = map->getKeyframePose(tcid_h.frame_id).template cast<double>().translation();
-      Eigen::Vector3d p2 = map->getKeyframePose(tcid_t.frame_id).template cast<double>().translation();
-      map_visual_data->covisibility.emplace_back(p1);
-      map_visual_data->covisibility.emplace_back(p2);
+  if (config.debug1) {
+    for (const auto& [tcid_h, target_map] : map->getObservations()) {
+      for (const auto& [tcid_t, obs] : target_map) {
+        Eigen::Vector3d p1 = map->getKeyframePose(tcid_h.frame_id).template cast<double>().translation();
+        Eigen::Vector3d p2 = map->getKeyframePose(tcid_t.frame_id).template cast<double>().translation();
+        map_visual_data->covisibility.emplace_back(p1);
+        map_visual_data->covisibility.emplace_back(p2);
+      }
     }
   }
 
   // Show observations
-  for (const auto& [tcid, obs] : map->getKeyframeObs()) {
-    Eigen::Vector3d kf_pos = map->getKeyframePose(tcid.frame_id).template cast<double>().translation();
-    auto landmarks_3d = get_landmarks_3d_pos(obs);
-    for (const auto& lm_id : obs) {
-      map_visual_data->observations[lm_id].emplace_back(kf_pos);
-      map_visual_data->observations[lm_id].emplace_back(landmarks_3d[lm_id]);
+  if (config.debug1) {
+    for (const auto& [tcid, obs] : map->getKeyframeObs()) {
+      Eigen::Vector3d kf_pos = map->getKeyframePose(tcid.frame_id).template cast<double>().translation();
+      auto landmarks_3d = get_landmarks_3d_pos(obs);
+      for (const auto& lm_id : obs) {
+        map_visual_data->observations[lm_id].emplace_back(kf_pos);
+        map_visual_data->observations[lm_id].emplace_back(landmarks_3d[lm_id]);
+      }
     }
   }
 }

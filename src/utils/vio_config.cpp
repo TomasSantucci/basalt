@@ -350,6 +350,15 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.always_detect_loop));
   ar(CEREAL_NVP(config.close_loops));
   ar(CEREAL_NVP(config.loop_closing_use_rematches));
+  ar(CEREAL_NVP(config.loop_closing_cameras_to_reproject));
+
+  ar(CEREAL_NVP(config.debug1));
+  ar(CEREAL_NVP(config.debug2));
+  ar(CEREAL_NVP(config.debug3));
+  ar(CEREAL_NVP(config.debug4));
+  ar(CEREAL_NVP(config.debug5));
+
+  ar(CEREAL_NVP(config.loop_closing_frame_time_margin_s));
 
   ar(CEREAL_NVP(config.mapper_use_lm));
   ar(CEREAL_NVP(config.mapper_lm_lambda_min));

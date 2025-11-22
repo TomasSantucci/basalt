@@ -117,10 +117,10 @@ struct LoopClosingVisualizationData {
   // a vector of islands, where each island is a vector of keyframe ids
   std::vector<std::vector<FrameId>> islands;
 
-  std::vector<Eigen::aligned_unordered_map<KeypointId, Vec2>> reprojected_keypoints;
-  std::vector<std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>>> redetected_keypoints;
+  std::vector<std::vector<Eigen::aligned_unordered_map<KeypointId, Vec2>>> reprojected_keypoints;
+  std::vector<std::vector<std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>>>> redetected_keypoints;
 
-  std::vector<Eigen::aligned_vector<Vec2>> rematched_keypoints;
+  std::vector<std::vector<Eigen::aligned_vector<Vec2>>> rematched_keypoints;
 
   // for each island, the landmarks used for gP3P
   std::vector<Eigen::aligned_vector<Eigen::Vector3d>> landmarks;
@@ -259,7 +259,7 @@ class LoopClosing {
                      Vec2& best_keypoint_pos);
 
   void reproject_landmarks(const Sophus::SE3d& absolute_pose, FrameId candidate_kf,
-                           Eigen::aligned_unordered_map<KeypointId, Vec2>& reprojected_keypoints);
+                           Eigen::aligned_unordered_map<KeypointId, Vec2>& reprojected_keypoints, size_t cam_id);
 
   void filter_matches(std::vector<FrameId>& kfs_island,
                       std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches);

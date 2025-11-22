@@ -103,6 +103,8 @@
         "config.loop_closing_redetect_max_hamming_distance": 70,
         "config.loop_closing_redetect_second_best_test_ratio": 1,
         "config.loop_closing_num_neighbors": 2,
+        "config.loop_closing_use_rematches": true,
+        "config.loop_closing_cameras_to_reproject": [0,1],
         "config.always_detect_loop": false,
         "config.close_loops": true,
         "config.mapper_use_lm": true,

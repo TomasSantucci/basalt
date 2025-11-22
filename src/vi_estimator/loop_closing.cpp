@@ -94,10 +94,18 @@ void LoopClosing::initialize() {
       if (config.close_loops) {
         success = closeLoop(best_candidate_tcid, best_corrected_pose);
 
+        if (loop_closing_visualization_data->candidate_kfs.size() > 0 && out_lc_vis_queue) {
+          out_lc_vis_queue->push(loop_closing_visualization_data);
+        }
+
         if (success) {
           close_loop = false;
         }
       } else {
+        if (loop_closing_visualization_data->candidate_kfs.size() > 0 && out_lc_vis_queue) {
+          out_lc_vis_queue->push(loop_closing_visualization_data);
+        }
+
         notify_lc_finished = true;
       }
 
@@ -259,53 +267,59 @@ bool LoopClosing::runLoopClosure(const OpticalFlowResult::Ptr& optical_flow_res,
     if (num_inliers < config.loop_closing_pnp_min_inliers) continue;
 
     // reproject the 3d points from the kfs_island[0] to the current keyframe's left cam
-    Eigen::aligned_unordered_map<KeypointId, Vec2> reprojected_keypoints;
-    reproject_landmarks(absolute_pose, kfs_island[0], reprojected_keypoints);
+    std::vector<Eigen::aligned_unordered_map<KeypointId, Vec2>> reprojected_keypoints(
+        config.loop_closing_cameras_to_reproject.size());
+    std::vector<std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>>> redetected_keypoints_map(
+        config.loop_closing_cameras_to_reproject.size());
+    std::vector<Eigen::aligned_vector<Vec2>> rematched_keypoints(config.loop_closing_cameras_to_reproject.size());
+    for (size_t i = 0; i < config.loop_closing_cameras_to_reproject.size(); i++) {
+      size_t cam_id = config.loop_closing_cameras_to_reproject[i];
+      reproject_landmarks(absolute_pose, kfs_island[0], reprojected_keypoints[i], cam_id);
 
-    std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>> redetected_keypoints_map;
-    Eigen::aligned_vector<Vec2> rematched_keypoints;
+      std::vector<KeyframesMatch> new_matched_keypoints;
+      for (const auto& kp : reprojected_keypoints[i]) {
+        Eigen::aligned_vector<Vec2>& redetected_kpts = redetected_keypoints_map[i][kp.first];
 
-    std::vector<KeyframesMatch> new_matched_keypoints;
-    for (const auto& kp : reprojected_keypoints) {
-      Eigen::aligned_vector<Vec2>& redetected_kpts = redetected_keypoints_map[kp.first];
+        Vec2 best_keypoint_pos;
 
-      Vec2 best_keypoint_pos;
+        std::bitset<256> center_kpt_descriptor = kpt_descriptors[TimeCamId{candidate_kf, cam_id}][kp.first];
+        bool match_found = redetect_kpts(kp.second, center_kpt_descriptor, redetected_kpts,
+                                         *optical_flow_res->input_images->img_data[cam_id].img, best_keypoint_pos);
 
-      std::bitset<256> center_kpt_descriptor = kpt_descriptors[TimeCamId{candidate_kf, 0}][kp.first];
-      bool match_found = redetect_kpts(kp.second, center_kpt_descriptor, redetected_kpts,
-                                       *optical_flow_res->input_images->img_data[0].img, best_keypoint_pos);
-
-      if (match_found) {
-        rematched_keypoints.emplace_back(best_keypoint_pos);
-        if (config.loop_closing_use_rematches) {
-          new_matched_keypoints.emplace_back(
-              KeyframesMatch{0, 0, kp.first, kp.first});  // source_cam, source_kpt_id, target_cam, target_kpt_id
-          curr_kf_kpts[0][kp.first] = Eigen::Translation2f(best_keypoint_pos);
+        if (match_found) {
+          rematched_keypoints[i].emplace_back(best_keypoint_pos);
+          if (config.loop_closing_use_rematches) {
+            new_matched_keypoints.emplace_back(KeyframesMatch{
+                cam_id, cam_id, kp.first, kp.first});  // source_cam, source_kpt_id, target_cam, target_kpt_id
+            curr_kf_kpts[cam_id][kp.first] = Eigen::Translation2f(best_keypoint_pos);
+          }
         }
+      }
+
+      // filter the new matches, discarding those that contain an existing taget_kpt_id
+      if (config.loop_closing_use_rematches) {
+        std::set<KeypointId> existing_target_kpt_ids;
+        for (const auto& keyframe_match : matches) {
+          for (const auto& match : keyframe_match.second) {
+            if (match.source_cam != cam_id) continue;  // only consider matches from the current camera
+            existing_target_kpt_ids.insert(match.target_kpt_id);
+          }
+        }
+
+        std::vector<KeyframesMatch> filtered_new_matched_keypoints;
+        for (const auto& match : new_matched_keypoints) {
+          if (existing_target_kpt_ids.find(match.target_kpt_id) == existing_target_kpt_ids.end()) {
+            filtered_new_matched_keypoints.emplace_back(match);
+          }
+        }
+
+        // add the new matches to the matches
+        matches[candidate_kf].insert(matches[candidate_kf].end(), filtered_new_matched_keypoints.begin(),
+                                     filtered_new_matched_keypoints.end());
       }
     }
 
-    // filter the new matches, discarding those that contain an existing taget_kpt_id
     if (config.loop_closing_use_rematches) {
-      std::set<KeypointId> existing_target_kpt_ids;
-      for (const auto& keyframe_match : matches) {
-        for (const auto& match : keyframe_match.second) {
-          if (match.source_cam != 0) continue;  // only consider matches from the left camera
-          existing_target_kpt_ids.insert(match.target_kpt_id);
-        }
-      }
-
-      std::vector<KeyframesMatch> filtered_new_matched_keypoints;
-      for (const auto& match : new_matched_keypoints) {
-        if (existing_target_kpt_ids.find(match.target_kpt_id) == existing_target_kpt_ids.end()) {
-          filtered_new_matched_keypoints.emplace_back(match);
-        }
-      }
-
-      // add the new matches to the matches
-      matches[candidate_kf].insert(matches[candidate_kf].end(), filtered_new_matched_keypoints.begin(),
-                                   filtered_new_matched_keypoints.end());
-
       // recompute the absolute pose with the new matches
       inlier_matches.clear();
       size_t new_num_inliers =
@@ -436,10 +450,6 @@ bool LoopClosing::runLoopClosure(const OpticalFlowResult::Ptr& optical_flow_res,
     break;
   }
 
-  if (loop_closing_visualization_data->candidate_kfs.size() > 0 && out_lc_vis_queue) {
-    out_lc_vis_queue->push(loop_closing_visualization_data);
-  }
-
   return loop_found;
 }
 
@@ -468,7 +478,9 @@ void LoopClosing::query_hashbow_database(FrameId curr_kf_id, HashBowVector& bow_
   results.clear();
 
   std::vector<std::pair<TimeCamId, double>> query_results;
-  hash_bow_database->querry_database(bow_vector, config.loop_closing_num_frames_to_match, query_results);
+  // max_t_ns should be the current keyframe minus some margin to avoid matching with future frames
+  int64_t max_t_ns = static_cast<int64_t>(curr_kf_id) - config.loop_closing_frame_time_margin_s * 1e9;
+  hash_bow_database->querry_database(bow_vector, config.loop_closing_num_frames_to_match, query_results, &max_t_ns);
 
   for (const auto& [candidate_kf_tcid, score] : query_results) {
     if (candidate_kf_tcid.frame_id == curr_kf_id) continue;
@@ -556,10 +568,11 @@ bool LoopClosing::redetect_kpts(const Vec2& center_kpt, std::bitset<256>& center
 }
 
 void LoopClosing::reproject_landmarks(const Sophus::SE3d& absolute_pose, FrameId candidate_kf,
-                                      Eigen::aligned_unordered_map<KeypointId, Vec2>& reprojected_keypoints) {
+                                      Eigen::aligned_unordered_map<KeypointId, Vec2>& reprojected_keypoints,
+                                      size_t cam_id) {
   // get the landmarks observed in candidate_kf's left cam
   std::set<LandmarkId> candidate_kf_landmarks;
-  TimeCamId candidate_kf_tcid = TimeCamId{candidate_kf, 0};
+  TimeCamId candidate_kf_tcid = TimeCamId{candidate_kf, cam_id};
   auto it = map->getKeyframeObs().find(candidate_kf_tcid);
   if (it != map->getKeyframeObs().end()) {
     for (const auto& lm_id : it->second) {
@@ -567,7 +580,7 @@ void LoopClosing::reproject_landmarks(const Sophus::SE3d& absolute_pose, FrameId
     }
   }
 
-  Sophus::SE3d T_i_cl = calib.T_i_c[0];
+  Sophus::SE3d T_i_cl = calib.T_i_c[cam_id];
   Sophus::SE3d T_w_cl = absolute_pose * T_i_cl;  // world → left cam
   Sophus::SE3d T_cl_w = T_w_cl.inverse();        // left cam ← world
 
@@ -588,7 +601,7 @@ void LoopClosing::reproject_landmarks(const Sophus::SE3d& absolute_pose, FrameId
     Eigen::Vector3d pt_cl = T_cl_w * world_pt;
 
     Eigen::Vector2d uv;
-    bool valid = calib.intrinsics[0].project(pt_cl, uv);
+    bool valid = calib.intrinsics[cam_id].project(pt_cl, uv);
 
     if (pt_cl.z() <= 0) {
       // The point is behind the camera — invalid projection
@@ -598,8 +611,8 @@ void LoopClosing::reproject_landmarks(const Sophus::SE3d& absolute_pose, FrameId
     if (!valid) continue;
 
     // check if the reprojected point is within the image bounds
-    const size_t w = calib.resolution[0].x();
-    const size_t h = calib.resolution[0].y();
+    const size_t w = calib.resolution[cam_id].x();
+    const size_t h = calib.resolution[cam_id].y();
     if (uv.x() < 0 || uv.x() >= w || uv.y() < 0 || uv.y() >= h) {
       continue;
     }
@@ -819,7 +832,11 @@ void LoopClosing::buildPoseGraph(const TimeCamId& curr_kf_tcid, const TimeCamId&
   auto itEnd = keyframe_poses.upper_bound(curr_kf_tcid.frame_id);
 
   Sophus::SE3f T_w_i = keyframe_poses.at(itStart->first);
-  poses.emplace_back(T_w_i);
+  Sophus::SE3f actual_candidate_pose_corrected =
+      keyframe_poses.at(curr_kf_tcid.frame_id) *
+      (best_corrected_pose.inverse() * keyframe_poses.at(best_candidate_tcid.frame_id));
+
+  poses.emplace_back(actual_candidate_pose_corrected);
   itStart++;
 
   for (; itStart != itEnd; itStart++) {
@@ -873,11 +890,11 @@ void LoopClosing::restorePosesFromCeres(const MapOfPoses& map_of_poses, std::vec
 
 void LoopClosing::updateMap(const std::vector<Sophus::SE3f>& poses, const TimeCamId& best_candidate_tcid) {
   // transform the poses before itStart to align with the optimized poses
-  Sophus::SE3f T_w_correction = map->getKeyframePose(best_candidate_tcid.frame_id).inverse() * poses[0];
+  Sophus::SE3f T_w_correction = poses[0] * map->getKeyframePose(best_candidate_tcid.frame_id).inverse();
   auto itStart2 = map->getKeyframes().lower_bound(best_candidate_tcid.frame_id);
   for (auto it = map->getKeyframes().begin(); it != itStart2; it++) {
     Sophus::SE3f& old_pose = map->getKeyframePose(it->first);
-    old_pose = old_pose * T_w_correction;
+    old_pose = T_w_correction * old_pose;
   }
 
   // update the poses of the keyframes involved in the loop closure
@@ -1164,6 +1181,12 @@ void LoopClosing::buildOptimizationProblem(const VectorOfConstraints& constraint
   CHECK(pose_to_fix != poses->end()) << "There are no poses.";
   problem->SetParameterBlockConstant(pose_to_fix->second.p.data());
   problem->SetParameterBlockConstant(pose_to_fix->second.q.coeffs().data());
+
+  // fixing the first pose as well
+  auto start_pose_to_fix = poses->begin();
+  CHECK(start_pose_to_fix != poses->end()) << "There are no poses.";
+  problem->SetParameterBlockConstant(start_pose_to_fix->second.p.data());
+  problem->SetParameterBlockConstant(start_pose_to_fix->second.q.coeffs().data());
 }
 
 bool LoopClosing::solveOptimizationProblem(ceres::Problem* problem) {
