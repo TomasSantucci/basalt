@@ -99,3 +99,59 @@ unzip MOO09_short_1_updown.zip
 ## Development
 
 If you want to set up your build environment for developing and iterating on Basalt, see the [development guide](doc/Development.md).
+
+I am inclining into merging the timing and eval pipelines
+
+- On one hand I would want the eval pipeline to be parallelized
+- On the other I dont know of a way to do this in gitlab while at the same time keeping the timing stuff isolated
+- I can get memory timing info and everything from everything
+- Maybe I could just have specified evalsets for runs that are meant to happen in a separte stage isolated but even then I dont know if I can isolate the runner
+
+- Do stacked timing plot with each stage one after the other
+  - Support multiple timing files by putting each bar of each system next to each other
+  - Add uncertainty lines
+
+- fix chrome encoding
+- investigate the difference in trajectory output between main branch and this timing branch (I edited addPoints)
+- Add --num-threads option to CI
+
+
+
+
+
+-------------
+
+
+
+
+
+
+```cpp
+  void addPoints() {
+    ManagedImagePyr<uint16_t>& pyr0 = pyramid->at(0);
+    Keypoints kpts0 = addPointsForCamera(0);
+    Masks& ms0 = transforms->input_images->masks.at(0);
+
+    if (config.optical_flow_recall_enable) kpts0.insert(recalls[0].begin(), recalls[0].end());
+
+    // Match features on areas that overlap with cam0 using optical flow
+    for (size_t i = 1; i < getNumCams(); i++) {
+      Masks& ms = transforms->input_images->masks.at(i);
+      Keypoints& mgs = transforms->matching_guesses.at(i);
+      ManagedImagePyr<uint16_t>& pyri = pyramid->at(i);
+      Keypoints kpts;
+      SE3 T_c0_ci = calib.T_i_c[0].inverse() * calib.T_i_c[i];
+      trackPoints(pyr0, pyri, kpts0, kpts, mgs, ms0, ms, T_c0_ci, 0, i);
+      addKeypoints(i, kpts);
+    }
+
+    if (!config.optical_flow_detection_nonoverlap) return;
+
+    // Update masks and detect features on area not overlapping with cam0
+    for (size_t i = 1; i < getNumCams(); i++) {
+      Masks& ms = transforms->input_images->masks.at(i);
+      ms += cam0OverlapCellsMasksForCam(i);
+      Keypoints kpts_no = addPointsForCamera(i);
+    }
+  }
+```

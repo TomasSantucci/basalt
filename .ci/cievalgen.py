@@ -13,6 +13,7 @@ EVALSET_TEMPLATE = dedent(
         tags: [basalt-evaluation]
         needs: ["build"]
         extends: .run-dataset
+        resource_group: at111
         parallel:
             matrix:
             - DATASET: [{datasets}]

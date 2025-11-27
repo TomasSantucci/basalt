@@ -64,7 +64,7 @@ static std::array timing_titles = {
     "frames_read_started",
     "frames_read",
     "frames_pushed",
-    "frontend_frames_received", // < Basalt computation starts
+    "frontend_frames_received",  // < Basalt computation starts
     "frontend_preintegration_computed",
     "frontend_pyramid_created",
     "frontend_tracking_ended",
@@ -82,7 +82,7 @@ static std::array timing_titles = {
     "backend_cumulative_error_computed",
     "backend_optimization_ended",
     "backend_marginalization_ended",
-    "backend_state_pushed", // < Basalt computation ends
+    "backend_state_pushed",  // < Basalt computation ends
     "consumer_state_received",
     "consumer_state_pushed",
     "vit_consumer_pose_received",
