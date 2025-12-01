@@ -155,3 +155,11 @@ I am inclining into merging the timing and eval pipelines
     }
   }
 ```
+
+
+# TODO@mateosss Add perf flamegraph
+
+sudo perf record -F 99 -g ./build/basalt_vio --dataset-path $msdmo/MOO_others/MOO02_hand_puncher_2 --cam-calib data/msd/msdmo_calib.json --config-path data/msd/msdmo_config.json --show-gui 0 --deterministic 1
+sudo perf script > out.perf
+./FlameGraph/stackcollapse-perf.pl out.perf > out.folded
+./FlameGraph/flamegraph.pl out.folded > flamegraph.svg
