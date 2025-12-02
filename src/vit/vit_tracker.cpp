@@ -492,9 +492,9 @@ struct Tracker::Implementation {
     for (uint32_t j = 0; j < s->width * s->height; j++) {
       mimg->ptr[j] = img.at<uchar>(j) << 8;
     }
-    partial_frame->addTime("frames_read");
 
     if (i == cam_count - 1) {
+      partial_frame->addTime("frames_read");
       partial_frame->addTime("frames_pushed");
       image_data_queue->push(partial_frame);
       if (show_gui) ui.update_last_image(partial_frame);
