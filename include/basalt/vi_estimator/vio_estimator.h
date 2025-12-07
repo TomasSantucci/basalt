@@ -46,6 +46,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace basalt {
 
+struct LoopClosingInput {
+  using Ptr = std::shared_ptr<LoopClosingInput>;
+
+  int64_t t_ns;
+  std::vector<Keypoints> keypoints;
+  std::vector<Keypoints> landmarks;
+  OpticalFlowInput::Ptr input_images;
+};
+
 struct VioVisualizationData {
   using Ptr = std::shared_ptr<VioVisualizationData>;
   using UIMAT = vis::UIMAT;
@@ -112,7 +121,7 @@ class VioEstimatorBase {
   tbb::concurrent_bounded_queue<LandmarkDatabase<float>::Ptr> in_covi_res_queue;
   tbb::concurrent_bounded_queue<VioVisualizationData::Ptr>* out_vis_queue = nullptr;
 
-  tbb::concurrent_bounded_queue<OpticalFlowResult::Ptr>* out_opt_flow_queue_loop_closing = nullptr;
+  tbb::concurrent_bounded_queue<LoopClosingInput::Ptr>* out_opt_flow_queue_loop_closing = nullptr;
   tbb::concurrent_queue<double>* opt_flow_depth_guess_queue = nullptr;
   tbb::concurrent_queue<PoseVelBiasState<double>::Ptr>* opt_flow_state_queue = nullptr;
   tbb::concurrent_queue<LandmarkBundle::Ptr>* opt_flow_lm_bundle_queue = nullptr;

@@ -10,6 +10,8 @@ void WriteMapUpdateMsg::execute(MapDatabase& db) { db.write_map_update(map_updat
 
 void ReadCovisibilityReqMsg::execute(MapDatabase& db) { db.read_covisibility_req(keypoints); }
 
-void ReadMapReqMsg::execute(MapDatabase& db) { db.read_map_req(req); }
+void Read3dPointsReqMsg::execute(MapDatabase& db) { db.read_3d_points_req(keyframes); }
+
+void ReadMapReqMsg::execute(MapDatabase& db) { db.read_map_req(frame_id); }
 
 }  // namespace basalt

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <basalt/vi_estimator/landmark_database.h>
+#include "basalt/utils/common_types.h"
 
 namespace basalt {
 
@@ -26,7 +27,7 @@ struct WriteMapStampMsg : WriteMessage {
 };
 
 struct WriteMapUpdateMsg : WriteMessage {
-  LandmarkDatabase<float>::Ptr map_update;
+  std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>> map_update;
   void execute(MapDatabase& db) override;
 };
 
@@ -42,8 +43,13 @@ struct ReadCovisibilityReqMsg : ReadMessage {
   void execute(MapDatabase& db) override;
 };
 
+struct Read3dPointsReqMsg : ReadMessage {
+  std::shared_ptr<std::vector<FrameId>> keyframes;
+  void execute(MapDatabase& db) override;
+};
+
 struct ReadMapReqMsg : ReadMessage {
-  bool req;
+  FrameId frame_id;
   void execute(MapDatabase& db) override;
 };
 

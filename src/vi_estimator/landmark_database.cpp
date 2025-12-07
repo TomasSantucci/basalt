@@ -38,6 +38,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace basalt {
 
 template <class Scalar_>
+LandmarkDatabase<Scalar_>::LandmarkDatabase(std::string name) : debug_name(name) {
+  keyframe_poses = std::make_shared<Eigen::aligned_map<FrameId, SE3>>();
+}
+
+template <class Scalar_>
 void LandmarkDatabase<Scalar_>::addLandmark(LandmarkId lm_id, const Landmark<Scalar> &pos) {
   auto &kpt = kpts[lm_id];
   kpt.direction = pos.direction;
@@ -91,7 +96,7 @@ void LandmarkDatabase<Scalar_>::removeKeyframes(const std::set<FrameId> &kfs_to_
   }
   for (const auto &kf_id : kfs_to_marg) {
     keyframe_idx.erase(kf_id);
-    keyframe_poses.erase(kf_id);
+    keyframe_poses->erase(kf_id);
   }
 
   std::vector<TimeCamId> tcid_to_rm;
@@ -147,12 +152,12 @@ void LandmarkDatabase<Scalar_>::addObservation(const TimeCamId &tcid_target, con
 template <class Scalar_>
 void LandmarkDatabase<Scalar_>::addKeyframe(int64_t kf_id, size_t idx, const SE3 &pos) {
   keyframe_idx[kf_id] = idx;
-  keyframe_poses[kf_id] = pos;
+  (*keyframe_poses)[kf_id] = pos;
 }
 
 template <class Scalar_>
 Sophus::SE3<Scalar_> &LandmarkDatabase<Scalar_>::getKeyframePose(int64_t kf_id) {
-  return keyframe_poses.at(kf_id);
+  return keyframe_poses->at(kf_id);
 }
 
 template <class Scalar_>
@@ -256,8 +261,8 @@ const Landmark<Scalar_> &LandmarkDatabase<Scalar_>::getLandmark(LandmarkId lm_id
 }
 
 template <class Scalar_>
-const std::unordered_map<TimeCamId, std::map<TimeCamId, std::set<LandmarkId>>>
-    &LandmarkDatabase<Scalar_>::getObservations() const {
+const std::unordered_map<TimeCamId, std::map<TimeCamId, std::set<LandmarkId>>> &
+LandmarkDatabase<Scalar_>::getObservations() const {
   return observations;
 }
 
@@ -268,11 +273,28 @@ const Eigen::aligned_unordered_map<LandmarkId, Landmark<Scalar_>> &LandmarkDatab
 
 template <class Scalar_>
 const Eigen::aligned_map<FrameId, Sophus::SE3<Scalar_>> &LandmarkDatabase<Scalar_>::getKeyframes() const {
-  if (keyframe_poses.empty()) {
+  if (keyframe_poses->empty()) {
     static const Eigen::aligned_map<FrameId, Sophus::SE3<Scalar_>> empty_map{};
     return empty_map;
   }
-  return keyframe_poses;
+  return *keyframe_poses;
+}
+
+template <class Scalar_>
+void LandmarkDatabase<Scalar_>::mergeKeyframesPoses(
+    std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3<Scalar_>>> loop_kfs_poses) {
+  FrameId last_kf_pose = loop_kfs_poses->rbegin()->first;
+
+  // starting from last_kf_pose, add all the new keyframes poses of keyframe_poses to loop_kfs_poses
+  auto it = keyframe_poses->find(last_kf_pose);
+  if (it != keyframe_poses->end()) {
+    it++;
+    for (; it != keyframe_poses->end(); it++) {
+      (*loop_kfs_poses)[it->first] = it->second;
+    }
+  }
+
+  keyframe_poses = loop_kfs_poses;
 }
 
 template <class Scalar_>
@@ -287,7 +309,7 @@ bool LandmarkDatabase<Scalar_>::landmarkExists(int lm_id) const {
 
 template <class Scalar_>
 bool LandmarkDatabase<Scalar_>::keyframeExists(FrameId kf_id) const {
-  return keyframe_poses.count(kf_id) > 0;
+  return keyframe_poses->count(kf_id) > 0;
 }
 
 template <class Scalar_>
@@ -331,7 +353,7 @@ int LandmarkDatabase<Scalar_>::numObservations(LandmarkId lm_id) const {
 
 template <class Scalar_>
 int LandmarkDatabase<Scalar_>::numKeyframes() const {
-  return keyframe_poses.size();
+  return keyframe_poses->size();
 }
 
 template <class Scalar_>

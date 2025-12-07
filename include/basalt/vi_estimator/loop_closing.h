@@ -69,6 +69,29 @@ struct Pose3d {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
+struct LCTimeStats {
+  FrameId timestamp = -1;
+  double hash_bow_index_time = 0.0;
+
+  double loop_detection_time = 0.0;
+
+  double hash_bow_search_time = 0.0;
+  size_t hash_bow_num_candidates = 0;
+  size_t valid_candidate_number = 0;
+
+  double initial_match_time = 0.0;
+  double landmarks_request_time = 0.0;
+  double island_match_time = 0.0;
+  double geometric_verification_time = 0.0;
+  double reprojection_time = 0.0;
+  double reprojected_geometric_verification_time = 0.0;
+  std::vector<double> island_verification_time;
+
+  bool loop_detected = false;
+
+  double loop_closure_time = 0.0;
+};
+
 // The constraint between two vertices in the pose graph. The constraint is the
 // transformation from vertex id_begin to vertex id_end.
 struct Constraint3d {
@@ -226,11 +249,14 @@ class LoopClosing {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   tbb::concurrent_bounded_queue<LoopClosingVisualizationData::Ptr>* out_lc_vis_queue = nullptr;
-  tbb::concurrent_bounded_queue<LandmarkDatabase<Scalar>::Ptr> in_map_res_queue;
+  tbb::concurrent_bounded_queue<std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>>> in_map_res_queue;
   tbb::concurrent_bounded_queue<ReadMessage::Ptr>* out_map_req_queue = nullptr;
   tbb::concurrent_bounded_queue<WriteMessage::Ptr>* out_map_update_queue = nullptr;
+  tbb::concurrent_bounded_queue<
+      std::shared_ptr<std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Eigen::Matrix<double, 3, 1>>>>>
+      in_map_3d_points_queue;
 
-  tbb::concurrent_bounded_queue<OpticalFlowResult::Ptr> in_optical_flow_queue;
+  tbb::concurrent_bounded_queue<LoopClosingInput::Ptr> in_optical_flow_queue;
 
   SyncState* sync_hashbow_index = nullptr;
   SyncState* sync_vio_finished = nullptr;
@@ -238,17 +264,18 @@ class LoopClosing {
   bool deterministic;
 
  private:
-  void updateHashBowDatabase(const OpticalFlowResult::Ptr& optical_flow_res);
+  void updateHashBowDatabase(const LoopClosingInput::Ptr& optical_flow_res);
 
   bool computeAbsolutePose(const TimeCamId& last_kf_tcid, const std::vector<Landmark<Scalar>>& last_kf_landmarks,
                            const std::vector<Landmark<Scalar>>& candidate_kf_landmarks,
                            const std::vector<std::pair<int, int>>& matches,
                            std::vector<std::pair<int, int>>& inlier_matches, Sophus::SE3d& absolute_pose);
 
-  bool runLoopClosure(const OpticalFlowResult::Ptr& optical_flow_res, TimeCamId& best_candidate_tcid,
-                      Sophus::SE3f& best_corrected_pose);
+  bool runLoopClosure(const LoopClosingInput::Ptr& optical_flow_res, TimeCamId& best_candidate_tcid,
+                      Sophus::SE3f& best_corrected_pose, std::vector<FrameId>& best_island);
 
-  bool closeLoop(const TimeCamId& best_candidate_tcid, const Sophus::SE3f& best_corrected_pose);
+  bool closeLoop(const FrameId curr_kf_id, const TimeCamId& best_candidate_tcid,
+                 const Sophus::SE3f& best_corrected_pose);
 
   void query_hashbow_database(FrameId curr_kf_id, HashBowVector& bow_vector, std::vector<FrameId>& results);
 
@@ -259,7 +286,8 @@ class LoopClosing {
                      Vec2& best_keypoint_pos);
 
   void reproject_landmarks(const Sophus::SE3d& absolute_pose, FrameId candidate_kf,
-                           Eigen::aligned_unordered_map<KeypointId, Vec2>& reprojected_keypoints, size_t cam_id);
+                           Eigen::aligned_unordered_map<KeypointId, Vec2>& reprojected_keypoints, size_t cam_id,
+                           const Eigen::aligned_map<LandmarkId, Vec3d>& points_3d);
 
   void filter_matches(std::vector<FrameId>& kfs_island,
                       std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches);
@@ -268,7 +296,8 @@ class LoopClosing {
 
   void match_keyframe(const FrameId& curr_kf_id,
                       const std::vector<Eigen::aligned_unordered_map<KeypointId, Keypoint>>& curr_kf_kpts,
-                      const FrameId& candidate_kf_id, std::vector<KeyframesMatch>& matches);
+                      const std::vector<std::vector<KeypointId>>& candidate_kf_kpts, const FrameId& candidate_kf_id,
+                      std::vector<KeyframesMatch>& matches);
 
   void get_neighboring_keyframes(const FrameId& kf_id, int neighbors_num, std::vector<FrameId>& neighboring_kfs);
 
@@ -277,13 +306,14 @@ class LoopClosing {
                                  std::vector<FrameId>& candidate_kfs,
                                  std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches);
 
-  size_t computeAbsolutePoseMultiCam(const FrameId& last_kf_id,  // id of the viewpoint we're solving for
-                                     const std::vector<FrameId>& candidate_kf_ids,  // ids of the candidate keyframes
-                                     const std::vector<Eigen::aligned_unordered_map<KeypointId, Keypoint>>&
-                                         last_kf_kpts,  // keypoints of the last kf, per camera
-                                     const std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches,
-                                     std::unordered_map<FrameId, std::vector<KeyframesMatch>>& inlier_matches,
-                                     Sophus::SE3d& absolute_pose);
+  size_t computeAbsolutePoseMultiCam(
+      const FrameId& last_kf_id,                     // id of the viewpoint we're solving for
+      const std::vector<FrameId>& candidate_kf_ids,  // ids of the candidate keyframes
+      const std::vector<Eigen::aligned_unordered_map<KeypointId, Keypoint>>&
+          last_kf_kpts,  // keypoints of the last kf, per camera
+      const std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>& points_3d,
+      const std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches,
+      std::unordered_map<FrameId, std::vector<KeyframesMatch>>& inlier_matches, Sophus::SE3d& absolute_pose);
 
   void validateLoopCandidates(
       const TimeCamId& curr_kf_tcid, const std::vector<Landmark<Scalar>>& curr_kf_landmarks,
@@ -311,10 +341,14 @@ class LoopClosing {
   VioConfig config;
   basalt::Calibration<double> calib;
 
-  std::unordered_map<TimeCamId, std::unordered_map<KeypointId, std::bitset<256>>> kpt_descriptors;
+  std::map<TimeCamId, std::unordered_map<KeypointId, std::bitset<256>>> kpt_descriptors;
+  std::unordered_map<TimeCamId, std::vector<KeypointId>> kf_landmarks;
+  std::unordered_map<TimeCamId, std::unordered_map<KeypointId, Vec2>> kpts_positions;
   std::shared_ptr<HashBow<256>> hash_bow_database;
 
   LandmarkDatabase<Scalar>::Ptr map;
+  std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>> loop_kfs_poses;
+  LCTimeStats lc_time_stats;
 
   bool close_loop = false;
 

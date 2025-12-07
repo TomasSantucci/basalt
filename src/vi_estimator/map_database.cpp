@@ -47,15 +47,25 @@ void MapDatabase::write_map_stamp(basalt::MapStamp::Ptr& map_stamp) {
     sync_map_stamp->ready = true;
     sync_map_stamp->cvar.notify_one();
   }
+
+  if (requested_frame_id != -1 && map->keyframeExists(requested_frame_id)) {
+    requested_frame_id = -1;
+
+    auto map_msg = std::make_shared<ReadMapReqMsg>();
+    map_msg->frame_id = requested_frame_id;
+    std::cout << "Fulfilling pending map request for frame id " << requested_frame_id << std::endl;
+    read_queue.push(map_msg);
+  } else if (requested_frame_id != -1) {
+    std::cout << "Still waiting for frame id " << requested_frame_id << " to be added to the map." << std::endl;
+  }
 }
 
-void MapDatabase::write_map_update(basalt::LandmarkDatabase<float>::Ptr& map_update) {
+void MapDatabase::write_map_update(std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>>& map_update) {
   if (map_update == nullptr) return;
 
   std::unique_lock<std::mutex> lock(mutex);
-  map_update->mergeLMDB(map, false);
 
-  map = map_update;
+  map->mergeKeyframesPoses(map_update);
 
   if (out_map_update_queue) {
     // possibly send the whole map visual data as well
@@ -81,14 +91,66 @@ void MapDatabase::read_covisibility_req(std::shared_ptr<std::vector<KeypointId>>
   handleCovisibilityReq(keypoints);
 }
 
-void MapDatabase::read_map_req(bool req) {
-  if (!req) return;
+void MapDatabase::read_3d_points_req(std::shared_ptr<std::vector<FrameId>>& keyframes) {
+  if (keyframes == nullptr) {
+    return;
+  }
 
   std::unique_lock<std::mutex> lock(mutex);
 
-  LandmarkDatabase<float>::Ptr lmdb_copy = std::make_shared<LandmarkDatabase<float>>(*map);
+  auto landmarks_3d_map = std::make_shared<std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>>();
+
+  for (const auto& kf_id : *keyframes) {
+    for (size_t cam_id = 0; cam_id < calib.intrinsics.size(); cam_id++) {
+      if (!map->keyframeExists(kf_id)) {
+        std::cout << "Keyframe " << kf_id << " does not exist in the map database." << std::endl;
+        continue;
+      }
+
+      TimeCamId kf_tcid{kf_id, cam_id};
+      auto it = map->getKeyframeObs().find(kf_tcid);
+      if (it == map->getKeyframeObs().end()) {
+        std::cout << "No observations for keyframe " << kf_id << " and cam " << cam_id << std::endl;
+        continue;
+      }
+      std::set<LandmarkId> lm_ids = it->second;
+
+      // TODO: this should be performed by LC
+      for (const auto& lm_id : lm_ids) {
+        auto lm_pos = map->getLandmark(lm_id);
+        int64_t frame_id = lm_pos.host_kf_id.frame_id;
+        Sophus::SE3d T_w_i = map->getKeyframePose(frame_id).cast<double>();
+
+        const Sophus::SE3d& T_i_c = calib.T_i_c[lm_pos.host_kf_id.cam_id];
+        Mat4d T_w_c = (T_w_i * T_i_c).matrix();
+
+        Vec4d pt_cam = StereographicParam<double>::unproject(lm_pos.direction.cast<double>());
+        pt_cam[3] = lm_pos.inv_dist;
+
+        Vec4d pt_w = T_w_c * pt_cam;
+
+        (*landmarks_3d_map)[kf_tcid][lm_id] = (pt_w.template head<3>() / pt_w[3]).template cast<double>();
+      }
+    }
+  }
+
+  if (out_3d_points_res_queue) {
+    out_3d_points_res_queue->push(landmarks_3d_map);
+  }
+}
+
+void MapDatabase::read_map_req(FrameId frame_id) {
+  std::unique_lock<std::mutex> lock(mutex);
+
+  if (!map->keyframeExists(frame_id)) {
+    std::cout << "Keyframe " << frame_id << " does not exist in the map yet. Deferring map request." << std::endl;
+    requested_frame_id = frame_id;
+    return;
+  }
+
+  auto keyframes_poses_copy = std::make_shared<Eigen::aligned_map<FrameId, Sophus::SE3f>>(map->getKeyframes());
   if (out_map_res_queue) {
-    out_map_res_queue->push(lmdb_copy);
+    out_map_res_queue->push(keyframes_poses_copy);
   }
 }
 

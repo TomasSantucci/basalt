@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/optimization/accumulator.h>
 #include <basalt/utils/assert.h>
 #include <basalt/utils/system_utils.h>
+#include <basalt/vi_estimator/loop_closing.h>
 #include <basalt/vi_estimator/sc_ba_base.h>
 #include <basalt/utils/cast_utils.hpp>
 #include <basalt/utils/format.hpp>
@@ -632,16 +633,6 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
   if (take_kf) {
     // Triangulate new points from one of the observations (with sufficient
     // baseline) and make keyframe
-    if (out_opt_flow_queue_loop_closing) {
-      out_opt_flow_queue_loop_closing->push(opt_flow_meas);
-      sent_keyframe_to_lc = true;
-    }
-    if (sync_hashbow_index != nullptr) {
-      std::unique_lock<std::mutex> lk(sync_hashbow_index->m);
-      sync_hashbow_index->cvar.wait(lk, [&] { return sync_hashbow_index->ready; });
-      sync_hashbow_index->ready = false;
-    }
-    take_kf = false;
     frames_after_kf = 0;
     kf_ids.emplace(last_state_t_ns);
     if (visual_data) visual_data->keyframed_idx[last_state_t_ns] = frame_idx.at(last_state_t_ns);
@@ -722,18 +713,6 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
     }
 
     num_points_kf[opt_flow_meas->t_ns] = num_points_added;
-
-    // Send a map stamp to the Map Database
-    map_stamp->lmdb = std::make_shared<LandmarkDatabase<Scalar_>>(lmdb);
-    auto msg = std::make_shared<WriteMapStampMsg>();
-    msg->map_stamp = map_stamp;
-    out_vio_data_queue->push(msg);
-
-    if (sync_map_stamp != nullptr) {
-      std::unique_lock<std::mutex> lk(sync_map_stamp->m);
-      sync_map_stamp->cvar.wait(lk, [&] { return sync_map_stamp->ready; });
-      sync_map_stamp->ready = false;
-    }
   } else {
     frames_after_kf++;
   }
@@ -756,6 +735,51 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
       optimize_and_marg(opt_flow_meas->input_images, num_points_connected, lost_landmaks, opt_flow_meas->t_ns);
   if (!success) return false;
 
+  if (take_kf) {
+    take_kf = false;
+    // Send a map stamp to the Map Database
+    map_stamp->lmdb = std::make_shared<LandmarkDatabase<Scalar_>>(lmdb);
+    auto msg = std::make_shared<WriteMapStampMsg>();
+    msg->map_stamp = map_stamp;
+    out_vio_data_queue->push(msg);
+
+    if (sync_map_stamp != nullptr) {
+      std::unique_lock<std::mutex> lk(sync_map_stamp->m);
+      sync_map_stamp->cvar.wait(lk, [&] { return sync_map_stamp->ready; });
+      sync_map_stamp->ready = false;
+    }
+
+    if (out_opt_flow_queue_loop_closing) {
+      LoopClosingInput::Ptr loop_closing_input = std::make_shared<LoopClosingInput>();
+      loop_closing_input->input_images = opt_flow_meas->input_images;
+      loop_closing_input->t_ns = opt_flow_meas->t_ns;
+
+      std::vector<Keypoints> landmarks(NUM_CAMS);
+
+      const Eigen::aligned_map<TimeCamId, std::set<LandmarkId>>& obs = lmdb.getKeyframeObs();
+
+      for (int i = 0; i < NUM_CAMS; i++) {
+        TimeCamId tcid(opt_flow_meas->t_ns, i);
+        if (obs.count(tcid) == 0) continue;
+        const std::set<LandmarkId>& lm_ids = obs.at(tcid);
+        for (const LandmarkId& lm_id : lm_ids) {
+          landmarks[i][lm_id] = opt_flow_meas->keypoints[i].at(lm_id);
+        }
+      }
+
+      loop_closing_input->keypoints = opt_flow_meas->keypoints;
+      loop_closing_input->landmarks = landmarks;
+
+      out_opt_flow_queue_loop_closing->push(loop_closing_input);
+      sent_keyframe_to_lc = true;
+    }
+    if (sent_keyframe_to_lc && sync_lc_finished != nullptr) {
+      std::unique_lock<std::mutex> lk(sync_lc_finished->m);
+      sync_lc_finished->cvar.wait(lk, [&] { return sync_lc_finished->ready; });
+      sync_lc_finished->ready = false;
+    }
+  }
+
   size_t num_cams = opt_flow_meas->keypoints.size();
   bool features_ext = opt_flow_meas->input_images->stats.enabled_exts.has_pose_features;
   bool avg_depth_needed =
@@ -766,18 +790,6 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
   if (features_ext || out_vis_queue || avg_depth_needed) {
     projections = std::make_shared<Projections>(num_cams);
     computeProjections(*projections, last_state_t_ns);
-  }
-
-  if (sent_keyframe_to_lc && sync_vio_finished != nullptr) {
-    std::lock_guard<std::mutex> lk(sync_vio_finished->m);
-    sync_vio_finished->ready = true;
-    sync_vio_finished->cvar.notify_one();
-  }
-
-  if (sent_keyframe_to_lc && sync_lc_finished != nullptr) {
-    std::unique_lock<std::mutex> lk(sync_lc_finished->m);
-    sync_lc_finished->cvar.wait(lk, [&] { return sync_lc_finished->ready; });
-    sync_lc_finished->ready = false;
   }
 
   if (out_state_queue) {

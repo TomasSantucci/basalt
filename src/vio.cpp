@@ -344,6 +344,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
       loop_closing->deterministic = deterministic;
       loop_closing->out_map_req_queue = &map_db->read_queue;
       map_db->out_map_res_queue = &loop_closing->in_map_res_queue;
+      map_db->out_3d_points_res_queue = &loop_closing->in_map_3d_points_queue;
       loop_closing->out_map_update_queue = &map_db->write_queue;
       vio->out_opt_flow_queue_loop_closing = &loop_closing->in_optical_flow_queue;
       if (deterministic) {

@@ -359,6 +359,9 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.debug5));
 
   ar(CEREAL_NVP(config.loop_closing_frame_time_margin_s));
+  ar(CEREAL_NVP(config.loop_closing_min_drift_reduction));
+  ar(CEREAL_NVP(config.loop_closing_skip_initial_matching));
+  ar(CEREAL_NVP(config.loop_closing_min_initial_matches));
 
   ar(CEREAL_NVP(config.mapper_use_lm));
   ar(CEREAL_NVP(config.mapper_lm_lambda_min));

@@ -94,11 +94,13 @@ class MapDatabase {
 
   void write_map_stamp(basalt::MapStamp::Ptr& map_stamp);
 
-  void write_map_update(basalt::LandmarkDatabase<Scalar>::Ptr& map_update);
+  void write_map_update(std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>>& map_update);
 
   void read_covisibility_req(std::shared_ptr<std::vector<KeypointId>>& keypoints_ptr);
 
-  void read_map_req(bool req);
+  void read_3d_points_req(std::shared_ptr<std::vector<FrameId>>& keyframes);
+
+  void read_map_req(FrameId frame_id);
 
   void get_map_points(Eigen::aligned_vector<Vec3d>& points, std::vector<int>& ids);
 
@@ -133,7 +135,10 @@ class MapDatabase {
   tbb::concurrent_bounded_queue<MapUpdate::Ptr>* out_map_update_queue = nullptr;
   tbb::concurrent_bounded_queue<MapDatabaseVisualizationData::Ptr>* out_vis_queue = nullptr;
   tbb::concurrent_bounded_queue<LandmarkDatabase<Scalar>::Ptr>* out_covi_res_queue = nullptr;
-  tbb::concurrent_bounded_queue<LandmarkDatabase<Scalar>::Ptr>* out_map_res_queue;
+  tbb::concurrent_bounded_queue<std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>>>* out_map_res_queue;
+  tbb::concurrent_bounded_queue<
+      std::shared_ptr<std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Eigen::Matrix<double, 3, 1>>>>>*
+      out_3d_points_res_queue = nullptr;
 
   SyncState* sync_map_stamp = nullptr;
   SyncState* sync_lc_finished = nullptr;
@@ -146,6 +151,7 @@ class MapDatabase {
   MapDatabaseVisualizationData::Ptr map_visual_data;
   LandmarkDatabase<Scalar>::Ptr map;
   std::mutex mutex;
+  FrameId requested_frame_id = -1;
 
   // Covisibility
   Eigen::aligned_map<TimeCamId, SpatialDistributionCube<double>> keyframes_sdc;
