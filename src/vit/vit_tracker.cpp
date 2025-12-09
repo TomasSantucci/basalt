@@ -59,20 +59,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <thread>
 
 static std::array timing_titles = {
-    "frame_ts",
-    "tracker_received",
-    "tracker_pushed",
-    "frames_received",  // < Basalt computation starts
-    "opticalflow_produced",
-    "vio_start",
-    "imu_preintegrated",
-    "landmarks_updated",
-    "optimized",
-    "marginalized",
-    "pose_produced",  // Basalt computation ends
-    "tracker_consumer_received",
-    "tracker_consumer_pushed",
-    "get_pose",
+    "frames_original_timestamp",
+    "frames_read_started",
+    "frames_read",
+    "frames_pushed",
+    "frontend_frames_received",  // < Basalt computation starts
+    "frontend_preintegration_computed",
+    "frontend_pyramid_created",
+    "frontend_tracking_ended",
+    "frontend_recall_ended",
+    "frontend_detection_cam0_ended",
+    "frontend_matching_ended",
+    "frontend_detection_cami_ended",
+    "frontend_filter_ended",
+    "frontend_keypoints_pushed",
+    "backend_keypoints_received",
+    "backend_observations_processed",
+    "backend_cumulative_linearization_ended",
+    "backend_cumulative_solver_ended",
+    "backend_cumulative_backsubstitution_ended",
+    "backend_cumulative_error_computed",
+    "backend_optimization_ended",
+    "backend_marginalization_ended",
+    "backend_state_pushed",  // < Basalt computation ends
+    "consumer_state_received",
+    "consumer_state_pushed",
+    "vit_consumer_pose_received",
 };
 
 namespace basalt::vit_implementation {
@@ -451,8 +463,8 @@ struct Tracker::Implementation {
         partial_frame->stats.ts = s->timestamp;
         partial_frame->stats.timings.reserve(timing_titles.size());
         partial_frame->stats.timing_titles = timing_titles.data();
-        partial_frame->addTime("frame_ts", s->timestamp);
-        partial_frame->addTime("tracker_received");
+        partial_frame->addTime("frames_original_timestamp", s->timestamp);
+        partial_frame->addTime("frames_read_started");
       }
 
       if (enabled_exts.has_pose_features) {
@@ -481,7 +493,8 @@ struct Tracker::Implementation {
     }
 
     if (i == cam_count - 1) {
-      partial_frame->addTime("tracker_pushed");
+      partial_frame->addTime("frames_read");
+      partial_frame->addTime("frames_pushed");
       image_data_queue->push(partial_frame);
       if (show_gui) ui.update_last_image(partial_frame);
       if (deterministic) pop_state();
@@ -504,7 +517,7 @@ struct Tracker::Implementation {
       Pose *p = new Pose();
       p->impl_ = make_unique<Pose::Implementation>(state);
       assert(p->impl_);
-      state->input_images->addTime("get_pose");
+      state->input_images->addTime("vit_consumer_pose_received");
 
       *pose = static_cast<vit_pose_t *>(p);
     } else {
@@ -534,11 +547,11 @@ struct Tracker::Implementation {
       while (!monado_out_state_queue.try_push(nullptr)) monado_out_state_queue.pop(_);
       return false;
     }
-    data->input_images->addTime("tracker_consumer_received");
+    data->input_images->addTime("consumer_state_received");
 
     if (show_gui) ui.log_vio_data(data);
 
-    data->input_images->addTime("tracker_consumer_pushed");
+    data->input_images->addTime("consumer_state_pushed");
     while (!monado_out_state_queue.try_push(data)) monado_out_state_queue.pop(_);
 
     return true;

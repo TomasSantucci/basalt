@@ -94,6 +94,38 @@ using std::thread;
 using vis::Button;
 using UIMAT = vis::UIMAT;
 
+namespace {
+std::array timing_titles = {"frames_original_timestamp",
+                            "frames_read_started",
+                            "frames_read",
+                            "frames_pushed",
+                            "frontend_frames_received",
+                            "frontend_preintegration_computed",
+                            "frontend_pyramid_created",
+                            "frontend_tracking_ended",
+                            "frontend_recall_ended",
+                            "frontend_detection_cam0_ended",
+                            "frontend_matching_ended",
+                            "frontend_detection_cami_ended",
+                            "frontend_filter_ended",
+                            "frontend_keypoints_pushed",
+                            "backend_keypoints_received",
+                            "backend_observations_processed",
+                            "backend_cumulative_linearization_ended",
+                            "backend_cumulative_solver_ended",
+                            "backend_cumulative_backsubstitution_ended",
+                            "backend_cumulative_error_computed",
+                            "backend_optimization_ended",
+                            "backend_marginalization_ended",
+                            "backend_state_pushed",
+                            "consumer_state_received"};
+
+std::ostream& operator<<(std::ostream& os, const vit::TimeStats& s) {
+  for (const int64_t& ts : s.timings) os << ts << (&ts != &s.timings.back() ? "," : "\n");
+  return os;
+}
+}  // namespace
+
 struct basalt_vio_ui : vis::VIOUIBase {
   VioDatasetPtr vio_dataset;
   int64_t start_t_ns = -1;
@@ -123,7 +155,10 @@ struct basalt_vio_ui : vis::VIOUIBase {
   std::condition_variable cvar;
   bool step_by_step = false;
   bool deterministic = false;
+  bool save_times = false;
   size_t max_frames = 0;
+
+  std::ofstream timing_csv{};
 
   std::atomic<bool> terminate = false;
 
@@ -210,7 +245,8 @@ struct basalt_vio_ui : vis::VIOUIBase {
     app.add_option("--step-by-step", step_by_step, "Whether to wait for manual input before running the dataset");
     app.add_option("--save-trajectory", trajectory_fmt, "Save trajectory. Supported formats <tum, euroc, kitti>");
     app.add_option("--save-trajectory-fn", trajectory_name, "Name of the saved trajectory (default: trajectory.csv)");
-    app.add_option("--save-groundtruth", trajectory_groundtruth, "In addition to trajectory, save also ground turth");
+    app.add_option("--save-groundtruth", trajectory_groundtruth, "In addition to trajectory, save also ground truth");
+    app.add_option("--save-times", save_times, "Measure and save timing information.");
     app.add_option("--use-imu", use_imu, "Use IMU: visual-inertial vs visual-only pipeline");
     app.add_option("--use-double", use_double, "Use double not float.");
     app.add_option("--deterministic", deterministic, "Make the pipeline output reproducible (some performance impact)");
@@ -244,6 +280,16 @@ struct basalt_vio_ui : vis::VIOUIBase {
     }
 
     load_data(cam_calib_path);
+
+    if (save_times) {
+      string timing_fn = string("timing.") + trajectory_name;
+      timing_csv = std::ofstream{timing_fn};
+      timing_csv << "#";
+      for (const auto& col : timing_titles) {
+        string delimiter = &col != &timing_titles.back() ? "," : "\n";
+        timing_csv << col << delimiter;
+      }
+    }
 
     {
       basalt::DatasetIoInterfacePtr dataset_io = basalt::DatasetIoFactory::getDatasetIo(dataset_type);
@@ -355,6 +401,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
     out_state_queue.pop(data);
 
     if (data.get() == nullptr) return false;
+
+    data->input_images->addTime("consumer_state_received");
+    if (save_times) timing_csv << data->input_images->stats;  // Write CSV line
 
     int64_t t_ns = data->t_ns;
 
@@ -693,6 +742,8 @@ struct basalt_vio_ui : vis::VIOUIBase {
       }
       os.close();
     }
+
+    if (save_times) timing_csv.close();
   }
 
   VioVisualizationData::Ptr get_curr_vis_data() override {
@@ -719,19 +770,31 @@ struct basalt_vio_ui : vis::VIOUIBase {
         cvar.wait(lk);
       }
 
+      int64_t t_ns = vio_dataset->get_image_timestamps()[i];
       basalt::OpticalFlowInput::Ptr img(new basalt::OpticalFlowInput(NUM_CAMS));
 
-      img->t_ns = vio_dataset->get_image_timestamps()[i];
+      if (save_times) {
+        img->stats.ts = t_ns;
+        img->stats.enabled_exts.has_pose_timing = true;
+        img->stats.timings.reserve(timing_titles.size());  // This enables timing measurements in the pipeline
+        img->stats.timing_titles = timing_titles.data();
+      }
+      img->addTime("frames_original_timestamp", t_ns);
+      img->addTime("frames_read_started");
+
+      img->t_ns = t_ns;
       img->img_data = vio_dataset->get_image_data(img->t_ns);
       if (img->img_data.size() != size_t(NUM_CAMS)) {
         std::cout << "Skipping incomplete frameset for timestamp " << img->t_ns << std::endl;
         continue;
       }
+      img->addTime("frames_read");
 
       timestamp_to_id[img->t_ns] = i;
 
+      img->addTime("frames_pushed");
       opt_flow->input_img_queue.push(img);
-      if (i % 50 == 0) {
+      if (i % 64 == 0) {
         size_t frame_count = vio_dataset->get_image_timestamps().size();
         float completion = 100.0 * i / frame_count;
         std::cout << "[{:.2f}%] Input image {}/{}\t\r"_format(completion, i, frame_count) << std::flush;

@@ -205,8 +205,7 @@ void SqrtKeypointVoEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg, con
       if (!curr_frame.get()) {
         break;
       }
-      curr_frame->input_images->addTime("vio_start");
-      curr_frame->input_images->addTime("imu_preintegrated");
+      curr_frame->input_images->addTime("backend_keypoints_received");
       curr_frame->input_images->state_reset = reset_performed;
 
       if (out_vis_queue) {
@@ -486,9 +485,9 @@ bool SqrtKeypointVoEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& opt
       }
     }
   }
-  opt_flow_meas->input_images->addTime("landmarks_updated");
+  opt_flow_meas->input_images->addTime("backend_observations_processed");
 
-  bool success = optimize_and_marg(opt_flow_meas->input_images, num_points_connected, lost_landmaks);
+  bool success = optimize_and_marg(num_points_connected, lost_landmaks);
   if (!success) return false;
 
   size_t num_cams = opt_flow_meas->keypoints.size();
@@ -511,7 +510,6 @@ bool SqrtKeypointVoEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& opt
                                      Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero()));
 
     data->input_images = opt_flow_meas->input_images;
-    data->input_images->addTime("pose_produced");
 
     if (avg_depth_needed) {
       double avg_invdepth = 0;
@@ -540,6 +538,7 @@ bool SqrtKeypointVoEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& opt
         }
       }
     }
+    data->input_images->addTime("backend_state_pushed");
     out_state_queue->push(data);
   }
 
@@ -1490,18 +1489,15 @@ bool SqrtKeypointVoEstimator<Scalar_>::optimize() {
 }
 
 template <class Scalar_>
-bool SqrtKeypointVoEstimator<Scalar_>::optimize_and_marg(const OpticalFlowInput::Ptr& input_images,
-                                                         const std::map<int64_t, int>& num_points_connected,
+bool SqrtKeypointVoEstimator<Scalar_>::optimize_and_marg(const std::map<int64_t, int>& num_points_connected,
                                                          const std::unordered_set<KeypointId>& lost_landmaks) {
   bool success = true;
 
   success &= optimize();
   if (!success) return false;
-  input_images->addTime("optimized");
 
   success &= marginalize(num_points_connected, lost_landmaks);
   if (!success) return false;
-  input_images->addTime("marginalized");
 
   return success;
 }

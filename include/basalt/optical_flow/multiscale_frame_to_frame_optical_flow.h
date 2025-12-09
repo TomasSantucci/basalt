@@ -114,7 +114,7 @@ class MultiscaleFrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, 
         if (output_queue) output_queue->push(nullptr);
         break;
       }
-      img->addTime("frames_received");
+      img->addTime("frontend_frames_received");
 
       while (input_depth_queue.try_pop(depth_guess)) continue;
       if (show_gui) img->depth_guess = depth_guess;
@@ -248,7 +248,7 @@ class MultiscaleFrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, 
     }
 
     if (output_queue && frame_counter % config.optical_flow_skip_frames == 0) {
-      transforms->input_images->addTime("opticalflow_produced");
+      transforms->input_images->addTime("frontend_keypoints_pushed");
       output_queue->push(transforms);
     }
 

@@ -45,7 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace basalt {
 
-template <class Clock = std::chrono::high_resolution_clock>
+template <class Clock = std::chrono::steady_clock>
 class Timer {
  public:
   /// start timer
@@ -53,6 +53,11 @@ class Timer {
 
   /// return elapsed time in seconds
   double elapsed() const { return std::chrono::duration<double>(Clock::now() - start_).count(); }
+
+  /// return elapsed time in nanoseconds
+  int64_t elapsed_ns() const {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start_).count();
+  }
 
   /// return elapsed time in seconds and reset timer
   double reset() {
