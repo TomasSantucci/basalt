@@ -55,6 +55,8 @@ if hash cmake-format 2>/dev/null; then
     echo "Running cmake-format"
     cmake-format -i \
         CMakeLists.txt \
+        cmake_modules/RaspberryToolchain.cmake \
+        cmake_modules/RadxaToolchain.cmake \
         test/CMakeLists.txt \
         thirdparty/CMakeLists.txt \
         thirdparty/basalt-headers/CMakeLists.txt \

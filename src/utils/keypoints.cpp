@@ -156,6 +156,7 @@ void detectKeypointsFAST(const basalt::Image<const uint16_t>& img_raw, Keypoints
 void detectKeypointsWithCells(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd,
                               const Eigen::MatrixXi& cells, int PATCH_SIZE, int num_points_cell, int min_threshold,
                               int max_threshold, float safe_radius, const Masks& masks) {
+  // TODO@mateosss: parallelize over cells
   kd.corners.clear();
   kd.corner_responses.clear();
   kd.corner_angles.clear();

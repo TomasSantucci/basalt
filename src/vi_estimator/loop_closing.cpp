@@ -3,6 +3,7 @@
 #include "basalt/utils/common_types.h"
 #include "basalt/utils/eigen_utils.hpp"
 #include "basalt/utils/keypoints.h"
+#include "basalt/utils/lc_time_utils.h"
 #include "basalt/vi_estimator/landmark_database.h"
 #include "basalt/vi_estimator/map_interface.h"
 
@@ -29,149 +30,108 @@ LoopClosing::LoopClosing(const VioConfig& config, const Calibration<double>& cal
 }
 
 void LoopClosing::initialize() {
-  auto proc_func =
-      [&]() {
-        LoopClosingInput::Ptr loop_closing_input;
-        int iters_left_to_close_loop = config.loop_closing_frequency;
+  auto proc_func = [&]() {
+    LoopClosingInput::Ptr loop_closing_input;
+    int iters_left_to_close_loop = config.loop_closing_frequency;
 
-        bool notify_lc_finished = false;
-        std::ofstream dump_loop_detection_result_file("loop_detection_times.csv", std::ios::out);
-        // Header
-        dump_loop_detection_result_file << "timestamp,"
-                                           "hash_bow_index_time,"
-                                           "loop_detection_time,"
-                                           "hash_bow_search_time,"
-                                           "hash_bow_num_candidates,"
-                                           "valid_candidate_number,"
-                                           "initial_match_time,"
-                                           "landmarks_request_time,"
-                                           "island_match_time,"
-                                           "geometric_verification_time,"
-                                           "reprojection_time,"
-                                           "reprojected_geometric_verification_time,"
-                                           "island_verification_time,"
-                                           "loop_detected,"
-                                           "loop_closure_time\n";
+    bool notify_lc_finished = false;
+    std::ofstream dump_loop_detection_result_file("loop_detection_times.csv", std::ios::out);
+    // Header
+    lc_time_stats.dumpHeader(dump_loop_detection_result_file);
+    lc_time_stats.resetStats();
 
-        while (true) {
-          if (lc_time_stats.timestamp != -1) {
-            std::ostringstream island_ss;
-            for (size_t i = 0; i < lc_time_stats.island_verification_time.size(); i++) {
-              island_ss << lc_time_stats.island_verification_time[i];
-              if (i + 1 < lc_time_stats.island_verification_time.size()) {
-                island_ss << ";";
-              }
-            }
-            const std::string island_str = island_ss.str();
+    while (true) {
+      if (lc_time_stats.current_kf_ts != -1) {
+        dump_loop_detection_result_file << lc_time_stats;
+        lc_time_stats.resetStats();
+      }
 
-            // Write the row
-            dump_loop_detection_result_file
-                << lc_time_stats.timestamp << "," << lc_time_stats.hash_bow_index_time << ","
-                << lc_time_stats.loop_detection_time << "," << lc_time_stats.hash_bow_search_time << ","
-                << lc_time_stats.hash_bow_num_candidates << "," << lc_time_stats.valid_candidate_number << ","
-                << lc_time_stats.initial_match_time << "," << lc_time_stats.landmarks_request_time << ","
-                << lc_time_stats.island_match_time << "," << lc_time_stats.geometric_verification_time << ","
-                << lc_time_stats.reprojection_time << "," << lc_time_stats.reprojected_geometric_verification_time
-                << ","
-                << "\"" << island_str << "\","  // quoted vector column
-                << (lc_time_stats.loop_detected ? 1 : 0) << "," << lc_time_stats.loop_closure_time << "\n";
-          }
+      if (notify_lc_finished && sync_lc_finished != nullptr) {
+        std::lock_guard<std::mutex> lk(sync_lc_finished->m);
+        sync_lc_finished->ready = true;
+        sync_lc_finished->cvar.notify_one();
+        notify_lc_finished = false;
+      }
 
-          if (notify_lc_finished && sync_lc_finished != nullptr) {
-            std::lock_guard<std::mutex> lk(sync_lc_finished->m);
-            sync_lc_finished->ready = true;
-            sync_lc_finished->cvar.notify_one();
-            notify_lc_finished = false;
-          }
+      in_optical_flow_queue.pop(loop_closing_input);
+      if (loop_closing_input == nullptr) {
+        if (out_lc_vis_queue) out_lc_vis_queue->push(nullptr);
+        break;
+      }
 
-          in_optical_flow_queue.pop(loop_closing_input);
-          if (loop_closing_input == nullptr) {
-            if (out_lc_vis_queue) out_lc_vis_queue->push(nullptr);
-            break;
-          }
+      lc_time_stats.addTime(LCTimeStage::Start, true);
+      lc_time_stats.current_kf_ts = loop_closing_input->t_ns;
 
-          lc_time_stats.timestamp = loop_closing_input->t_ns;
+      updateHashBowDatabase(loop_closing_input);
+      lc_time_stats.addTime(LCTimeStage::HashBowIndex, true);
 
-          auto start_time = std::chrono::high_resolution_clock::now();
-          updateHashBowDatabase(loop_closing_input);
-          auto end_time = std::chrono::high_resolution_clock::now();
-          lc_time_stats.hash_bow_index_time =
-              std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-
-          if (config.loop_closing_timestamps.size() > 0) {
-            if (config.loop_closing_timestamps.front() < loop_closing_input->t_ns) {
-              close_loop = true;
-              config.loop_closing_timestamps.erase(config.loop_closing_timestamps.begin());
-            }
-          }
-
-          if (!close_loop && !config.always_detect_loop) {
-            notify_lc_finished = true;
-            continue;
-          }
-
-          TimeCamId best_candidate_tcid;
-          Sophus::SE3f best_corrected_pose;
-          std::vector<FrameId> best_island;
-          start_time = std::chrono::high_resolution_clock::now();
-          bool success = runLoopClosure(loop_closing_input, best_candidate_tcid, best_corrected_pose, best_island);
-          end_time = std::chrono::high_resolution_clock::now();
-          lc_time_stats.loop_detection_time =
-              std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-
-          if (!success) {
-            lc_time_stats.loop_detected = false;
-            notify_lc_finished = true;
-            continue;
-          }
-
-          lc_time_stats.loop_detected = true;
-
-          auto map_msg = std::make_shared<ReadMapReqMsg>();
-          map_msg->frame_id = loop_closing_input->t_ns;
-          out_map_req_queue->push(map_msg);
-          in_map_res_queue.pop(loop_kfs_poses);
-
-          // get the distance between best_corrected_pose and the current pose
-          Sophus::SE3f current_pose = loop_kfs_poses->at(loop_closing_input->t_ns).cast<float>();
-          float drift_reduced = (current_pose.translation() - best_corrected_pose.translation()).norm();
-          if (drift_reduced < config.loop_closing_min_drift_reduction) {
-            notify_lc_finished = true;
-            continue;
-          }
-
-          if (out_lc_vis_queue) {
-            loop_closing_visualization_data->keyframe_pose = loop_kfs_poses->at(loop_closing_input->t_ns).cast<float>();
-            for (const auto& kf_id : best_island) {
-              loop_closing_visualization_data->candidate_pose[kf_id] = loop_kfs_poses->at(kf_id).cast<float>();
-            }
-          }
-
-          if (config.close_loops) {
-            start_time = std::chrono::high_resolution_clock::now();
-            success = closeLoop(loop_closing_input->t_ns, best_candidate_tcid, best_corrected_pose);
-            end_time = std::chrono::high_resolution_clock::now();
-            lc_time_stats.loop_closure_time =
-                std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-
-            if (loop_closing_visualization_data->candidate_kfs.size() > 0 && out_lc_vis_queue) {
-              out_lc_vis_queue->push(loop_closing_visualization_data);
-            }
-
-            if (success) {
-              close_loop = false;
-            }
-          } else {
-            if (loop_closing_visualization_data->candidate_kfs.size() > 0 && out_lc_vis_queue) {
-              out_lc_vis_queue->push(loop_closing_visualization_data);
-            }
-
-            notify_lc_finished = true;
-          }
-
-          if (!success) notify_lc_finished = true;
+      if (config.loop_closing_timestamps.size() > 0) {
+        if (config.loop_closing_timestamps.front() < loop_closing_input->t_ns) {
+          close_loop = true;
+          config.loop_closing_timestamps.erase(config.loop_closing_timestamps.begin());
         }
-      };
+      }
+
+      if (!close_loop && !config.always_detect_loop) {
+        notify_lc_finished = true;
+        continue;
+      }
+
+      TimeCamId best_candidate_tcid;
+      Sophus::SE3f best_corrected_pose;
+      std::vector<FrameId> best_island;
+      bool success = runLoopClosure(loop_closing_input, best_candidate_tcid, best_corrected_pose, best_island);
+
+      if (!success) {
+        lc_time_stats.loop_closed = false;
+        notify_lc_finished = true;
+        continue;
+      }
+
+      lc_time_stats.loop_closed = true;
+
+      auto map_msg = std::make_shared<ReadMapReqMsg>();
+      map_msg->frame_id = loop_closing_input->t_ns;
+      out_map_req_queue->push(map_msg);
+      in_map_res_queue.pop(loop_kfs_poses);
+
+      // get the distance between best_corrected_pose and the current pose
+      Sophus::SE3f current_pose = loop_kfs_poses->at(loop_closing_input->t_ns).cast<float>();
+      float drift_reduced = (current_pose.translation() - best_corrected_pose.translation()).norm();
+      if (drift_reduced < config.loop_closing_min_drift_reduction) {
+        notify_lc_finished = true;
+        continue;
+      }
+
+      if (out_lc_vis_queue) {
+        loop_closing_visualization_data->keyframe_pose = loop_kfs_poses->at(loop_closing_input->t_ns).cast<float>();
+        for (const auto& kf_id : best_island) {
+          loop_closing_visualization_data->candidate_pose[kf_id] = loop_kfs_poses->at(kf_id).cast<float>();
+        }
+      }
+
+      if (config.close_loops) {
+        success = closeLoop(loop_closing_input->t_ns, best_candidate_tcid, best_corrected_pose);
+        lc_time_stats.addTime(LCTimeStage::LoopClosure, true);
+
+        if (loop_closing_visualization_data->candidate_kfs.size() > 0 && out_lc_vis_queue) {
+          out_lc_vis_queue->push(loop_closing_visualization_data);
+        }
+
+        if (success) {
+          close_loop = false;
+        }
+      } else {
+        if (loop_closing_visualization_data->candidate_kfs.size() > 0 && out_lc_vis_queue) {
+          out_lc_vis_queue->push(loop_closing_visualization_data);
+        }
+
+        notify_lc_finished = true;
+      }
+
+      if (!success) notify_lc_finished = true;
+    }
+  };
 
   std::ofstream dump_loop_detection_result_file("loop_detection_results.csv", std::ios::out);
   if (dump_loop_detection_result_file.is_open()) {
@@ -281,7 +241,6 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     }
   */
 
-  auto start_time = std::chrono::high_resolution_clock::now();
   HashBowVector bow_vector;
   std::vector<FeatureHash> hashes;
   // TODO: maybe i can reuse the bow that was previously computed and indexed
@@ -289,27 +248,18 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
 
   std::vector<FrameId> candidate_kfs;
   query_hashbow_database(curr_kf_id, bow_vector, candidate_kfs);
-  auto end_time = std::chrono::high_resolution_clock::now();
-  lc_time_stats.hash_bow_search_time =
-      std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+  lc_time_stats.addTime(LCTimeStage::HashBowSearch, true);
 
   if (candidate_kfs.empty()) return false;
 
-  lc_time_stats.hash_bow_num_candidates = candidate_kfs.size();
-
   bool loop_found = false;
-  size_t valid_candidate_idx = 0;
   for (const auto& candidate_kf : candidate_kfs) {
-    valid_candidate_idx++;
-    auto island_start_time = std::chrono::high_resolution_clock::now();
-
     std::unordered_map<FrameId, std::vector<KeyframesMatch>> matches;
     std::unordered_map<FrameId, std::vector<KeyframesMatch>> inlier_matches;
     size_t initial_matches, initial_island_matches, initial_inliers, reprojection_inliers;
 
     if (config.loop_closing_skip_covisible && are_covisible(curr_kf_id, candidate_kf)) continue;
 
-    auto start_time = std::chrono::high_resolution_clock::now();
     std::vector<std::vector<KeypointId>> candidate_kf_kpts(calib.intrinsics.size());
     if (!config.loop_closing_skip_initial_matching) {
       for (size_t i = 0; i < calib.intrinsics.size(); i++) {
@@ -324,15 +274,14 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
         candidate_kf_kpts.clear();
         matches[candidate_kf].clear();
 
+        lc_time_stats.addTime(LCTimeStage::InitialMatch, false);
         continue;
       }
 
       candidate_kf_kpts.clear();
       matches[candidate_kf].clear();
     }
-    auto end_time = std::chrono::high_resolution_clock::now();
-    lc_time_stats.initial_match_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    lc_time_stats.addTime(LCTimeStage::InitialMatch, true);
 
     std::vector<FrameId> neighboring_kfs;
     if (config.loop_closing_num_neighbors > 0) {
@@ -343,7 +292,6 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     std::vector<FrameId> kfs_island = {candidate_kf};
     kfs_island.insert(kfs_island.end(), neighboring_kfs.begin(), neighboring_kfs.end());
 
-    start_time = std::chrono::high_resolution_clock::now();
     // get the 3d points from the map database
     auto msg = std::make_shared<Read3dPointsReqMsg>();
     msg->keyframes =
@@ -352,11 +300,8 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
 
     auto points_3d = std::make_shared<std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>>();
     in_map_3d_points_queue.pop(points_3d);
-    end_time = std::chrono::high_resolution_clock::now();
-    lc_time_stats.landmarks_request_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    lc_time_stats.addTime(LCTimeStage::LandmarksRequest, true);
 
-    start_time = std::chrono::high_resolution_clock::now();
     candidate_kf_kpts.resize(calib.intrinsics.size());
     for (size_t i = 0; i < calib.intrinsics.size(); i++) {
       TimeCamId candidate_tcid{candidate_kf, i};
@@ -370,6 +315,7 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     match_keyframe(curr_kf_id, curr_kf_kpts, candidate_kf_kpts, candidate_kf, matches[candidate_kf]);
 
     if (matches[candidate_kf].size() < static_cast<size_t>(config.loop_closing_min_matches)) {
+      lc_time_stats.addTime(LCTimeStage::IslandMatch, false);
       continue;
     }
 
@@ -395,27 +341,24 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
       initial_island_matches += matches[kf_id].size();
     }
 
-    end_time = std::chrono::high_resolution_clock::now();
-    lc_time_stats.island_match_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-    // filter_matches(kfs_island, matches);
+    lc_time_stats.addTime(LCTimeStage::IslandMatch, true);
 
-    start_time = std::chrono::high_resolution_clock::now();
     Sophus::SE3d absolute_pose;
     size_t num_inliers = computeAbsolutePoseMultiCam(curr_kf_id, kfs_island, curr_kf_kpts, *points_3d, matches,
                                                      inlier_matches, absolute_pose);
 
-    if (num_inliers < config.loop_closing_pnp_min_inliers) continue;
+    if (num_inliers < config.loop_closing_pnp_min_inliers) {
+      lc_time_stats.addTime(LCTimeStage::GeometricVerification, false);
+
+      continue;
+    }
 
     initial_inliers = 0;
     for (const auto& kf_id : kfs_island) {
       initial_inliers += inlier_matches[kf_id].size();
     }
-    end_time = std::chrono::high_resolution_clock::now();
-    lc_time_stats.geometric_verification_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    lc_time_stats.addTime(LCTimeStage::GeometricVerification, true);
 
-    start_time = std::chrono::high_resolution_clock::now();
     // reproject the 3d points from the kfs_island[0] to the current keyframe's left cam
     std::vector<Eigen::aligned_unordered_map<KeypointId, Vec2>> reprojected_keypoints(
         config.loop_closing_cameras_to_reproject.size());
@@ -469,20 +412,15 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
                                      filtered_new_matched_keypoints.end());
       }
     }
-    end_time = std::chrono::high_resolution_clock::now();
-    lc_time_stats.reprojection_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    lc_time_stats.addTime(LCTimeStage::Reprojection, true);
 
     if (config.loop_closing_use_rematches) {
       // recompute the absolute pose with the new matches
       inlier_matches.clear();
-      start_time = std::chrono::high_resolution_clock::now();
       size_t new_num_inliers = computeAbsolutePoseMultiCam(curr_kf_id, kfs_island, curr_kf_kpts, *points_3d, matches,
                                                            inlier_matches, absolute_pose);
 
-      end_time = std::chrono::high_resolution_clock::now();
-      lc_time_stats.reprojected_geometric_verification_time =
-          std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+      lc_time_stats.addTime(LCTimeStage::ReprojectedGeometricVerification, true);
 
       reprojection_inliers = new_num_inliers;
 
@@ -496,10 +434,6 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
                 << ", island matches = " << initial_island_matches << ", initial inliers = " << initial_inliers
                 << std::endl;
     }
-    auto island_end_time = std::chrono::high_resolution_clock::now();
-    lc_time_stats.island_verification_time = {static_cast<double>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(island_end_time - island_start_time).count())};
-    lc_time_stats.valid_candidate_number = valid_candidate_idx - 1;
 
     if (out_lc_vis_queue) {
       loop_closing_visualization_data->islands.emplace_back(kfs_island);

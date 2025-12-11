@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <basalt/hash_bow/hash_bow.h>
 #include <basalt/utils/common_types.h>
+#include <basalt/utils/lc_time_utils.h>
 #include <basalt/utils/nfr.h>
 #include <basalt/utils/sync_utils.h>
 #include <basalt/vi_estimator/sc_ba_base.h>
@@ -67,29 +68,6 @@ struct Pose3d {
   static std::string name() { return "VERTEX_SE3:QUAT"; }
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-};
-
-struct LCTimeStats {
-  FrameId timestamp = -1;
-  double hash_bow_index_time = 0.0;
-
-  double loop_detection_time = 0.0;
-
-  double hash_bow_search_time = 0.0;
-  size_t hash_bow_num_candidates = 0;
-  size_t valid_candidate_number = 0;
-
-  double initial_match_time = 0.0;
-  double landmarks_request_time = 0.0;
-  double island_match_time = 0.0;
-  double geometric_verification_time = 0.0;
-  double reprojection_time = 0.0;
-  double reprojected_geometric_verification_time = 0.0;
-  std::vector<double> island_verification_time;
-
-  bool loop_detected = false;
-
-  double loop_closure_time = 0.0;
 };
 
 // The constraint between two vertices in the pose graph. The constraint is the

@@ -100,6 +100,7 @@ void ExecutionStats::merge_sums(const ExecutionStats& other) {
 }
 
 void ExecutionStats::print() const {
+  std::cout << "{:20} ({:>8}):{:8}±{:} [{}, {}]\n"_format("name", "count", "mean", "stddev", "min", "max");
   for (const auto& name : order_) {
     const auto& meta = stats_.at(name);
 
@@ -124,10 +125,10 @@ void ExecutionStats::print() const {
                           // double median = median_non_const(vec);
 
                           if (meta.format_ == "count") {
-                            std::cout << "{:20} ({:>4}):{: 8.1f}+-{:.1f} [{}, {}]\n"_format(name, count, mean, stddev,
+                            std::cout << "{:20} ({:>8}):{: 8.1f}+-{:.1f} [{}, {}]\n"_format(name, count, mean, stddev,
                                                                                             min, max);
                           } else if (meta.format_ != "none") {
-                            std::cout << "{:20} ({:>4}):{: 8.2f}+-{:.2f} [{:.2f}, {:.2f}]\n"_format(name, count, mean,
+                            std::cout << "{:20} ({:>8}):{: 8.2f}+-{:.2f} [{:.2f}, {:.2f}]\n"_format(name, count, mean,
                                                                                                     stddev, min, max);
                           }
                         },
@@ -162,8 +163,8 @@ bool ExecutionStats::save_json(const std::string& path) const {
                meta.data_);
   }
 
-  constexpr bool save_as_json = false;
-  constexpr bool save_as_ubjson = true;
+  constexpr bool save_as_json = true;
+  constexpr bool save_as_ubjson = false;
 
   // save json
   if (save_as_json) {

@@ -5,6 +5,10 @@ project(basalt)
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules/" ${CMAKE_MODULE_PATH})
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if(CMAKE_TOOLCHAIN_FILE)
+  message(STATUS "Using CMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
+endif()
+
 # Try to use mold linker if found
 find_program(MOLD_PROGRAM mold)
 if(MOLD_PROGRAM)
@@ -20,13 +24,15 @@ if(NOT EIGEN_ROOT)
 endif()
 
 string(TOLOWER "${PROJECT_NAME}" PROJECT_NAME_LOWERCASE)
-find_program(DPKG_PROGRAM dpkg DOC "dpkg program of Debian-based systems")
-if(DPKG_PROGRAM)
-  execute_process(
-    COMMAND ${DPKG_PROGRAM} --print-architecture OUTPUT_VARIABLE CPACK_DEBIAN_PACKAGE_ARCHITECTURE
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-  )
-endif(DPKG_PROGRAM)
+if(NOT CPACK_DEBIAN_PACKAGE_ARCHITECTURE)
+  find_program(DPKG_PROGRAM dpkg DOC "dpkg program of Debian-based systems")
+  if(DPKG_PROGRAM)
+    execute_process(
+      COMMAND ${DPKG_PROGRAM} --print-architecture OUTPUT_VARIABLE CPACK_DEBIAN_PACKAGE_ARCHITECTURE
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+  endif()
+endif()
 
 find_program(LSB_RELEASE_PROGRAM lsb_release DOC "lsb_release program of Debian-based systems")
 if(LSB_RELEASE_PROGRAM)
@@ -95,6 +101,10 @@ if(NOT APPLE OR NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
   set(BASALT_MARCH_FLAGS "-march=${CXX_MARCH}")
 else()
   message(STATUS "Running on Apple ${CMAKE_SYSTEM_PROCESSOR}. Disabled -march flag.")
+endif()
+
+if(CXX_MCPU)
+  set(BASALT_MCPU_FLAGS "-mcpu=${CXX_MCPU}")
 endif()
 
 set(CMAKE_CXX_STANDARD 17)
@@ -255,7 +265,7 @@ if(BASALT_INSTANTIATIONS_FLOAT)
 endif()
 
 # setup combined compiler flags
-set(CMAKE_CXX_FLAGS "${BASALT_CXX_FLAGS} ${BASALT_MARCH_FLAGS} ${BASALT_PASSED_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "${BASALT_CXX_FLAGS} ${BASALT_MARCH_FLAGS} ${BASALT_MCPU_FLAGS} ${BASALT_PASSED_CXX_FLAGS}")
 
 set(EIGEN_INCLUDE_DIR_HINTS ${EIGEN_ROOT})
 find_package(Eigen3 3.4.0 EXACT REQUIRED MODULE)
@@ -292,7 +302,9 @@ set_property(TARGET basalt::opencv PROPERTY INTERFACE_LINK_LIBRARIES ${OpenCV_LI
 find_package(fmt REQUIRED)
 message(STATUS "Found {fmt} ${fmt_VERSION} in: ${fmt_DIR}")
 
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5) # TODO: Patch for opengv, sophus, ros
 add_subdirectory(thirdparty)
+set(CMAKE_POLICY_VERSION_MINIMUM)
 
 # custom scoped vit target: https://gitlab.freedesktop.org/monado/utilities/vit/
 add_library(basalt::vit INTERFACE IMPORTED)
@@ -513,9 +525,10 @@ set_target_properties(
              VERSION "${VIT_VERSION_MAJOR}.${VIT_VERSION_MINOR}.${VIT_VERSION_PATCH}" SOVERSION ${VIT_VERSION_MAJOR}
 )
 
+include(GNUInstallDirs)
 if(BASALT_BUILD_SHARED_LIBRARY_ONLY)
-  install(TARGETS basalt RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
-          ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+  install(TARGETS basalt RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+          ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   )
   set(CONFIG_FILES "${CMAKE_CURRENT_SOURCE_DIR}/data/msd/msdmo_config.json"
                    "${CMAKE_CURRENT_SOURCE_DIR}/data/msd/msdmo_calib.json"
@@ -535,25 +548,25 @@ else()
             basalt_vio
             basalt_kitti_eval
             basalt_time_alignment
-    RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
-    LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   )
 
   if(BASALT_INSTANTIATIONS_DOUBLE)
-    install(TARGETS basalt_mapper_sim_naive RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
-            LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+    install(TARGETS basalt_mapper_sim_naive RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     )
   endif()
 
   if(realsense2_FOUND)
-    install(TARGETS basalt_rs_t265_record basalt_rs_t265_vio RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
-            LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+    install(TARGETS basalt_rs_t265_record basalt_rs_t265_vio RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     )
   endif()
 
   file(GLOB SCRIPTS_TO_INSTALL "${CMAKE_CURRENT_SOURCE_DIR}/scripts/basalt_*.py")
-  install(PROGRAMS ${SCRIPTS_TO_INSTALL} DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)
+  install(PROGRAMS ${SCRIPTS_TO_INSTALL} DESTINATION ${CMAKE_INSTALL_BINDIR})
 
   file(GLOB_RECURSE CONFIG_FILES "${CMAKE_CURRENT_SOURCE_DIR}/data/*.json")
   file(GLOB ABSOLUTE_UNIFIED_CONFIG_FILES "${CMAKE_CURRENT_SOURCE_DIR}/data/vit/*.toml.in")
@@ -565,7 +578,7 @@ else()
 endif(BASALT_BUILD_SHARED_LIBRARY_ONLY)
 
 # Configure and install unified config toml files
-set(CONFIG_FILE_INSTALL_DESTINATION ${CMAKE_INSTALL_PREFIX}/share/basalt) # Used for unified_config.in
+set(CONFIG_FILE_INSTALL_DESTINATION ${CMAKE_INSTALL_DATADIR}/${PROJECT_NAME}) # Used for unified_config.in
 foreach(unified_config IN LISTS UNIFIED_CONFIG_FILES)
   configure_file(
     ${CMAKE_CURRENT_LIST_DIR}/data/vit/${unified_config}.in ${CMAKE_CURRENT_BINARY_DIR}/data/vit/${unified_config}
@@ -577,7 +590,7 @@ endforeach()
 install(FILES ${CONFIG_FILES} DESTINATION ${CONFIG_FILE_INSTALL_DESTINATION})
 
 configure_file(${CMAKE_CURRENT_LIST_DIR}/cmake_modules/basalt.pc.in ${CMAKE_CURRENT_BINARY_DIR}/basalt.pc @ONLY)
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/basalt.pc DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/pkgconfig)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/basalt.pc DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 
 # Replace install() to do-nothing macro.
 macro(install)

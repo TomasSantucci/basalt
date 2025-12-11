@@ -96,8 +96,7 @@ class SqrtKeypointVioEstimator : public VioEstimatorBase, public SqrtBundleAdjus
                   const Eigen::Vector3d& ba) override;
 
   void scheduleResetState() override;
-  bool resetState(typename IntegratedImuMeasurement<Scalar>::Ptr& meas, OpticalFlowResult::Ptr& curr_frame,
-                  OpticalFlowResult::Ptr& prev_frame);
+  bool resetState(typename IntegratedImuMeasurement<Scalar>::Ptr& meas);
 
   void initialize(const Eigen::Vector3d& bg, const Eigen::Vector3d& ba) override;
 
@@ -211,6 +210,9 @@ class SqrtKeypointVioEstimator : public VioEstimatorBase, public SqrtBundleAdjus
   using BundleAdjustmentBase<Scalar>::calib;
 
  private:
+  OpticalFlowResult::Ptr prev_frame;
+  OpticalFlowResult::Ptr curr_frame;
+
   bool take_kf;
   int frames_after_kf;
   size_t frame_count = 0;
