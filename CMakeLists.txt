@@ -423,7 +423,7 @@ target_link_libraries(
          basalt::cli11
          basalt::vit
          basalt::magic_enum
-  PRIVATE nlohmann::json fmt::fmt
+  PRIVATE nlohmann::json fmt::fmt Ceres::ceres
 )
 target_include_directories(basalt_internal PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(basalt_internal PUBLIC ${BASALT_COMPILE_DEFINITIONS})
@@ -492,8 +492,6 @@ if(NOT BASALT_BUILD_SHARED_LIBRARY_ONLY)
   add_executable(basalt_opt_flow src/opt_flow.cpp)
   target_link_libraries(basalt_opt_flow basalt_internal pangolin basalt::cli11)
 
-  set(Eigen3_DIR "/usr/share/eigen3/cmake" CACHE PATH "Eigen3 dir")
-  find_package(Ceres REQUIRED)
   add_executable(basalt_vio src/vio.cpp)
   target_link_libraries(basalt_vio basalt_internal pangolin basalt::cli11 Ceres::ceres)
 

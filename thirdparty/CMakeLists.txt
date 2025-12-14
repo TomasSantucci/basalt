@@ -100,3 +100,8 @@ if(EIGEN3_INCLUDE_DIR MATCHES "^${CMAKE_SOURCE_DIR}.*")
     set_target_properties(${_target} PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${_include_dirs_new}")
   endforeach()
 endif()
+
+set(PROVIDE_UNINSTALL_TARGET OFF CACHE BOOL
+    "Disable ceres uninstall target" FORCE)
+set(EXPORT_BUILD_DIR ON)
+add_subdirectory(ceres-solver)
