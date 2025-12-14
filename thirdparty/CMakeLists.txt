@@ -122,3 +122,8 @@ if(BASALT_ENABLE_ROSBAG2)
   add_subdirectory(fastcdr EXCLUDE_FROM_ALL)
   ignore_external_warnings(fastcdr)
 endif()
+
+set(PROVIDE_UNINSTALL_TARGET OFF CACHE BOOL
+    "Disable ceres uninstall target" FORCE)
+set(EXPORT_BUILD_DIR ON)
+add_subdirectory(ceres-solver)

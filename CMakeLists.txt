@@ -440,7 +440,7 @@ target_link_libraries(
          basalt::cli11
          basalt::vit
          basalt::magic_enum
-  PRIVATE nlohmann::json fmt::fmt
+  PRIVATE nlohmann::json fmt::fmt Ceres::ceres
 )
 target_include_directories(basalt_internal PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(basalt_internal PUBLIC ${BASALT_COMPILE_DEFINITIONS})
