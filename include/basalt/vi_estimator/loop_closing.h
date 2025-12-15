@@ -138,11 +138,16 @@ struct LoopClosingVisualizationData {
 
 class PoseGraph3dErrorTerm {
  public:
-  PoseGraph3dErrorTerm(Pose3d t_ab_measured, Eigen::Matrix<double, 6, 6> sqrt_information)
-      : t_ab_measured_(std::move(t_ab_measured)), sqrt_information_(std::move(sqrt_information)) {}
+  PoseGraph3dErrorTerm(Pose3d t_ab_measured,
+                       Eigen::Matrix<double, 6, 6> sqrt_information)
+      : t_ab_measured_(std::move(t_ab_measured)),
+        sqrt_information_(std::move(sqrt_information)) {}
 
   template <typename T>
-  bool operator()(const T* const p_a_ptr, const T* const q_a_ptr, const T* const p_b_ptr, const T* const q_b_ptr,
+  bool operator()(const T* const p_a_ptr,
+                  const T* const q_a_ptr,
+                  const T* const p_b_ptr,
+                  const T* const q_b_ptr,
                   T* residuals_ptr) const {
     Eigen::Map<const Eigen::Matrix<T, 3, 1>> p_a(p_a_ptr);
     Eigen::Map<const Eigen::Quaternion<T>> q_a(q_a_ptr);
@@ -174,7 +179,7 @@ class PoseGraph3dErrorTerm {
   }
 
   static ceres::CostFunction* Create(const Pose3d& t_ab_measured, const Eigen::Matrix<double, 6, 6>& sqrt_information) {
-    return new ceres::AutoDiffCostFunction<PoseGraph3dErrorTerm, 6, 3, 4, 3, 4>(t_ab_measured, sqrt_information);
+    return new ceres::AutoDiffCostFunction<PoseGraph3dErrorTerm, 6, 3, 4, 3, 4>(new PoseGraph3dErrorTerm(t_ab_measured, sqrt_information));
   }
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
