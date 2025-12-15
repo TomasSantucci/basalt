@@ -49,7 +49,6 @@ void LandmarkDatabase<Scalar_>::addLandmark(LandmarkId lm_id, const Landmark<Sca
   kpt.inv_dist = pos.inv_dist;
   kpt.host_kf_id = pos.host_kf_id;
   kpt.id = lm_id;
-  kpt.descriptor = pos.descriptor;
   keyframe_obs[pos.host_kf_id].insert(lm_id);
 }
 
@@ -219,7 +218,7 @@ template <class Scalar_>
 void LandmarkDatabase<Scalar_>::mergeLMDB(LandmarkDatabase<Scalar>::Ptr lmdb, bool override) {
   // Add keyframes
   for (const auto &[kf_id, pose] : lmdb->getKeyframes()) {
-    if (!override && keyframeExists(kf_id)) continue;  // Skip if the keyframe already exists
+    if (!override && keyframeExists(kf_id)) continue;  // Skip if the landmark already exists
     auto idx = lmdb->getKeyframeIndex(kf_id);
     addKeyframe(kf_id, idx, pose);
   }

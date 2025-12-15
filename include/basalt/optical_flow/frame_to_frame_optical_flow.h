@@ -216,7 +216,6 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
       transforms->tracking_guesses.resize(num_cams);
       transforms->matching_guesses.resize(num_cams);
       transforms->recall_guesses.resize(num_cams);
-      transforms->keypoints_descriptors.resize(num_cams);
       transforms->t_ns = t_ns;
 
       pyramid.reset(new std::vector<ManagedImagePyr<uint16_t>>);
@@ -257,7 +256,6 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
       new_transforms->tracking_guesses.resize(num_cams);
       new_transforms->matching_guesses.resize(num_cams);
       new_transforms->recall_guesses.resize(num_cams);
-      new_transforms->keypoints_descriptors.resize(num_cams);
       new_transforms->t_ns = t_ns;
 
       SE3 T_i1 = latest_state->T_w_i.template cast<Scalar>();
@@ -270,11 +268,6 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
                     transforms->keypoints[i], new_transforms->keypoints[i],
                     new_transforms->tracking_guesses[i],  //
                     new_img_vec->masks.at(i), new_img_vec->masks.at(i), T_c1_c2, i, i);
-
-        // add the descriptors of the tracked keypoints
-        for (const auto& [kpid, _] : new_transforms->keypoints[i]) {
-          new_transforms->keypoints_descriptors[i][kpid] = transforms->keypoints_descriptors[i][kpid];
-        }
       }
       new_img_vec->addTime("frontend_tracking_ended");
 
@@ -483,8 +476,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
    * @param[out] landmarks: A reference where landmarks will be returned.
    * @param[out] projections: A reference where the landmark's projections will be returned.
    */
-  Eigen::aligned_map<LandmarkId, Vector2> getProjectedLandmarks(size_t cam_id,
-                                                                KeypointsDescriptors& descriptors) const {
+  Eigen::aligned_map<LandmarkId, Vector2> getProjectedLandmarks(size_t cam_id) const {
     using Eigen::Matrix4Xf, Eigen::Map, Eigen::aligned_vector, Eigen::Vector4f, Eigen::Aligned;
 
     SE3 T_i1 = predicted_state->T_w_i.template cast<Scalar>();
@@ -527,12 +519,8 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
       valid_uvs[i] = valid_uvs[i] && cj_uvs[i].x() >= 0 && cj_uvs[i].x() < w && cj_uvs[i].y() >= 0 && cj_uvs[i].y() < h;
 
     Eigen::aligned_map<LandmarkId, Vector2> projections;
-    for (size_t i = 0; i < lms.size(); i++) {
-      if (valid_uvs[i]) {
-        projections[lmids[i]] = cj_uvs[i];
-        descriptors[lmids[i]] = latest_lm_bundle->descriptors[i];
-      }
-    }
+    for (size_t i = 0; i < lms.size(); i++)
+      if (valid_uvs[i]) projections[lmids[i]] = cj_uvs[i];
 
     return projections;
   }
@@ -545,8 +533,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
     recalls[cam_id].clear();
 
     // Project the landmarks from the map into the new frame to obtain their projections.
-    KeypointsDescriptors descriptors;
-    Eigen::aligned_map<LandmarkId, Vector2> projections = getProjectedLandmarks(cam_id, descriptors);
+    Eigen::aligned_map<LandmarkId, Vector2> projections = getProjectedLandmarks(cam_id);
 
     for (const auto& [lm_id, proj_pos] : projections) {
       Eigen::AffineCompact2f proj_pose = Eigen::AffineCompact2f::Identity();
@@ -581,7 +568,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
         }
       }
 
-      addKeypoint(cam_id, lm_id, curr_pose, descriptors[lm_id]);
+      addKeypoint(cam_id, lm_id, curr_pose);
       recalls[cam_id][lm_id] = curr_pose;
     }
   }
@@ -614,13 +601,10 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
         }
       }
 
-      computeAngles(pyramid->at(cam_id).lvl(0), kd, true);
-      computeDescriptors(pyramid->at(cam_id).lvl(0), kd);
-
       auto transform = Eigen::AffineCompact2f::Identity();
       transform.translation() = corner.cast<Scalar>();
 
-      addKeypoint(cam_id, last_keypoint_id, transform, kd.corner_descriptors[i], response);
+      addKeypoint(cam_id, last_keypoint_id, transform, response);
       new_kpts[last_keypoint_id] = transform;
 
       last_keypoint_id++;
@@ -698,7 +682,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
       Keypoints kpts;
       SE3 T_c0_ci = calib.T_i_c[0].inverse() * calib.T_i_c[i];
       trackPoints(pyr0, pyri, kpts0, kpts, mgs, ms0, ms, T_c0_ci, 0, i);
-      addKeypoints(i, kpts, transforms->keypoints_descriptors[0]);
+      addKeypoints(i, kpts);
     }
     transforms->input_images->addTime("frontend_matching_ended");
 
@@ -775,27 +759,21 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
     return neighbors;
   }
 
-  void addKeypoint(size_t cam_id, KeypointId kpid, Eigen::Affine2f kp, std::bitset<256> descriptor,
-                   float response = -1.0) {
+  void addKeypoint(size_t cam_id, KeypointId kpid, Eigen::Affine2f kp, float response = -1.0) {
     int x = (kp.translation().x() - x_start) / c;
     int y = (kp.translation().y() - y_start) / c;
     cells.at(cam_id)(y, x)++;
     transforms->keypoint_responses.at(cam_id)[kpid] = response;
-    transforms->keypoints_descriptors.at(cam_id)[kpid] = descriptor;
     transforms->keypoints.at(cam_id)[kpid] = kp;
   }
 
-  void addKeypoints(size_t cam_id, Keypoints kpts, KeypointsDescriptors& descriptors) {
+  void addKeypoints(size_t cam_id, Keypoints kpts) {
     for (const auto& [kpid, kp] : kpts) {
       int x = (kp.translation().x() - x_start) / c;
       int y = (kp.translation().y() - y_start) / c;
       cells.at(cam_id)(y, x)++;
     }
     transforms->keypoints.at(cam_id).insert(kpts.begin(), kpts.end());
-
-    for (const auto& [kpid, _] : kpts) {
-      transforms->keypoints_descriptors.at(cam_id)[kpid] = descriptors[kpid];
-    }
   }
 
   void removeKeypoint(size_t cam_id, KeypointId kpid) {
@@ -804,7 +782,6 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
     int y = (pos.y() - y_start) / c;
     cells.at(cam_id)(y, x)--;
     transforms->keypoints.at(cam_id).erase(kpid);
-    transforms->keypoints_descriptors.at(cam_id).erase(kpid);
   }
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW

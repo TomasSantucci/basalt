@@ -66,7 +66,6 @@ namespace basalt {
 using Keypoint = Eigen::AffineCompact2f;
 using KeypointId = size_t;
 using Keypoints = Eigen::aligned_map<KeypointId, Keypoint>;
-using KeypointsDescriptors = std::map<KeypointId, std::bitset<256>>;
 using KeypointLevels = std::map<KeypointId, size_t>;
 using KeypointResponses = std::map<KeypointId, float>;
 using LandmarkId = KeypointId;
@@ -76,7 +75,6 @@ struct LandmarkBundle {
   int64_t ts = -1;
   Eigen::aligned_vector<LandmarkId> lmids = {};
   Eigen::aligned_vector<Eigen::Vector4f> lms = {};
-  std::vector<std::bitset<256>> descriptors = {};
 };
 
 struct OpticalFlowInput {
@@ -115,8 +113,6 @@ struct OpticalFlowResult {
 
   std::vector<KeypointLevels> pyramid_levels;
   std::vector<KeypointResponses> keypoint_responses;
-
-  std::vector<KeypointsDescriptors> keypoints_descriptors;
 
   OpticalFlowInput::Ptr input_images;
 };
