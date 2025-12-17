@@ -7,6 +7,8 @@ add_subdirectory(basalt-headers EXCLUDE_FROM_ALL)
 
 if(NOT BASALT_BUILD_SHARED_LIBRARY_ONLY)
   add_subdirectory(ros EXCLUDE_FROM_ALL)
+  ignore_external_warnings(rosbag)
+
   add_subdirectory(apriltag EXCLUDE_FROM_ALL)
   ignore_external_warnings(apriltag)
 endif()
