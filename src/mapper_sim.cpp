@@ -117,16 +117,16 @@ constexpr int UI_WIDTH = 200;
 
 basalt::Calibration<double> calib;
 
-pangolin::Var<bool> show_edges("ui.show_edges", true, false, true);
-pangolin::Var<bool> show_points("ui.show_points", true, false, true);
+pangolin::Var<bool> show_edges{"ui.show_edges", true, true};
+pangolin::Var<bool> show_points{"ui.show_points", true, true};
 
 using Button = pangolin::Var<std::function<void(void)>>;
 
-Button optimize_btn("ui.optimize", &optimize);
-Button rand_inc_btn("ui.rand_inc", &randomInc);
-Button rand_yaw_inc_btn("ui.rand_yaw", &randomYawInc);
-Button setup_points_btn("ui.setup_points", &setup_points);
-Button align_se3_btn("ui.align_se3", &alignButton);
+Button optimize_btn{"ui.optimize", &optimize};
+Button rand_inc_btn{"ui.rand_inc", &randomInc};
+Button rand_yaw_inc_btn{"ui.rand_yaw", &randomYawInc};
+Button setup_points_btn{"ui.setup_points", &setup_points};
+Button align_se3_btn{"ui.align_se3", &alignButton};
 
 std::string marg_data_path;
 

@@ -82,17 +82,17 @@ using Button = pangolin::Var<std::function<void(void)>>;
 pangolin::DataLog imu_data_log, vio_data_log, error_data_log;
 pangolin::Plotter* plotter;
 
-pangolin::Var<bool> show_obs("ui.show_obs", true, false, true);
-pangolin::Var<bool> show_ids("ui.show_ids", false, false, true);
+pangolin::Var<bool> show_obs{"ui.show_obs", true, true};
+pangolin::Var<bool> show_ids{"ui.show_ids", false, true};
 
-pangolin::Var<bool> show_est_pos("ui.show_est_pos", true, false, true);
-pangolin::Var<bool> show_est_vel("ui.show_est_vel", false, false, true);
-pangolin::Var<bool> show_est_bg("ui.show_est_bg", false, false, true);
-pangolin::Var<bool> show_est_ba("ui.show_est_ba", false, false, true);
+pangolin::Var<bool> show_est_pos{"ui.show_est_pos", true, true};
+pangolin::Var<bool> show_est_vel{"ui.show_est_vel", false, true};
+pangolin::Var<bool> show_est_bg{"ui.show_est_bg", false, true};
+pangolin::Var<bool> show_est_ba{"ui.show_est_ba", false, true};
 
-pangolin::Var<bool> show_gt("ui.show_gt", true, false, true);
+pangolin::Var<bool> show_gt{"ui.show_gt", true, true};
 
-pangolin::Var<bool> follow("ui.follow", true, false, true);
+pangolin::Var<bool> follow{"ui.follow", true, true};
 
 // Visualization variables
 basalt::VioVisualizationData::Ptr curr_vis_data;

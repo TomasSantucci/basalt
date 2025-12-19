@@ -109,37 +109,37 @@ constexpr int UI_WIDTH = 200;
 
 basalt::Calibration<double> calib;
 
-pangolin::Var<int> show_frame1("ui.show_frame1", 0, 0, 1);
-pangolin::Var<int> show_cam1("ui.show_cam1", 0, 0, 0);
-pangolin::Var<int> show_frame2("ui.show_frame2", 0, 0, 1);
-pangolin::Var<int> show_cam2("ui.show_cam2", 0, 0, 0);
-pangolin::Var<bool> lock_frames("ui.lock_frames", true, false, true);
-pangolin::Var<bool> show_detected("ui.show_detected", true, false, true);
-pangolin::Var<bool> show_matches("ui.show_matches", true, false, true);
-pangolin::Var<bool> show_inliers("ui.show_inliers", true, false, true);
-pangolin::Var<bool> show_ids("ui.show_ids", false, false, true);
+pangolin::Var<int> show_frame1{"ui.show_frame1", 0, 0, 1};
+pangolin::Var<int> show_cam1{"ui.show_cam1", 0, 0, 0};
+pangolin::Var<int> show_frame2{"ui.show_frame2", 0, 0, 1};
+pangolin::Var<int> show_cam2{"ui.show_cam2", 0, 0, 0};
+pangolin::Var<bool> lock_frames{"ui.lock_frames", true, true};
+pangolin::Var<bool> show_detected{"ui.show_detected", true, true};
+pangolin::Var<bool> show_matches{"ui.show_matches", true, true};
+pangolin::Var<bool> show_inliers{"ui.show_inliers", true, true};
+pangolin::Var<bool> show_ids{"ui.show_ids", false, true};
 
-pangolin::Var<int> num_opt_iter("ui.num_opt_iter", 10, 0, 20);
+pangolin::Var<int> num_opt_iter{"ui.num_opt_iter", 10, 0, 20};
 
-pangolin::Var<bool> show_gt("ui.show_gt", true, false, true);
-pangolin::Var<bool> show_edges("ui.show_edges", true, false, true);
-pangolin::Var<bool> show_points("ui.show_points", true, false, true);
+pangolin::Var<bool> show_gt{"ui.show_gt", true, true};
+pangolin::Var<bool> show_edges{"ui.show_edges", true, true};
+pangolin::Var<bool> show_points{"ui.show_points", true, true};
 
 using Button = pangolin::Var<std::function<void(void)>>;
 
-Button detect_btn("ui.detect", &detect);
-Button match_btn("ui.match", &match);
-Button tracks_btn("ui.tracks", &tracks);
-Button optimize_btn("ui.optimize", &optimize);
+Button detect_btn{"ui.detect", &detect};
+Button match_btn{"ui.match", &match};
+Button tracks_btn{"ui.tracks", &tracks};
+Button optimize_btn{"ui.optimize", &optimize};
 
-pangolin::Var<double> outlier_threshold("ui.outlier_threshold", 3.0, 0.01, 10);
+pangolin::Var<double> outlier_threshold{"ui.outlier_threshold", 3.0, 0.01, 10};
 
-Button filter_btn("ui.filter", &filter);
-Button align_btn("ui.aling_se3", &alignButton);
+Button filter_btn{"ui.filter", &filter};
+Button align_btn{"ui.aling_se3", &alignButton};
 
-pangolin::Var<bool> euroc_fmt("ui.euroc_fmt", true, false, true);
-pangolin::Var<bool> tum_rgbd_fmt("ui.tum_rgbd_fmt", false, false, true);
-Button save_traj_btn("ui.save_traj", &saveTrajectoryButton);
+pangolin::Var<bool> euroc_fmt{"ui.euroc_fmt", true, true};
+pangolin::Var<bool> tum_rgbd_fmt{"ui.tum_rgbd_fmt", false, true};
+Button save_traj_btn{"ui.save_traj", &saveTrajectoryButton};
 
 pangolin::OpenGlRenderState camera;
 

@@ -359,10 +359,10 @@ int main(int argc, char **argv) {
     plotter = new pangolin::Plotter(&data_log, 0, (max_time - min_time) * 1e-9, -10.0, 10.0, 0.01, 0.01);
 
     plot_display.AddDisplay(*plotter);
-    pangolin::Var<bool> show_gyro("ui.show_gyro", true, false, true);
-    pangolin::Var<bool> show_mocap_rot_vel("ui.show_mocap_rot_vel", true, false, true);
+    pangolin::Var<bool> show_gyro{"ui.show_gyro", true, true};
+    pangolin::Var<bool> show_mocap_rot_vel{"ui.show_mocap_rot_vel", true, true};
 
-    pangolin::Var<bool> show_error("ui.show_error", false, false, true);
+    pangolin::Var<bool> show_error{"ui.show_error", false, true};
 
     std::string save_button_name = "ui.save_aligned_dataset";
     // Disable save_aligned_dataset button if GT data already exists

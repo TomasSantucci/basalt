@@ -115,33 +115,33 @@ constexpr int UI_WIDTH = 200;
 pangolin::DataLog imu_data_log, vio_data_log, error_data_log;
 pangolin::Plotter* plotter;
 
-pangolin::Var<int> show_frame("ui.show_frame", 0, 0, 1000);
+pangolin::Var<int> show_frame{"ui.show_frame", 0, 0, 1000};
 
-pangolin::Var<bool> show_obs("ui.show_obs", true, false, true);
-pangolin::Var<bool> show_obs_noisy("ui.show_obs_noisy", true, false, true);
-pangolin::Var<bool> show_obs_vio("ui.show_obs_vio", true, false, true);
+pangolin::Var<bool> show_obs{"ui.show_obs", true, true};
+pangolin::Var<bool> show_obs_noisy{"ui.show_obs_noisy", true, true};
+pangolin::Var<bool> show_obs_vio{"ui.show_obs_vio", true, true};
 
-pangolin::Var<bool> show_ids("ui.show_ids", false, false, true);
+pangolin::Var<bool> show_ids{"ui.show_ids", false, true};
 
-pangolin::Var<bool> show_accel("ui.show_accel", false, false, true);
-pangolin::Var<bool> show_gyro("ui.show_gyro", false, false, true);
-pangolin::Var<bool> show_gt_vel("ui.show_gt_vel", false, false, true);
-pangolin::Var<bool> show_gt_pos("ui.show_gt_pos", true, false, true);
-pangolin::Var<bool> show_gt_bg("ui.show_gt_bg", false, false, true);
-pangolin::Var<bool> show_gt_ba("ui.show_gt_ba", false, false, true);
+pangolin::Var<bool> show_accel{"ui.show_accel", false, true};
+pangolin::Var<bool> show_gyro{"ui.show_gyro", false, true};
+pangolin::Var<bool> show_gt_vel{"ui.show_gt_vel", false, true};
+pangolin::Var<bool> show_gt_pos{"ui.show_gt_pos", true, true};
+pangolin::Var<bool> show_gt_bg{"ui.show_gt_bg", false, true};
+pangolin::Var<bool> show_gt_ba{"ui.show_gt_ba", false, true};
 
-pangolin::Var<bool> show_est_vel("ui.show_est_vel", false, false, true);
-pangolin::Var<bool> show_est_pos("ui.show_est_pos", true, false, true);
-pangolin::Var<bool> show_est_bg("ui.show_est_bg", false, false, true);
-pangolin::Var<bool> show_est_ba("ui.show_est_ba", false, false, true);
+pangolin::Var<bool> show_est_vel{"ui.show_est_vel", false, true};
+pangolin::Var<bool> show_est_pos{"ui.show_est_pos", true, true};
+pangolin::Var<bool> show_est_bg{"ui.show_est_bg", false, true};
+pangolin::Var<bool> show_est_ba{"ui.show_est_ba", false, true};
 
 using Button = pangolin::Var<std::function<void(void)>>;
 
-Button next_step_btn("ui.next_step", &next_step);
+Button next_step_btn{"ui.next_step", &next_step};
 
-pangolin::Var<bool> continue_btn("ui.continue", true, false, true);
+pangolin::Var<bool> continue_btn{"ui.continue", true, true};
 
-Button align_step_btn("ui.align_se3", &alignButton);
+Button align_step_btn{"ui.align_se3", &alignButton};
 
 int main(int argc, char** argv) {
   srand(1);
