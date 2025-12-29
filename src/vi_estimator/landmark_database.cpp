@@ -43,8 +43,8 @@ LandmarkDatabase<Scalar_>::LandmarkDatabase(std::string name) : debug_name(name)
 }
 
 template <class Scalar_>
-void LandmarkDatabase<Scalar_>::addLandmark(LandmarkId lm_id, const Landmark<Scalar> &pos) {
-  auto &kpt = kpts[lm_id];
+void LandmarkDatabase<Scalar_>::addLandmark(LandmarkId lm_id, const Landmark<Scalar>& pos) {
+  auto& kpt = kpts[lm_id];
   kpt.direction = pos.direction;
   kpt.inv_dist = pos.inv_dist;
   kpt.host_kf_id = pos.host_kf_id;
@@ -53,7 +53,7 @@ void LandmarkDatabase<Scalar_>::addLandmark(LandmarkId lm_id, const Landmark<Sca
 }
 
 template <class Scalar_>
-void LandmarkDatabase<Scalar_>::removeFrame(const FrameId &frame) {
+void LandmarkDatabase<Scalar_>::removeFrame(const FrameId& frame) {
   for (auto it = kpts.begin(); it != kpts.end();) {
     for (auto it2 = it->second.obs.begin(); it2 != it->second.obs.end();) {
       if (it2->first.frame_id == frame)
@@ -71,9 +71,9 @@ void LandmarkDatabase<Scalar_>::removeFrame(const FrameId &frame) {
 }
 
 template <class Scalar_>
-void LandmarkDatabase<Scalar_>::removeKeyframes(const std::set<FrameId> &kfs_to_marg,
-                                                const std::set<FrameId> &poses_to_marg,
-                                                const std::set<FrameId> &states_to_marg_all) {
+void LandmarkDatabase<Scalar_>::removeKeyframes(const std::set<FrameId>& kfs_to_marg,
+                                                const std::set<FrameId>& poses_to_marg,
+                                                const std::set<FrameId>& states_to_marg_all) {
   for (auto it = kpts.begin(); it != kpts.end();) {
     if (kfs_to_marg.count(it->second.host_kf_id.frame_id) > 0) {
       it = removeLandmarkHelper(it);
@@ -93,16 +93,16 @@ void LandmarkDatabase<Scalar_>::removeKeyframes(const std::set<FrameId> &kfs_to_
       }
     }
   }
-  for (const auto &kf_id : kfs_to_marg) {
+  for (const auto& kf_id : kfs_to_marg) {
     keyframe_idx.erase(kf_id);
     keyframe_poses->erase(kf_id);
   }
 
   std::vector<TimeCamId> tcid_to_rm;
-  for (const auto &[tcid, _] : keyframe_obs)
+  for (const auto& [tcid, _] : keyframe_obs)
     if (kfs_to_marg.count(tcid.frame_id) > 0) tcid_to_rm.push_back(tcid);
 
-  for (const auto &tcid : tcid_to_rm) keyframe_obs.erase(tcid);
+  for (const auto& tcid : tcid_to_rm) keyframe_obs.erase(tcid);
 }
 
 template <class Scalar_>
@@ -110,34 +110,34 @@ std::vector<TimeCamId> LandmarkDatabase<Scalar_>::getHostKfs() const {
   std::vector<TimeCamId> res;
 
   res.reserve(observations.size());
-  for (const auto &[h, _] : observations) res.emplace_back(h);
+  for (const auto& [h, _] : observations) res.emplace_back(h);
 
   return res;
 }
 
 template <class Scalar_>
-std::vector<const Landmark<Scalar_> *> LandmarkDatabase<Scalar_>::getLandmarksForHost(const TimeCamId &tcid) const {
-  std::vector<const Landmark<Scalar> *> res;
+std::vector<const Landmark<Scalar_>*> LandmarkDatabase<Scalar_>::getLandmarksForHost(const TimeCamId& tcid) const {
+  std::vector<const Landmark<Scalar>*> res;
 
-  for (const auto &[k, obs] : observations.at(tcid))
-    for (const auto &v : obs) res.emplace_back(&kpts.at(v));
-
-  return res;
-}
-
-template <class Scalar_>
-std::vector<std::pair<LandmarkId, const Landmark<Scalar_> *>> LandmarkDatabase<Scalar_>::getLandmarksForHostWithIds(
-    const TimeCamId &tcid) const {
-  std::vector<std::pair<LandmarkId, const Landmark<Scalar_> *>> res;
-
-  for (const auto &[k, obs] : observations.at(tcid))
-    for (const auto &v : obs) res.emplace_back(v, &kpts.at(v));
+  for (const auto& [k, obs] : observations.at(tcid))
+    for (const auto& v : obs) res.emplace_back(&kpts.at(v));
 
   return res;
 }
 
 template <class Scalar_>
-void LandmarkDatabase<Scalar_>::addObservation(const TimeCamId &tcid_target, const KeypointObservation<Scalar> &o) {
+std::vector<std::pair<LandmarkId, const Landmark<Scalar_>*>> LandmarkDatabase<Scalar_>::getLandmarksForHostWithIds(
+    const TimeCamId& tcid) const {
+  std::vector<std::pair<LandmarkId, const Landmark<Scalar_>*>> res;
+
+  for (const auto& [k, obs] : observations.at(tcid))
+    for (const auto& v : obs) res.emplace_back(v, &kpts.at(v));
+
+  return res;
+}
+
+template <class Scalar_>
+void LandmarkDatabase<Scalar_>::addObservation(const TimeCamId& tcid_target, const KeypointObservation<Scalar>& o) {
   auto it = kpts.find(o.kpt_id);
   BASALT_ASSERT(it != kpts.end());
 
@@ -149,18 +149,18 @@ void LandmarkDatabase<Scalar_>::addObservation(const TimeCamId &tcid_target, con
 }
 
 template <class Scalar_>
-void LandmarkDatabase<Scalar_>::addKeyframe(int64_t kf_id, size_t idx, const SE3 &pos) {
+void LandmarkDatabase<Scalar_>::addKeyframe(int64_t kf_id, size_t idx, const SE3& pos) {
   keyframe_idx[kf_id] = idx;
   (*keyframe_poses)[kf_id] = pos;
 }
 
 template <class Scalar_>
-Sophus::SE3<Scalar_> &LandmarkDatabase<Scalar_>::getKeyframePose(int64_t kf_id) {
+Sophus::SE3<Scalar_>& LandmarkDatabase<Scalar_>::getKeyframePose(int64_t kf_id) {
   return keyframe_poses->at(kf_id);
 }
 
 template <class Scalar_>
-size_t &LandmarkDatabase<Scalar_>::getKeyframeIndex(FrameId kf_id) {
+size_t& LandmarkDatabase<Scalar_>::getKeyframeIndex(FrameId kf_id) {
   return keyframe_idx.at(kf_id);
 }
 
@@ -178,9 +178,9 @@ void LandmarkDatabase<Scalar_>::getCovisibilityMap(LandmarkDatabase<Scalar>::Ptr
   if (!keyframe_obs.empty()) {
     TimeCamId last_tcid = getLastKeyframe();
     std::set<TimeCamId> tcids;
-    for (const auto &lm_id : keyframe_obs[last_tcid]) {
+    for (const auto& lm_id : keyframe_obs[last_tcid]) {
       auto lm = getLandmark(lm_id);
-      for (const auto &[tcid_target, _] : lm.obs) tcids.emplace(tcid_target);
+      for (const auto& [tcid_target, _] : lm.obs) tcids.emplace(tcid_target);
     }
     getSubmap(tcids, submap);
   }
@@ -189,11 +189,11 @@ void LandmarkDatabase<Scalar_>::getCovisibilityMap(LandmarkDatabase<Scalar>::Ptr
 template <class Scalar_>
 void LandmarkDatabase<Scalar_>::getSubmap(std::set<TimeCamId> tcids, LandmarkDatabase<Scalar>::Ptr submap) {
   submap->clear();
-  for (const auto &tcid : tcids) {
+  for (const auto& tcid : tcids) {
     auto kf_id = tcid.frame_id;
     if (keyframeExists(kf_id)) submap->addKeyframe(kf_id, getKeyframeIndex(kf_id), getKeyframePose(kf_id));
 
-    for (const auto &lm_id : keyframe_obs[tcid]) {
+    for (const auto& lm_id : keyframe_obs[tcid]) {
       auto lm = getLandmark(lm_id);
 
       // NOTE: Avoid adding landmarks whose host keyframe is not in the provided set 'tcids'. This prevents drift issues
@@ -202,7 +202,7 @@ void LandmarkDatabase<Scalar_>::getSubmap(std::set<TimeCamId> tcids, LandmarkDat
 
       submap->addLandmark(lm_id, lm);
 
-      for (const auto &[tcid_target, pos] : lm.obs) {
+      for (const auto& [tcid_target, pos] : lm.obs) {
         if (tcids.count(tcid_target) > 0) {
           KeypointObservation<Scalar> kobs;
           kobs.kpt_id = lm_id;
@@ -217,18 +217,18 @@ void LandmarkDatabase<Scalar_>::getSubmap(std::set<TimeCamId> tcids, LandmarkDat
 template <class Scalar_>
 void LandmarkDatabase<Scalar_>::mergeLMDB(LandmarkDatabase<Scalar>::Ptr lmdb, bool override) {
   // Add keyframes
-  for (const auto &[kf_id, pose] : lmdb->getKeyframes()) {
+  for (const auto& [kf_id, pose] : lmdb->getKeyframes()) {
     if (!override && keyframeExists(kf_id)) continue;  // Skip if the landmark already exists
     auto idx = lmdb->getKeyframeIndex(kf_id);
     addKeyframe(kf_id, idx, pose);
   }
 
   // Add Landmarks
-  for (const auto &[lm_id, lm] : lmdb->getLandmarks()) {
+  for (const auto& [lm_id, lm] : lmdb->getLandmarks()) {
     if (override || !landmarkExists(lm_id)) addLandmark(lm_id, lm);
 
     // Add Observations
-    for (const auto &[tcid_target, pos] : lm.obs) {
+    for (const auto& [tcid_target, pos] : lm.obs) {
       if (!keyframeExists(tcid_target.frame_id) && !lmdb->keyframeExists(tcid_target.frame_id))
         continue;  // Basalt adds observations to the LMDB before the frames are keyframes..
 
@@ -250,28 +250,28 @@ void LandmarkDatabase<Scalar_>::mergeLMDB(LandmarkDatabase<Scalar>::Ptr lmdb, bo
 }
 
 template <class Scalar_>
-Landmark<Scalar_> &LandmarkDatabase<Scalar_>::getLandmark(LandmarkId lm_id) {
+Landmark<Scalar_>& LandmarkDatabase<Scalar_>::getLandmark(LandmarkId lm_id) {
   return kpts.at(lm_id);
 }
 
 template <class Scalar_>
-const Landmark<Scalar_> &LandmarkDatabase<Scalar_>::getLandmark(LandmarkId lm_id) const {
+const Landmark<Scalar_>& LandmarkDatabase<Scalar_>::getLandmark(LandmarkId lm_id) const {
   return kpts.at(lm_id);
 }
 
 template <class Scalar_>
-const std::unordered_map<TimeCamId, std::map<TimeCamId, std::set<LandmarkId>>> &
+const std::unordered_map<TimeCamId, std::map<TimeCamId, std::set<LandmarkId>>>&
 LandmarkDatabase<Scalar_>::getObservations() const {
   return observations;
 }
 
 template <class Scalar_>
-const Eigen::aligned_unordered_map<LandmarkId, Landmark<Scalar_>> &LandmarkDatabase<Scalar_>::getLandmarks() const {
+const Eigen::aligned_unordered_map<LandmarkId, Landmark<Scalar_>>& LandmarkDatabase<Scalar_>::getLandmarks() const {
   return kpts;
 }
 
 template <class Scalar_>
-const Eigen::aligned_map<FrameId, Sophus::SE3<Scalar_>> &LandmarkDatabase<Scalar_>::getKeyframes() const {
+const Eigen::aligned_map<FrameId, Sophus::SE3<Scalar_>>& LandmarkDatabase<Scalar_>::getKeyframes() const {
   if (keyframe_poses->empty()) {
     static const Eigen::aligned_map<FrameId, Sophus::SE3<Scalar_>> empty_map{};
     return empty_map;
@@ -297,7 +297,7 @@ void LandmarkDatabase<Scalar_>::mergeKeyframesPoses(
 }
 
 template <class Scalar_>
-const Eigen::aligned_map<TimeCamId, std::set<LandmarkId>> &LandmarkDatabase<Scalar_>::getKeyframeObs() const {
+const Eigen::aligned_map<TimeCamId, std::set<LandmarkId>>& LandmarkDatabase<Scalar_>::getKeyframeObs() const {
   return keyframe_obs;
 }
 
@@ -335,8 +335,8 @@ template <class Scalar_>
 int LandmarkDatabase<Scalar_>::numObservations() const {
   int num_observations = 0;
 
-  for (const auto &[_, val_map] : observations) {
-    for (const auto &[_, val] : val_map) {
+  for (const auto& [_, val_map] : observations) {
+    for (const auto& [_, val] : val_map) {
       num_observations += val.size();
     }
   }
@@ -361,7 +361,7 @@ typename LandmarkDatabase<Scalar_>::MapIter LandmarkDatabase<Scalar_>::removeLan
   auto host_it = observations.find(it->second.host_kf_id);
 
   if (host_it != observations.end()) {
-    for (const auto &[k, v] : it->second.obs) {
+    for (const auto& [k, v] : it->second.obs) {
       auto target_it = host_it->second.find(k);
       target_it->second.erase(it->first);
 
@@ -371,7 +371,7 @@ typename LandmarkDatabase<Scalar_>::MapIter LandmarkDatabase<Scalar_>::removeLan
     if (host_it->second.empty()) observations.erase(host_it);
   }
 
-  for (const auto &[tcid, obs] : keyframe_obs) {
+  for (const auto& [tcid, obs] : keyframe_obs) {
     if (obs.count(it->first) > 0) keyframe_obs[tcid].erase(it->first);
   }
 
@@ -400,7 +400,7 @@ void LandmarkDatabase<Scalar_>::removeLandmark(LandmarkId lm_id) {
 }
 
 template <class Scalar_>
-void LandmarkDatabase<Scalar_>::removeObservations(LandmarkId lm_id, const std::set<TimeCamId> &obs) {
+void LandmarkDatabase<Scalar_>::removeObservations(LandmarkId lm_id, const std::set<TimeCamId>& obs) {
   auto it = kpts.find(lm_id);
   BASALT_ASSERT(it != kpts.end());
 
@@ -426,7 +426,7 @@ void LandmarkDatabase<Scalar_>::print(bool show_ids) {
   // Print keyframes
   if (show_ids) {
     std::cout << "| Keyframes: ";
-    for (const auto &[_, idx] : keyframe_idx) std::cout << idx << ", ";
+    for (const auto& [_, idx] : keyframe_idx) std::cout << idx << ", ";
     std::cout << std::endl;
   } else
     std::cout << "| Keyframes count: " << numKeyframes() << std::endl;
@@ -434,7 +434,7 @@ void LandmarkDatabase<Scalar_>::print(bool show_ids) {
   // Print landmarks
   if (show_ids) {
     std::cout << "| Landmarks: ";
-    for (const auto &[lm_id, _] : kpts) std::cout << lm_id << ", ";
+    for (const auto& [lm_id, _] : kpts) std::cout << lm_id << ", ";
     std::cout << std::endl;
   } else
     std::cout << "| Landmarks count: " << numLandmarks() << std::endl;
@@ -442,11 +442,11 @@ void LandmarkDatabase<Scalar_>::print(bool show_ids) {
   // Print observations
   if (show_ids) {
     std::cout << "| Observations: " << std::endl;
-    for (const auto &[tcid, landmarks] : keyframe_obs) {
+    for (const auto& [tcid, landmarks] : keyframe_obs) {
       if (!keyframeExists(tcid.frame_id)) continue;  // tcid is not a timestamp of a keyframe
       auto kf_idx = getKeyframeIndex(tcid.frame_id);
       std::cout << " - Keyframe " << kf_idx << "." << tcid.cam_id << ": ";
-      for (const auto &lm_id : landmarks) std::cout << lm_id << ", ";
+      for (const auto& lm_id : landmarks) std::cout << lm_id << ", ";
       std::cout << std::endl;
     }
   } else
