@@ -67,7 +67,7 @@ We describe the CI setup by explaining each tag.
   with a complete `$xrtmet/test/data/targets` and a `$xrtmet/.venv` virtualenv
   set up.
 - Add envvars for the dataset locations (i.e., use the `gitlab-runner register
-  --env` option or add it to `.gitlab-runner.config.toml` manually):
+--env` option or add it to `.gitlab-runner.config.toml` manually):
   ```toml
   [[runners]]
   concurrent=1
@@ -94,19 +94,29 @@ We describe the CI setup by explaining each tag.
   Variables and set a hidden/masked variable with that token called:
   `READ_PROJECT_TOKEN`
 
-
 ### Shell executor (`basalt-timing-evaluation`)
 
 - Same as `basalt-evaluation` setup but requires `concurrent=1`
+- Set oldest_first for `gate` resource_group. This will gate pipelines to run
+  sequentially while still allowing parallel intra-pipeline jobs. You will need
+  an [access
+  token](https://gitlab.freedesktop.org/mateosss/basalt/-/settings/access_tokens).
+
+```bash
+  curl --request PUT \
+    --header "PRIVATE-TOKEN: <private_token>" \
+    --data "process_mode=oldest_first" \
+    --url "https://gitlab.freedesktop.org/api/v4/projects/mateosss%2Fbasalt/resource_groups/gate"
+```
 
 ### Running all runners in same computer
 
 - This is possible, you will need to register the two runners (one shell, one
-docker) on the same computer.
+  docker) on the same computer.
 - You will need to give two tags to the shell runner (`basalt-evaluation` and
   `basalt-timing-evaluation`)
 - You will be limited to using `concurrent=1` if you want to do timing
-evaluation.
+  evaluation.
 
 ## Running Jobs
 

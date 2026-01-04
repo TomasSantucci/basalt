@@ -16,8 +16,26 @@ EVALSET_TEMPLATE = dedent(
     {evalset}:
         stage: {stage}
         tags: [{tags}]
+        extends: .run-dataset
+        variables:
+          DETERMINISTIC: {deterministic}
+          NUM_THREADS: {num_threads}
+          REPETITIONS: {repetitions}
+          RESULTS_DIR: {results_dir}
+        parallel:
+          matrix:
+            - DATASET: [{datasets}]
+    """
+)
+
+TIMING_EVALSET_TEMPLATE = dedent(
+    """
+    {evalset}:
+        stage: {stage}
+        tags: [{tags}]
         needs: ["build"]
         extends: .run-dataset
+        resource_group: run_alone
         variables:
           DETERMINISTIC: {deterministic}
           NUM_THREADS: {num_threads}
@@ -150,7 +168,7 @@ def main():
 
     for evalset in timing_evalsets:
         datasets = ", ".join(timing_evaluations["evalsets"][evalset])
-        job = EVALSET_TEMPLATE.format(
+        job = TIMING_EVALSET_TEMPLATE.format(
             stage="timing",
             evalset=f"timing:{evalset}",
             datasets=datasets,

@@ -192,7 +192,7 @@ create-evaluation:
   variables:
     EVALSETS: "quickset1"
     DETERMINISTIC: "1"
-    NUM_THREADS: "0"
+    NUM_THREADS: "4"
     TIMING_EVALSETS: "EMH02,TR2,MOO02,MIO02,MGO02"
     TIMING_DETERMINISTIC: "1"
     TIMING_REPETITIONS: "3"
@@ -209,6 +209,7 @@ create-evaluation:
 do-evaluation:
   stage: evaluate
   needs: ["create-evaluation"]
+  resource_group: gate # Prevents other evaluation pipelines from starting until this one finishes, requires oldest_first
   trigger:
     include:
       - artifact: .ci/cieval.yaml

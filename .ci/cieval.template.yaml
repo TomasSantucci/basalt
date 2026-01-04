@@ -18,7 +18,6 @@ stages:
 cache:
   paths:
     - ccache
-    - build
 
 .ccache:
   before_script:
@@ -39,9 +38,14 @@ build:
     - time cmake --preset=release
     - time cmake --build build
     - rm -f $GET_DATASET_LOCKFILE
+  artifacts:
+    paths:
+      - build/basalt_vio
+    expire_in: 52 weeks
 
 .run-dataset:
   allow_failure: true
+  needs: ["build"]
   variables:
     DATASET: ""
     DETERMINISTIC: 0
@@ -91,7 +95,7 @@ build:
   artifacts:
     paths:
       - $RESULTS_DIR
-    expire_in: 1 week
+    expire_in: 52 weeks
     name: "$RESULTS_DIR-$DATASET"
 
 {evalsets_jobs}
