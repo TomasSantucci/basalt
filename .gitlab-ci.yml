@@ -260,7 +260,7 @@ report:
     - echo "" >> report.md
     - echo "## Tables" >> report.md
     - echo "" >> report.md
-    - $xrtmet/batch.py results $xrtmet/test/data/targets --metrics ate rte timing memory --highlights bold --save_file batch.json >> report.md
+    - $xrtmet/batch.py results $xrtmet/test/data/targets --metrics atec rtec timing memory --highlights bold --save_file batch.json >> report.md
     - mv batch.json results/
     - echo "" >> report.md
     - unzip -o timing-results.zip
