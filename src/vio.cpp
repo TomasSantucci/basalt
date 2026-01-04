@@ -129,6 +129,7 @@ std::ostream& operator<<(std::ostream& os, const vit::TimeStats& s) {
 struct basalt_vio_ui : vis::VIOUIBase {
   VioDatasetPtr vio_dataset;
   int64_t start_t_ns = -1;
+  size_t frame_count = 0;
 
   DataLog imu_data_log, vio_data_log, ate_data_log, rte_data_log;
   shared_ptr<Plotter> plotter;
@@ -298,8 +299,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
       vio_dataset = dataset_io->get_data();
       start_t_ns = vio_dataset->get_image_timestamps().front();
+      frame_count = vio_dataset->get_image_timestamps().size();
 
-      show_frame.Meta().range[1] = vio_dataset->get_image_timestamps().size() - 1;
+      show_frame.Meta().range[1] = frame_count - 1;
       show_frame.Meta().gui_changed = true;
 
       opt_flow = basalt::OpticalFlowFactory::getOpticalFlow(config, calib);
@@ -692,7 +694,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
       stats.add("exec_time_s", duration_total);
       stats.add("ate_rmse", ate_rmse);
       stats.add("ate_num_kfs", vio_t_w_i.size());
-      stats.add("num_frames", vio_dataset->get_image_timestamps().size());
+      stats.add("num_frames", frame_count);
 
       {
         basalt::MemoryInfo mi;
@@ -737,7 +739,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
       {
         cereal::JSONOutputArchive ar(os);
         ar(cereal::make_nvp("rms_ate", error));
-        ar(cereal::make_nvp("num_frames", vio_dataset->get_image_timestamps().size()));
+        ar(cereal::make_nvp("num_frames", frame_count));
         ar(cereal::make_nvp("exec_time_ns", exec_time_ns.count()));
       }
       os.close();
@@ -754,53 +756,74 @@ struct basalt_vio_ui : vis::VIOUIBase {
     return curr_vis_data;
   }
 
+  OpticalFlowInput::Ptr load_frameset(size_t idx) {
+    const int num_cams = calib.intrinsics.size();
+
+    int64_t t_ns = vio_dataset->get_image_timestamps()[idx];
+    auto img = make_shared<OpticalFlowInput>(num_cams);
+
+    if (save_times) {
+      img->stats.ts = t_ns;
+      img->stats.enabled_exts.has_pose_timing = true;
+      img->stats.timings.reserve(timing_titles.size());  // This enables timing measurements in the pipeline
+      img->stats.timing_titles = timing_titles.data();
+    }
+    img->addTime("frames_original_timestamp", t_ns);
+    img->addTime("frames_read_started");
+
+    img->t_ns = t_ns;
+    img->img_data = vio_dataset->get_image_data(img->t_ns);
+
+    if (img->img_data.size() != size_t(num_cams)) {
+      std::cout << "Skipping incomplete frameset for timestamp " << img->t_ns << std::endl;
+      return nullptr;
+    }
+    img->addTime("frames_read");
+
+    timestamp_to_id[img->t_ns] = idx;
+
+    return img;
+  }
+
   // Feed functions
   void feed_images() {
     std::cout << "Started input_data thread " << std::endl;
 
-    int NUM_CAMS = calib.intrinsics.size();
-    for (size_t i = 0; i < vio_dataset->get_image_timestamps().size(); i++) {
-      if (vio->finished || terminate || (max_frames > 0 && i >= max_frames)) {
-        // stop loop early if we set a limit on number of frames to process
-        break;
-      }
+    BASALT_ASSERT(frame_count > 0);
+
+    OpticalFlowInput::Ptr img = nullptr;
+
+    size_t i = 0;  // Read the first valid frameset
+    while (img == nullptr && i < frame_count) {
+      img = load_frameset(i);
+      i++;
+    }
+
+    for (; i < frame_count; i++) {
+      if (vio->finished || terminate || (max_frames > 0 && i >= max_frames)) break;
 
       if (step_by_step) {
         std::unique_lock<std::mutex> lk(m);
         cvar.wait(lk);
       }
 
-      int64_t t_ns = vio_dataset->get_image_timestamps()[i];
-      basalt::OpticalFlowInput::Ptr img(new basalt::OpticalFlowInput(NUM_CAMS));
-
-      if (save_times) {
-        img->stats.ts = t_ns;
-        img->stats.enabled_exts.has_pose_timing = true;
-        img->stats.timings.reserve(timing_titles.size());  // This enables timing measurements in the pipeline
-        img->stats.timing_titles = timing_titles.data();
-      }
-      img->addTime("frames_original_timestamp", t_ns);
-      img->addTime("frames_read_started");
-
-      img->t_ns = t_ns;
-      img->img_data = vio_dataset->get_image_data(img->t_ns);
-      if (img->img_data.size() != size_t(NUM_CAMS)) {
-        std::cout << "Skipping incomplete frameset for timestamp " << img->t_ns << std::endl;
-        continue;
-      }
-      img->addTime("frames_read");
-
-      timestamp_to_id[img->t_ns] = i;
-
       img->addTime("frames_pushed");
-      opt_flow->input_img_queue.push(img);
+      opt_flow->input_img_queue.push(img);  // Push to frontend
+
       if (i % 64 == 0) {
-        size_t frame_count = vio_dataset->get_image_timestamps().size();
         float completion = 100.0 * i / frame_count;
         std::cout << "[{:.2f}%] Input image {}/{}\t\r"_format(completion, i, frame_count) << std::flush;
       }
 
+      img = load_frameset(i);  // Load next frameset while the previous is being processed
+
       if (deterministic) pop_state();  // Wait for the state to be produced
+    }
+
+    if (img) {  // Push and wait for the last frameset if any
+      img->addTime("frames_pushed");
+      opt_flow->input_img_queue.push(img);
+      if (deterministic) pop_state();
     }
 
     // Indicate the end of the sequence
@@ -945,7 +968,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   }
 
   bool next_step(int steps = 1) {
-    if (show_frame < int(vio_dataset->get_image_timestamps().size()) - steps) {
+    if (show_frame < int(frame_count) - steps) {
       show_frame = show_frame + steps;
       show_frame.Meta().gui_changed = true;
       cvar.notify_one();
