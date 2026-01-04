@@ -20,3 +20,6 @@ use-double=0
 
 # Whether to use a pipeline that produces repeatable outputs
 deterministic=0
+
+# Number of threads. 0 for automatic.
+num-threads=1

@@ -75,6 +75,7 @@ struct PoseVelBiasStateWithLin {
   PoseVelBiasStateWithLin() {
     linearized = false;
     delta.setZero();
+    backup_delta.setZero();
   };
 
   PoseVelBiasStateWithLin(int64_t t_ns, const SE3& T_w_i, const Vec3& vel_w_i, const Vec3& bias_gyro,
@@ -191,6 +192,7 @@ struct PoseStateWithLin {
   PoseStateWithLin() {
     linearized = false;
     delta.setZero();
+    backup_delta.setZero();
   };
 
   PoseStateWithLin(int64_t t_ns, const SE3& T_w_i, bool linearized = false)
@@ -206,6 +208,7 @@ struct PoseStateWithLin {
         pose_linearized(other.state_linearized.t_ns, other.state_linearized.T_w_i) {
     T_w_i_current = pose_linearized.T_w_i;
     PoseState<Scalar>::incPose(delta, T_w_i_current);
+    backup_delta.setZero();  // unused, but avoids uninitialized gcc warning
   }
 
   template <class Scalar2>

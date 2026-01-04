@@ -937,6 +937,11 @@ struct basalt_vio_ui : vis::VIOUIBase {
       std::cerr << "could not load camera calibration " << calib_path << std::endl;
       std::abort();
     }
+
+    double baseline = (calib.T_i_c[1].translation() - calib.T_i_c[0].translation()).norm();
+    if (baseline < config.vio_min_triangulation_dist)
+      std::cout << "Warning: baseline (" << baseline << ") is smaller than vio_min_triangulation_dist ("
+                << config.vio_min_triangulation_dist << "). Update the config file." << std::endl;
   }
 
   bool next_step(int steps = 1) {

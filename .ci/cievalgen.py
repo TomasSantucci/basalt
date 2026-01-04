@@ -1,10 +1,33 @@
 #!/usr/bin/env python3
 
+# Copyright 2026, Mateo de Mayo
+# SPDX-License-Identifier: BSD-3-Clause
+# Author: Mateo de Mayo <mateo.demayo@tum.de>
+
 """Generate CI evaluation YAML file for GitLab CI/CD."""
 
 import argparse
 import json
-from textwrap import dedent, indent
+import copy
+from textwrap import dedent
+
+EVALSET_TEMPLATE = dedent(
+    """
+    {evalset}:
+        stage: {stage}
+        tags: [{tags}]
+        needs: ["build"]
+        extends: .run-dataset
+        variables:
+          DETERMINISTIC: {deterministic}
+          NUM_THREADS: {num_threads}
+          REPETITIONS: {repetitions}
+          RESULTS_DIR: {results_dir}
+        parallel:
+          matrix:
+            - DATASET: [{datasets}]
+    """
+)
 
 
 def parse_args():
@@ -17,7 +40,12 @@ def parse_args():
         "evalsets",
         type=str,
         help="Comma-separated list (without spaces) of selected evalsets to"
-        "generate CI file from, e.g., 'euroc-v1,quickset1'",
+        "generate CI file from, e.g., 'euroc-v1,quickset1,EMH05'",
+    )
+    parser.add_argument(
+        "timing_evalsets",
+        type=str,
+        help="Same as evalsets but for timing evaluation.",
     )
     parser.add_argument(
         "template",
@@ -35,25 +63,35 @@ def parse_args():
         default=1,
         help="Set to 1 by default for deterministic evaluation. ",
     )
+    parser.add_argument(
+        "--num_threads",
+        type=int,
+        default=0,
+        help="Number of threads to use for evaluation runs. 0 means auto-detect.",
+    )
+    parser.add_argument(
+        "--timing_deterministic",
+        type=int,
+        default=1,
+        help="Set to 1 by default for deterministic timing evaluation.",
+    )
+    parser.add_argument(
+        "--timing_repetitions",
+        type=int,
+        default=1,
+        help="Runs can be performed multiple times for warming up the system.",
+    )
+    parser.add_argument(
+        "--timing_num_threads",
+        type=int,
+        default=0,
+        help="Number of threads to use for timing evaluation runs. 0 means auto-detect.",
+    )
 
     return parser.parse_args()
 
 
-def main():
-    "Main function"
-    args = parse_args()
-    description = args.description
-    evalsets = args.evalsets.split(",")
-    template = args.template
-    output = args.output
-    deterministic = args.deterministic
-
-    tcontents = open(template, "r", encoding="utf-8").read()
-    evaluations = json.load(open(description, "r", encoding="utf-8"))
-
-    evalset_jobs = []
-
-    # Optionally add custom evalset if individual sequences were specified
+def add_custom_evalset(evalsets, evaluations):
     custom_evalset = []
     for i, string in enumerate(list(evalsets)):
         if string in evaluations["evalsets"]:
@@ -69,28 +107,72 @@ def main():
         evaluations["evalsets"]["custom"] = custom_evalset
         evalsets.append("custom")
 
+
+def main():
+    "Main function"
+    args = parse_args()
+    description = args.description
+    evalsets = args.evalsets.split(",")
+    timing_evalsets = args.timing_evalsets.split(",")
+    template = args.template
+    output = args.output
+    deterministic = args.deterministic
+    num_threads = args.num_threads
+    timing_deterministic = args.timing_deterministic
+    timing_repetitions = args.timing_repetitions
+    timing_num_threads = args.timing_num_threads
+
+    tcontents = open(template, "r", encoding="utf-8").read()
+    evaluations = json.load(open(description, "r", encoding="utf-8"))
+    timing_evaluations = copy.deepcopy(evaluations)
+
+    jobs = []
+    tjobs = []
+
+    # Optionally add a `custom` evalset if individual sequences were specified
+    add_custom_evalset(evalsets, evaluations)
+    add_custom_evalset(timing_evalsets, timing_evaluations)
+
     for evalset in evalsets:
         datasets = ", ".join(evaluations["evalsets"][evalset])
-
-        evalset_job = dedent(
-            f"""
-            {evalset}:
-              stage: evalsets
-              tags: [basalt-evaluation]
-              needs: ["build"]
-              extends: .run-dataset
-              parallel:
-                  matrix:
-                    - DATASET: [{datasets}]
-            """
+        job = EVALSET_TEMPLATE.format(
+            stage="evalsets",
+            evalset=evalset,
+            datasets=datasets,
+            deterministic=deterministic,
+            num_threads=num_threads,
+            repetitions=1,
+            tags="basalt-evaluation",
+            results_dir="results",
         )
-        evalset_jobs.append(evalset_job)
+        jobs.append(job)
+    jobs_str = f"".join(jobs).strip()
 
-    evalset_jobs_str = f"".join(evalset_jobs).strip()
+    for evalset in timing_evalsets:
+        datasets = ", ".join(timing_evaluations["evalsets"][evalset])
+        job = EVALSET_TEMPLATE.format(
+            stage="timing",
+            evalset=f"timing:{evalset}",
+            datasets=datasets,
+            deterministic=timing_deterministic,
+            num_threads=timing_num_threads,
+            repetitions=timing_repetitions,
+            tags="basalt-timing-evaluation",
+            results_dir="timing-results",
+        )
+        tjobs.append(job)
+    tjobs_str = f"".join(tjobs).strip()
+
     contents = tcontents.format(
         evalset_list=args.evalsets,
-        evalsets_jobs=evalset_jobs_str,
+        evalsets_jobs=jobs_str,
         deterministic=deterministic,
+        num_threads=num_threads,
+        timing_evalset_list=args.timing_evalsets,
+        timing_jobs=tjobs_str,
+        timing_deterministic=timing_deterministic,
+        timing_num_threads=timing_num_threads,
+        timing_repetitions=timing_repetitions,
     )
     open(output, "w", encoding="utf-8").write(contents)
 

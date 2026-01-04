@@ -655,13 +655,17 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
       SE3 T_c0_ci = calib.T_i_c[0].inverse() * calib.T_i_c[i];
       trackPoints(pyr0, pyri, kpts0, kpts, mgs, ms0, ms, T_c0_ci, 0, i);
       addKeypoints(i, kpts);
+    }
+    transforms->input_images->addTime("frontend_matching_ended");
+
+    for (size_t i = 1; i < getNumCams(); i++) {
+      Masks& ms = transforms->input_images->masks.at(i);
 
       // Update masks and detect features on area not overlapping with cam0
       if (!config.optical_flow_detection_nonoverlap) continue;
       ms += cam0OverlapCellsMasksForCam(i);
       Keypoints kpts_no = addPointsForCamera(i);
     }
-    transforms->input_images->addTime("frontend_matching_ended");
     transforms->input_images->addTime("frontend_detection_cami_ended");
   }
 

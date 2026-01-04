@@ -4,8 +4,7 @@ BasedOnStyle:   Google
 IndentWidth:    2
 IncludeBlocks:  Preserve
 ColumnLimit:    120
-# TODO@mateosss: Run clangd-tidy and clang-format
-# TODO@mateosss: Add these in a different commit and run clang-format on everything
+# TODO: Add these in a different commit and run clang-format on everything
 # AllowShortBlocksOnASingleLine: Always
 # AllowShortCaseLabelsOnASingleLine: true
 # AllowShortCompoundRequirementOnASingleLine: true

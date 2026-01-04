@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "vit_tracker_ui.hpp"
 
 #include <tbb/concurrent_queue.h>
+#include <tbb/global_control.h>
 #include <CLI/CLI.hpp>
 #include <opencv2/core/mat.hpp>
 #include <sophus/se3.hpp>
@@ -118,6 +119,7 @@ struct Tracker::Implementation {
   bool print_queue = false;
   bool use_double = false;
   bool deterministic = false;
+  int num_threads = 1;
 
   // VIO members
   struct {
@@ -139,6 +141,8 @@ struct Tracker::Implementation {
   tbb::concurrent_bounded_queue<PoseVelBiasState<double>::Ptr> monado_out_state_queue;
   tbb::concurrent_bounded_queue<OpticalFlowInput::Ptr> *image_data_queue = nullptr;  // Invariant: not null after ctor
   tbb::concurrent_bounded_queue<ImuData<double>::Ptr> *imu_data_queue = nullptr;     // Invariant: not null after ctor
+
+  std::unique_ptr<tbb::global_control> tbb_global_control;
 
   // Threads
   thread state_consumer_thread;
@@ -217,6 +221,7 @@ struct Tracker::Implementation {
     app.add_option("--print-queue", print_queue, "Poll and print for queue sizes.");
     app.add_option("--use-double", use_double, "Whether to use a double or single precision pipeline.");
     app.add_option("--deterministic", deterministic, "Make the pipeline output reproducible (some performance impact)");
+    app.add_option("--num-threads", num_threads, "Number of threads. 0 for all available. 1 by default.");
 
     try {
       // While --config-path sets the VIO configuration, --config sets the
@@ -229,6 +234,10 @@ struct Tracker::Implementation {
       app.exit(e);
       ASSERT(false, "Config file error (%s)", unified_config.c_str());
     }
+
+    if (num_threads > 0)
+      tbb_global_control =
+          std::make_unique<tbb::global_control>(tbb::global_control::max_allowed_parallelism, num_threads);
 
     cout << "Instantiating Basalt SLAM tracker\n";
     cout << "Using config file: " << app["--config"]->as<string>() << "\n";

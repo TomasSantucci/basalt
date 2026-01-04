@@ -192,9 +192,16 @@ create-evaluation:
   variables:
     EVALSETS: "quickset1"
     DETERMINISTIC: "1"
+    NUM_THREADS: "0"
+    TIMING_EVALSETS: "EMH02,TR2,MOO02,MIO02,MGO02"
+    TIMING_DETERMINISTIC: "1"
+    TIMING_REPETITIONS: "3"
+    TIMING_NUM_THREADS: "0"
   script:
-    - echo "Generating evaluation pipeline for evalsets $EVALSETS"
-    - .ci/cievalgen.py --deterministic $DETERMINISTIC .ci/evaluation.json $EVALSETS .ci/cieval.template.yaml .ci/cieval.yaml
+    - echo "Generating evaluation pipeline with the following arguments"
+    - echo $EVALSETS, $DETERMINISTIC, $NUM_THREADS
+    - echo $TIMING_EVALSETS, $TIMING_DETERMINISTIC, $TIMING_REPETITIONS, $TIMING_NUM_THREADS
+    - .ci/cievalgen.py --deterministic $DETERMINISTIC --num_threads $NUM_THREADS --timing_deterministic $TIMING_DETERMINISTIC --timing_repetitions $TIMING_REPETITIONS --timing_num_threads $TIMING_NUM_THREADS .ci/evaluation.json $EVALSETS $TIMING_EVALSETS .ci/cieval.template.yaml .ci/cieval.yaml
   artifacts:
     paths:
       - .ci/cieval.yaml
@@ -228,26 +235,68 @@ get-results:
     - export ZIP_JOB_ID=$(cat output.json | jq -r '.[] | select(.name=="zip") | .id')
     - echo $ZIP_JOB_ID
     - curl -H "$AUTH" -L --output artifacts.zip "${CI_SERVER_URL}/api/v4/projects/${CI_PROJECT_ID}/jobs/${ZIP_JOB_ID}/artifacts"
-    - unzip -o artifacts.zip # Generates results.zip
+    - unzip -o artifacts.zip # Generates results.zip and timing-results.zip
   artifacts:
     name: "results"
     paths:
       - results.zip
+      - timing-results.zip
 
 report:
   stage: evaluate
   tags: [basalt-evaluation]
   needs: [get-results]
   script:
-    - export xrtmet=/storage/local/ssd/mayom/Documents/projects/xrtslam-metrics
+    - echo $xrtmet
+    - |
+      if ! [[ -n "${MYDIR:-}" && -d "${MYDIR}" ]]; then
+        echo "xrtmet is not set or not a directory, see .ci/README.md"
+      fi
     - source $xrtmet/.venv/bin/activate
     - unzip -o results.zip
-    - $xrtmet/batch.py results $xrtmet/test/data/targets --metrics ate rte --save_file batch.json > metrics.md
-    - zip batch.zip batch.json
+    - echo "# Evaluation" > report.md
+    - echo "" >> report.md
+    - cat results/README.md >> report.md
+    - echo "" >> report.md
+    - echo "## Tables" >> report.md
+    - echo "" >> report.md
+    - $xrtmet/batch.py results $xrtmet/test/data/targets --metrics ate rte timing memory --highlights bold --save_file batch.json >> report.md
+    - mv batch.json results/
+    - echo "" >> report.md
+    - unzip -o timing-results.zip
+    - echo "# Timing Results" >> report.md
+    - echo "" >> report.md
+    - cat timing-results/README.md >> report.md
+    - echo "" >> report.md
+    - echo "## Tables" >> report.md
+    - $xrtmet/batch.py timing-results $xrtmet/test/data/targets --metrics timing memory --highlights bold --save_file timing-batch.json >> report.md
+    - mv timing-batch.json timing-results/
+    - echo "" >> report.md
+    - echo "## Stats" >> report.md
+    - echo '```python' >> report.md
+    - |
+      find timing-results -type f -name 'timing.csv' -print0 | while IFS= read -r -d '' csv; do
+        rel_dir="$(realpath --relative-to="$(pwd)" "$(dirname "$csv")")"
+        png="$rel_dir/$(basename "$csv" .csv).png"
+        $xrtmet/timing.py -p -fc 4 -lc -2 "$csv" --save_plot $png >> report.md
+      done
+    - echo '```' >> report.md
+    - echo "" >> report.md
+    - echo "## Plots" >> report.md
+    - echo "" >> report.md
+    - |
+      find timing-results -type f -name 'timing.csv' -print0 | while IFS= read -r -d '' csv; do
+        rel_dir="$(realpath --relative-to="$(pwd)" "$(dirname "$csv")")"
+        png="$rel_dir/$(basename "$csv" .csv).png"
+        echo "- Timing plot for $csv:" >> report.md
+        echo "  ![Timing plot]($png)" >> report.md
+      done
+    - pandoc --metadata title="Evaluation Report" --metadata document-css=false --toc --standalone --to html5 --include-in-header scripts/report/style.html report.md --output report.html
   artifacts:
-    name: results
+    name: report
     expose_as: "Results and metrics"
     paths:
-      - results.zip
-      - metrics.md
-      - batch.zip
+      - report.md
+      - report.html
+      - timing-results/
+      - results/
