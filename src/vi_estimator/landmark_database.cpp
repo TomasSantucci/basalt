@@ -43,6 +43,20 @@ LandmarkDatabase<Scalar_>::LandmarkDatabase(std::string name) : debug_name(name)
 }
 
 template <class Scalar_>
+LandmarkDatabase<Scalar_>::LandmarkDatabase(const LandmarkDatabase& other)
+    : kpts(other.kpts),
+      observations(other.observations),
+      keyframe_idx(other.keyframe_idx),
+      keyframe_obs(other.keyframe_obs),
+      debug_name(other.debug_name) {
+  if (other.keyframe_poses) {
+    keyframe_poses = std::make_shared<Eigen::aligned_map<FrameId, SE3>>(*other.keyframe_poses);
+  } else {
+    keyframe_poses = nullptr;
+  }
+}
+
+template <class Scalar_>
 void LandmarkDatabase<Scalar_>::addLandmark(LandmarkId lm_id, const Landmark<Scalar>& pos) {
   auto& kpt = kpts[lm_id];
   kpt.direction = pos.direction;
@@ -215,6 +229,34 @@ void LandmarkDatabase<Scalar_>::getSubmap(std::set<TimeCamId> tcids, LandmarkDat
 }
 
 template <class Scalar_>
+void LandmarkDatabase<Scalar_>::mergeObservations(const Landmark<Scalar_>& existing_lm,
+                                                  const Landmark<Scalar_>& incoming_lm) {
+  for (const auto& [tcid, _] : existing_lm.obs) {
+    observations[existing_lm.host_kf_id][tcid].erase(existing_lm.id);
+    // eliminar el host/ target si se queda sin observaciones
+
+    observations[incoming_lm.host_kf_id][tcid].insert(incoming_lm.id);
+  }
+}
+
+template <class Scalar_>
+bool LandmarkDatabase<Scalar_>::debug_check_keyframes_consistency(std::string caller) {
+  for (const auto& [kf_id, _] : getKeyframes()) {
+    if (!keyframeExists(kf_id)) {
+      return false;
+    }
+    if (!keyframe_poses->count(kf_id)) {
+      return false;
+    }
+    if (!keyframe_idx.count(kf_id)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+template <class Scalar_>
 void LandmarkDatabase<Scalar_>::mergeLMDB(LandmarkDatabase<Scalar>::Ptr lmdb, bool override) {
   // Add keyframes
   for (const auto& [kf_id, pose] : lmdb->getKeyframes()) {
@@ -225,6 +267,15 @@ void LandmarkDatabase<Scalar_>::mergeLMDB(LandmarkDatabase<Scalar>::Ptr lmdb, bo
 
   // Add Landmarks
   for (const auto& [lm_id, lm] : lmdb->getLandmarks()) {
+    // If the landmark will be overridden and it already exists with a different host keyframe,
+    // merge observations first
+    if (override && landmarkExists(lm_id)) {
+      const auto& existing_lm = getLandmark(lm_id);
+      if (existing_lm.host_kf_id.frame_id != lm.host_kf_id.frame_id) {
+        mergeObservations(existing_lm, lm);
+      }
+    }
+
     if (override || !landmarkExists(lm_id)) addLandmark(lm_id, lm);
 
     // Add Observations
@@ -247,6 +298,92 @@ void LandmarkDatabase<Scalar_>::mergeLMDB(LandmarkDatabase<Scalar>::Ptr lmdb, bo
       continue;
     }
   }
+}
+
+template <class Scalar_>
+void LandmarkDatabase<Scalar_>::print_landmark(const Landmark<Scalar_>& lm) {
+  std::cout << "{\n";
+  std::cout << "  \"id\": " << lm.id << ",\n";
+  std::cout << "  \"host_kf_id\": \"" << lm.host_kf_id << "\",\n";
+  std::cout << "  \"num_obs\": " << lm.obs.size() << ",\n";
+
+  std::cout << "  \"observations\": [\n";
+  bool first_obs = true;
+  for (const auto& [tcid, pos] : lm.obs) {
+    if (!first_obs) std::cout << ",\n";
+    std::cout << "    { \"tcid\": \"" << tcid << "\", \"pos\": [";
+    for (int i = 0; i < pos.size(); ++i) {
+      std::cout << pos[i];
+      if (i + 1 < pos.size()) std::cout << ", ";
+    }
+    std::cout << "] }";
+    first_obs = false;
+  }
+  std::cout << "\n  ],\n";
+
+  std::cout << "  \"observations_map_for_host\": [\n";
+  bool first_map = true;
+  for (const auto& [tcid, lms] : observations[lm.host_kf_id]) {
+    if (lms.count(lm.id) == 0) continue;
+    if (!first_map) std::cout << ",\n";
+    std::cout << "    { \"tcid\": \"" << tcid << "\", \"landmarks\": [";
+    bool first_lm = true;
+    for (const auto& lm_id : lms) {
+      if (!first_lm) std::cout << ", ";
+      std::cout << lm_id;
+      first_lm = false;
+    }
+    std::cout << "] }";
+    first_map = false;
+  }
+  std::cout << "\n  ]\n";
+  std::cout << "}\n";
+}
+
+template <class Scalar_>
+bool LandmarkDatabase<Scalar_>::debug_check_landmark_consistency(const Landmark<Scalar_>& lm) {
+  // Check that all observations in the landmark are present in the observations map
+  for (const auto& [tcid, _] : lm.obs) {
+    if (observations[lm.host_kf_id][tcid].count(lm.id) == 0) {
+      return false;
+    }
+  }
+
+  // Check that all observations in the observations map are present in the landmark
+  for (const auto& [tcid, lms] : observations[lm.host_kf_id]) {
+    if (lms.count(lm.id) > 0) {
+      if (lm.obs.count(tcid) == 0) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+template <class Scalar_>
+void LandmarkDatabase<Scalar_>::mergeLandmarks(const LandmarkId& from_lm_id, const LandmarkId& to_lm_id) {
+  if (from_lm_id == to_lm_id) return;
+
+  // Get the landmarks
+  auto& from_lm = getLandmark(from_lm_id);
+  auto& to_lm = getLandmark(to_lm_id);
+
+  // Merge observations
+  for (const auto& [tcid, pos] : from_lm.obs) {
+    // If the observation already exists in to_lm, skip it
+    if (to_lm.obs.count(tcid) > 0) continue;
+
+    // Add the observation to to_lm
+    to_lm.obs[tcid] = pos;
+
+    // Update the observations map
+    observations[to_lm.host_kf_id][tcid].insert(to_lm_id);
+    keyframe_obs[tcid].insert(to_lm_id);
+  }
+
+  // Remove the from_lm landmark
+  removeLandmark(from_lm_id);
 }
 
 template <class Scalar_>

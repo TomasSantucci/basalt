@@ -101,6 +101,8 @@ class LandmarkDatabase {
 
   LandmarkDatabase(std::string name = "Landmark Database");
 
+  LandmarkDatabase(const LandmarkDatabase&);
+
   // Non-const
   void addLandmark(LandmarkId lm_id, const Landmark<Scalar>& pos);
 
@@ -133,9 +135,19 @@ class LandmarkDatabase {
 
   void getSubmap(std::set<TimeCamId> tcids, LandmarkDatabase<Scalar>::Ptr submap);
 
+  void mergeObservations(const Landmark<Scalar_>& existing_lm, const Landmark<Scalar_>& incoming_lm);
+
   void mergeLMDB(LandmarkDatabase<Scalar>::Ptr lmdb, bool override);
 
+  void mergeLandmarks(const LandmarkId& from_lm_id, const LandmarkId& to_lm_id);
+
   void mergeKeyframesPoses(std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3<Scalar_>>> loop_kfs_poses);
+
+  void print_landmark(const Landmark<Scalar>& lm);
+
+  bool debug_check_landmark_consistency(const Landmark<Scalar>& lm);
+
+  bool debug_check_keyframes_consistency(std::string caller);
 
   // Const
   const Landmark<Scalar>& getLandmark(LandmarkId lm_id) const;

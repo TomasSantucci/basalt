@@ -6,7 +6,9 @@ namespace basalt {
 
 void WriteMapStampMsg::execute(MapDatabase& db) { db.write_map_stamp(map_stamp); }
 
-void WriteMapUpdateMsg::execute(MapDatabase& db) { db.write_map_update(map_update); }
+void WriteMapUpdateMsg::execute(MapDatabase& db) {
+  db.write_map_update(keyframe_poses, candidate_kf_id, curr_kf_id, lm_fusions, curr_lc_obs);
+}
 
 void ReadCovisibilityReqMsg::execute(MapDatabase& db) { db.read_covisibility_req(keypoints); }
 

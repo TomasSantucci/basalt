@@ -27,7 +27,11 @@ struct WriteMapStampMsg : WriteMessage {
 };
 
 struct WriteMapUpdateMsg : WriteMessage {
-  std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>> map_update;
+  std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>> keyframe_poses;
+  FrameId candidate_kf_id;
+  FrameId curr_kf_id;
+  std::unordered_map<LandmarkId, LandmarkId> lm_fusions;
+  std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Eigen::Matrix<float, 2, 1>>> curr_lc_obs;
   void execute(MapDatabase& db) override;
 };
 

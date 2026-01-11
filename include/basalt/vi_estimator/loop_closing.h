@@ -50,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/utils/lc_time_utils.h>
 #include <basalt/utils/nfr.h>
 #include <basalt/utils/sync_utils.h>
+#include <basalt/vi_estimator/map_database.h>
 #include <basalt/vi_estimator/sc_ba_base.h>
 #include <basalt/vi_estimator/vio_estimator.h>
 
@@ -73,8 +74,8 @@ struct Pose3d {
 // The constraint between two vertices in the pose graph. The constraint is the
 // transformation from vertex id_begin to vertex id_end.
 struct Constraint3d {
-  int id_begin;
-  int id_end;
+  FrameId id_begin;
+  FrameId id_end;
 
   // The transformation that represents the pose of the end frame E w.r.t. the
   // begin frame B. In other words, it transforms a vector in the E frame to
@@ -91,7 +92,8 @@ struct Constraint3d {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
-using MapOfPoses = std::map<int, Pose3d, std::less<int>, Eigen::aligned_allocator<std::pair<const int, Pose3d>>>;
+using MapOfPoses =
+    std::map<FrameId, Pose3d, std::less<FrameId>, Eigen::aligned_allocator<std::pair<const FrameId, Pose3d>>>;
 using VectorOfConstraints = std::vector<Constraint3d, Eigen::aligned_allocator<Constraint3d>>;
 
 struct LoopClosingVisualizationData {
@@ -100,6 +102,10 @@ struct LoopClosingVisualizationData {
   using SE3 = Sophus::SE3<float>;
 
   int64_t t_ns;
+
+  bool loop_closure_found = false;
+  std::vector<FrameId> hashbow_results;
+  std::vector<double> hashbow_scores;
 
   // a vector of candidate keyframe ids
   std::vector<FrameId> candidate_kfs;
@@ -138,16 +144,11 @@ struct LoopClosingVisualizationData {
 
 class PoseGraph3dErrorTerm {
  public:
-  PoseGraph3dErrorTerm(Pose3d t_ab_measured,
-                       Eigen::Matrix<double, 6, 6> sqrt_information)
-      : t_ab_measured_(std::move(t_ab_measured)),
-        sqrt_information_(std::move(sqrt_information)) {}
+  PoseGraph3dErrorTerm(Pose3d t_ab_measured, Eigen::Matrix<double, 6, 6> sqrt_information)
+      : t_ab_measured_(std::move(t_ab_measured)), sqrt_information_(std::move(sqrt_information)) {}
 
   template <typename T>
-  bool operator()(const T* const p_a_ptr,
-                  const T* const q_a_ptr,
-                  const T* const p_b_ptr,
-                  const T* const q_b_ptr,
+  bool operator()(const T* const p_a_ptr, const T* const q_a_ptr, const T* const p_b_ptr, const T* const q_b_ptr,
                   T* residuals_ptr) const {
     Eigen::Map<const Eigen::Matrix<T, 3, 1>> p_a(p_a_ptr);
     Eigen::Map<const Eigen::Quaternion<T>> q_a(q_a_ptr);
@@ -179,7 +180,8 @@ class PoseGraph3dErrorTerm {
   }
 
   static ceres::CostFunction* Create(const Pose3d& t_ab_measured, const Eigen::Matrix<double, 6, 6>& sqrt_information) {
-    return new ceres::AutoDiffCostFunction<PoseGraph3dErrorTerm, 6, 3, 4, 3, 4>(new PoseGraph3dErrorTerm(t_ab_measured, sqrt_information));
+    return new ceres::AutoDiffCostFunction<PoseGraph3dErrorTerm, 6, 3, 4, 3, 4>(
+        new PoseGraph3dErrorTerm(t_ab_measured, sqrt_information));
   }
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -232,7 +234,7 @@ class LoopClosing {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   tbb::concurrent_bounded_queue<LoopClosingVisualizationData::Ptr>* out_lc_vis_queue = nullptr;
-  tbb::concurrent_bounded_queue<std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>>> in_map_res_queue;
+  tbb::concurrent_bounded_queue<MapResponse::Ptr> in_map_res_queue;
   tbb::concurrent_bounded_queue<ReadMessage::Ptr>* out_map_req_queue = nullptr;
   tbb::concurrent_bounded_queue<WriteMessage::Ptr>* out_map_update_queue = nullptr;
   tbb::concurrent_bounded_queue<
@@ -255,12 +257,16 @@ class LoopClosing {
                            std::vector<std::pair<int, int>>& inlier_matches, Sophus::SE3d& absolute_pose);
 
   bool runLoopClosure(const LoopClosingInput::Ptr& optical_flow_res, TimeCamId& best_candidate_tcid,
-                      Sophus::SE3f& best_corrected_pose, std::vector<FrameId>& best_island);
+                      Sophus::SE3f& best_corrected_pose, std::vector<FrameId>& best_island,
+                      std::unordered_map<LandmarkId, LandmarkId>& lm_fusions,
+                      std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>>& curr_lc_obs);
 
-  bool closeLoop(const FrameId curr_kf_id, const TimeCamId& best_candidate_tcid,
-                 const Sophus::SE3f& best_corrected_pose);
+  bool closeLoop(const FrameId curr_kf_id, const std::vector<FrameId>& best_island,
+                 const Sophus::SE3f& best_corrected_pose, const std::unordered_map<LandmarkId, LandmarkId>& lm_fusions,
+                 const std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>>& curr_lc_obs);
 
-  void query_hashbow_database(FrameId curr_kf_id, HashBowVector& bow_vector, std::vector<FrameId>& results);
+  void query_hashbow_database(FrameId curr_kf_id, HashBowVector& bow_vector, std::vector<FrameId>& results,
+                              std::vector<double>& scores);
 
   void discard_covisible_keyframes(const FrameId& curr_kf_id, std::vector<FrameId>& candidate_kfs);
 
@@ -305,14 +311,14 @@ class LoopClosing {
       const std::unordered_map<TimeCamId, std::vector<std::pair<int, int>>>& matches_map,
       std::vector<TimeCamId>& validated_candidates, std::vector<Sophus::SE3f>& corrected_poses);
 
-  void buildPoseGraph(const TimeCamId& curr_kf_tcid, const TimeCamId& best_candidate_tcid,
-                      const Sophus::SE3f& best_corrected_pose, std::vector<Sophus::SE3f>& poses,
-                      std::vector<Sophus::SE3f>& relative_poses);
+  void buildPoseGraph(const TimeCamId& curr_kf_tcid, const std::vector<FrameId>& best_island,
+                      const Sophus::SE3f& best_corrected_pose, MapOfPoses& map_of_poses,
+                      VectorOfConstraints& constraints);
 
   void buildCeresParams(const std::vector<Sophus::SE3f>& poses, const std::vector<Sophus::SE3f>& relative_poses,
                         MapOfPoses& map_of_poses, VectorOfConstraints& constraints);
 
-  void restorePosesFromCeres(const MapOfPoses& map_of_poses, std::vector<Sophus::SE3f>& poses);
+  void restorePosesFromCeres(const MapOfPoses& map_of_poses);
 
   void updateMap(const std::vector<Sophus::SE3f>& poses, const TimeCamId& best_candidate_tcid);
 
@@ -330,7 +336,9 @@ class LoopClosing {
   std::shared_ptr<HashBow<256>> hash_bow_database;
 
   LandmarkDatabase<Scalar>::Ptr map;
-  std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>> loop_kfs_poses;
+
+  MapResponse::Ptr map_response;
+  //  std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>> loop_kfs_poses;
   LCTimeStats lc_time_stats;
 
   bool close_loop = false;

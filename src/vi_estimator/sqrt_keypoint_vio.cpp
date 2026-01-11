@@ -731,7 +731,12 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
   if (take_kf) {
     take_kf = false;
     // Send a map stamp to the Map Database
+    BASALT_ASSERT(lmdb.debug_check_keyframes_consistency("VIO"));
+
     map_stamp->lmdb = std::make_shared<LandmarkDatabase<Scalar_>>(lmdb);
+
+    BASALT_ASSERT(map_stamp->lmdb->debug_check_keyframes_consistency("VIO.MapStamp"));
+
     auto msg = std::make_shared<WriteMapStampMsg>();
     msg->map_stamp = map_stamp;
     out_vio_data_queue->push(msg);

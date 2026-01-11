@@ -16,6 +16,7 @@ MapDatabase::MapDatabase(const VioConfig& config, const Calibration<double>& cal
   this->config = config;
   this->calib = calib;
   this->map = std::make_shared<LandmarkDatabase<float>>("Persistent Map");
+  this->covisibility_graph = std::make_shared<CovisibilityGraph>();
 }
 
 void MapDatabase::write_map_stamp(basalt::MapStamp::Ptr& map_stamp) {
@@ -26,6 +27,8 @@ void MapDatabase::write_map_stamp(basalt::MapStamp::Ptr& map_stamp) {
     return;
   }
 
+  BASALT_ASSERT(map_stamp->lmdb->debug_check_keyframes_consistency("MapDatabase.MapStamp"));
+
   std::unique_lock<std::mutex> lock(mutex);
   map->mergeLMDB(map_stamp->lmdb, true);
 
@@ -34,6 +37,9 @@ void MapDatabase::write_map_stamp(basalt::MapStamp::Ptr& map_stamp) {
     for (auto const& [kf_id, _] : map_stamp->lmdb->getKeyframeObs()) kfs_to_compute.emplace(kf_id);
     computeSpatialDistributions(kfs_to_compute);
   }
+
+  // Add the new keyframes to the covisibility graph
+  updateCovisibilityGraph(map_stamp->lmdb);
 
   if (out_vis_queue) {
     map_visual_data = std::make_shared<MapDatabaseVisualizationData>();
@@ -60,12 +66,85 @@ void MapDatabase::write_map_stamp(basalt::MapStamp::Ptr& map_stamp) {
   }
 }
 
-void MapDatabase::write_map_update(std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>>& map_update) {
-  if (map_update == nullptr) return;
+void MapDatabase::write_map_update(
+    std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>>& keyframe_poses, FrameId candidate_kf_id,
+    FrameId curr_kf_id, std::unordered_map<LandmarkId, LandmarkId>& lm_fusions,
+    std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Eigen::Matrix<float, 2, 1>>>& curr_lc_obs) {
+  if (keyframe_poses == nullptr) return;
 
   std::unique_lock<std::mutex> lock(mutex);
 
-  map->mergeKeyframesPoses(map_update);
+  map->mergeKeyframesPoses(keyframe_poses);
+
+  covisibility_graph->addLoopClosure(candidate_kf_id, curr_kf_id);
+
+  std::unordered_map<FrameId, std::set<LandmarkId>> covisibilities_updated;
+  std::set<LandmarkId> curr_lms_to_merge;
+
+  // Perform loop fusion
+  for (const auto& [curr_tcid, lm_obs_map] : curr_lc_obs) {
+    for (const auto& [curr_lm_id, obs] : lm_obs_map) {
+      LandmarkId host_lm_id = lm_fusions[curr_lm_id];
+
+      BASALT_ASSERT(map->landmarkExists(host_lm_id));
+
+      if (!map->landmarkExists(curr_lm_id) || host_lm_id == curr_lm_id) {
+        Landmark<float>& host_lm = map->getLandmark(host_lm_id);
+
+        // should increase the edge weight in the covisibility graph by 1
+        if (covisibilities_updated[curr_tcid.frame_id].find(host_lm_id) ==
+            covisibilities_updated[curr_tcid.frame_id].end()) {
+          for (const auto& [tcid, _] : host_lm.obs) {
+            if (tcid.frame_id == curr_tcid.frame_id) {
+              continue;
+            }
+            covisibility_graph->updateEdge(curr_tcid.frame_id, tcid.frame_id, 1);
+          }
+          covisibilities_updated[curr_tcid.frame_id].insert(host_lm_id);
+        }
+
+        KeypointObservation<float> kp_obs;
+        kp_obs.kpt_id = host_lm_id;
+        kp_obs.pos = obs;
+        map->addObservation(curr_tcid, kp_obs);
+      } else {
+        curr_lms_to_merge.insert(curr_lm_id);
+      }
+    }
+  }
+
+  for (const auto& curr_lm_id : curr_lms_to_merge) {
+    LandmarkId host_lm_id = lm_fusions[curr_lm_id];
+
+    // The host landmark might have been already merged into another one
+    if (!map->landmarkExists(host_lm_id)) {
+      continue;
+    }
+
+    // Before merging, update the covisibility graph
+    const auto& host_lm = map->getLandmark(host_lm_id);
+    const auto& curr_lm = map->getLandmark(curr_lm_id);
+    std::set<FrameId> old_kf_obs;
+    std::set<FrameId> new_kf_obs;
+    for (const auto& [tcid_host, _] : host_lm.obs) {
+      old_kf_obs.insert(tcid_host.frame_id);
+    }
+    for (const auto& [curr_tcid, _] : curr_lm.obs) {
+      new_kf_obs.insert(curr_tcid.frame_id);
+    }
+
+    for (const auto& old_kf_id : old_kf_obs) {
+      for (const auto& new_kf_id : new_kf_obs) {
+        if (old_kf_id == new_kf_id) {
+          continue;
+        }
+        covisibility_graph->updateEdge(old_kf_id, new_kf_id, 1);
+      }
+    }
+
+    // Merge the landmarks
+    map->mergeLandmarks(host_lm_id, curr_lm_id);
+  }
 
   if (out_map_update_queue) {
     // possibly send the whole map visual data as well
@@ -149,8 +228,15 @@ void MapDatabase::read_map_req(FrameId frame_id) {
   }
 
   auto keyframes_poses_copy = std::make_shared<Eigen::aligned_map<FrameId, Sophus::SE3f>>(map->getKeyframes());
+
+  auto covisibility_graph_copy = std::make_shared<CovisibilityGraph>(*covisibility_graph);
+
+  MapResponse::Ptr map_response = std::make_shared<MapResponse>();
+  map_response->keyframe_poses = keyframes_poses_copy;
+  map_response->covisibility_graph = covisibility_graph_copy;
+
   if (out_map_res_queue) {
-    out_map_res_queue->push(keyframes_poses_copy);
+    out_map_res_queue->push(map_response);
   }
 }
 
@@ -239,18 +325,48 @@ void MapDatabase::computeMapVisualData() {
 
   // show covisibility
   if (config.debug1) {
-    for (const auto& [tcid_h, target_map] : map->getObservations()) {
-      for (const auto& [tcid_t, obs] : target_map) {
-        Eigen::Vector3d p1 = map->getKeyframePose(tcid_h.frame_id).template cast<double>().translation();
-        Eigen::Vector3d p2 = map->getKeyframePose(tcid_t.frame_id).template cast<double>().translation();
+    for (const auto& [kf_id, _pose] : map->getKeyframes()) {
+      if (!covisibility_graph->hasNode(kf_id)) continue;
+
+      for (const auto& [other_kf_id, _weight] : covisibility_graph->getCovisibleKfs(kf_id)) {
+        Eigen::Vector3d p1 = map->getKeyframePose(kf_id).template cast<double>().translation();
+        Eigen::Vector3d p2 = map->getKeyframePose(other_kf_id).template cast<double>().translation();
         map_visual_data->covisibility.emplace_back(p1);
         map_visual_data->covisibility.emplace_back(p2);
       }
     }
   }
 
-  // Show observations
+  // show spanning tree
   if (config.debug1) {
+    for (const auto& [kf_id, _pose] : map->getKeyframes()) {
+      if (!covisibility_graph->hasNode(kf_id)) continue;
+
+      FrameId tcid_h = covisibility_graph->getParentNode(kf_id);
+      if (tcid_h == CovisibilityGraph::invalid()) continue;
+
+      Eigen::Vector3d p1 = map->getKeyframePose(tcid_h).template cast<double>().translation();
+      Eigen::Vector3d p2 = map->getKeyframePose(kf_id).template cast<double>().translation();
+      map_visual_data->spanning_tree.emplace_back(p1);
+      map_visual_data->spanning_tree.emplace_back(p2);
+    }
+  }
+
+  // show loop closures
+  if (config.debug1) {
+    for (const auto& [kf_id, loop_closures] : covisibility_graph->getAllLoopClosures()) {
+      Eigen::Vector3d p1 = map->getKeyframePose(kf_id).template cast<double>().translation();
+      for (const auto& other_kf_id : loop_closures) {
+        if (kf_id >= other_kf_id) continue;
+        Eigen::Vector3d p2 = map->getKeyframePose(other_kf_id).template cast<double>().translation();
+        map_visual_data->loop_closures.emplace_back(p1);
+        map_visual_data->loop_closures.emplace_back(p2);
+      }
+    }
+  }
+
+  // Show observations
+  if (config.debug2) {
     for (const auto& [tcid, obs] : map->getKeyframeObs()) {
       Eigen::Vector3d kf_pos = map->getKeyframePose(tcid.frame_id).template cast<double>().translation();
       auto landmarks_3d = get_landmarks_3d_pos(obs);
@@ -314,6 +430,72 @@ void MapDatabase::computeSTSMap(const std::vector<size_t>& curr_kpts) {
   }
 
   map->getSubmap(candidate_kfs, sts_map);
+}
+
+void MapDatabase::updateCovisibilityGraph(const LandmarkDatabase<Scalar>::Ptr& lmdb) {
+  // TODO@tsantucci: generalize this for when the covisibility request is on.
+  // It may be interesting to use all the keyframes in the lmdb, not only the new ones.
+  for (const auto& [kf_id, _] : lmdb->getKeyframes()) {
+    if (covisibility_graph->hasNode(kf_id)) {
+      continue;
+    }
+
+    if (covisibility_graph->getRoot() == CovisibilityGraph::invalid()) {
+      covisibility_graph->setRoot(kf_id);
+    }
+
+    // Compute the covisibility edges
+    std::unordered_map<FrameId, int> covisibilities;
+    for (size_t cam_id = 0; cam_id < calib.intrinsics.size(); cam_id++) {
+      TimeCamId kf_tcid{kf_id, static_cast<CamId>(cam_id)};
+
+      if (map->getKeyframeObs().find(kf_tcid) == map->getKeyframeObs().end()) {
+        continue;
+      }
+
+      for (const auto& obs : map->getKeyframeObs().at(kf_tcid)) {
+        const Landmark<float>& lm = map->getLandmark(obs);
+
+        for (const auto& lm_obs : lm.obs) {
+          FrameId other_kf_id = lm_obs.first.frame_id;
+          if (other_kf_id == kf_id) {
+            continue;
+          }
+
+          // Add covisibility edges only to existing nodes or to the root
+          if (!covisibility_graph->hasNode(other_kf_id) && covisibility_graph->getRoot() != other_kf_id) {
+            continue;
+          }
+
+          covisibilities[other_kf_id]++;
+        }
+      }
+    }
+
+    int max_weight = -1;
+    FrameId max_kf_id = CovisibilityGraph::invalid();
+
+    // Add a covisibility to the previous keyframe in the graph to avoid disconnected components
+    if (covisibilities.empty() && covisibility_graph->getRoot() != kf_id) {
+      auto iter = map->getKeyframes().find(kf_id);
+      if (iter == map->getKeyframes().begin()) continue;  // this should never happen anyway
+      --iter;
+      FrameId prev_kf_id = iter->first;
+      covisibilities[prev_kf_id] = 0;
+    }
+
+    for (const auto& [other_kf_id, weight] : covisibilities) {
+      covisibility_graph->addEdge(kf_id, other_kf_id, weight);
+
+      if (weight > max_weight) {
+        max_weight = weight;
+        max_kf_id = other_kf_id;
+      }
+    }
+
+    // add to spanning tree
+    covisibility_graph->addTreeNode(kf_id, max_kf_id);
+  }
 }
 
 }  // namespace basalt

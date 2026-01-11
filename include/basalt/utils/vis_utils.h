@@ -249,13 +249,19 @@ struct VIOUIBase {
   View* blocks_display;
   shared_ptr<ImageView> blocks_view;
   View* similar_keyframes_display;
+  View* hashbow_results_display;
+  bool show_hashbow_results = false;
   shared_ptr<ImageView> similar_keyframes_view;
+  shared_ptr<ImageView> hashbow_results_view;
   int64_t last_kf_with_similars;
+  int64_t last_kf_with_hashbows;
   bool show_similar_keyframes = false;
   size_t island_idx = 0;
   size_t islands_count = 0;
   size_t similar_kf_idx = 0;
   size_t similar_kf_count = 0;
+  size_t hashbow_result_idx = 0;
+  size_t hashbow_results_count = 0;
   vector<shared_ptr<ImageView>> img_view;
   bool show_blocks = false;
   bool print_loop_detection_error = false;
@@ -283,16 +289,18 @@ struct VIOUIBase {
   Var<bool> show_obs{"features_menu.show_obs", true, true};
   Var<bool> show_depth{"features_menu.show_depth", false, true};
 
-  Var<bool> map_menu{"ui.Map Menu", false, true};
+  Var<bool> map_menu{"ui.Map Menu", true, true};
   Var<string> map_menu_title{"map_menu.MENU", "Map Menu", META_FLAG_READONLY};
   Var<bool> show_mapper{"map_menu.show_mapper", false, true};
   Var<bool> show_vio{"map_menu.show_vio", true, true};
-  Var<bool> show_map{"map_menu.show_map", false, true};
+  Var<bool> show_map{"map_menu.show_map", true, true};
   Var<bool> show_keyframe_poses{"map_menu.show_keyframe_poses", true, true};
   Button trigger_loop_closure_btn{"map_menu.Close Loop", [this]() { trigger_loop_closure(); }};
+  Button toggle_hashbow_results_btn{"map_menu.toggle_hashbow_results", [this]() { toggle_hashbow_results(); }};
   Button toggle_similar_keyframes_btn{"map_menu.toggle_similar_kfs", [this]() { toggle_similar_keyframes(); }};
   Button next_island_btn{"map_menu.next_island", [this]() { next_island(); }};
   Button next_similar_keyframe_btn{"map_menu.next_similar_kf", [this]() { next_similar_kf(); }};
+  Button next_hashbow_frame_btn{"map_menu.next_hashbow_frame", [this]() { next_hashbow_frame(); }};
   Var<bool> show_reprojections{"map_menu.show_reprojections", false, true};
   Var<bool> show_redetections{"map_menu.show_redetections", false, true};
   Var<bool> show_rematches{"map_menu.show_rematches", false, true};
@@ -300,7 +308,9 @@ struct VIOUIBase {
   Var<bool> loop_closing_show_aligned_gt{"map_menu.loop_closing_show_aligned_gt", false, true};
   Var<bool> loop_closing_show_gt_poses{"map_menu.loop_closing_show_gt_poses", false, true};
   Button get_loop_detection_error_btn{"map_menu.get_loop_detection_error", [this]() { get_loop_detection_error(); }};
-  Var<bool> show_covisibility{"map_menu.show_covisibility", false, true};
+  Var<bool> show_covisibility{"map_menu.show_covisibility", true, true};
+  Var<bool> show_spanning_tree{"map_menu.show_spanning_tree", false, true};
+  Var<bool> show_loop_closures{"map_menu.show_loop_closures", false, true};
   Var<bool> show_observations{"map_menu.show_observations", false, true};
   Var<int> recent_kf_cam_id{"map_menu.recent_kf_cam_id", 0};
   Var<int> candidate_kf_cam_id{"map_menu.candidate_kf_cam_id", 0};
@@ -350,7 +360,7 @@ struct VIOUIBase {
   Var<bool> show_est_bg{"curves_menu.show_est_bg", false, true};
   Var<bool> show_est_ba{"curves_menu.show_est_ba", false, true};
 
-  Var<bool> follow{"ui.follow", true, true};
+  Var<bool> follow{"ui.follow", false, true};
   Button reset_state_btn{"ui.Reset State", [this]() { reset_state(); }};
 
   vector<Var<bool>*> menus{&features_menu, &highlights_menu, &blocks_menu, &keyframe_menu,
@@ -395,11 +405,16 @@ struct VIOUIBase {
   void do_show_hessian(UIHessians& uih);
   void do_show_jacobian(UIJacobians& uij);
   bool do_follow_highlight(bool follow, bool smooth_zoom);
+  bool toggle_hashbow_results();
+  bool do_toggle_hashbow_results();
   bool toggle_similar_keyframes();
   bool do_toggle_similar_keyframes();
   void draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
                                       tbb::concurrent_unordered_map<int64_t, int>& timestamp_to_id);
+  void draw_hashbow_results_overlay(const VioDatasetPtr& vio_dataset,
+                                    tbb::concurrent_unordered_map<int64_t, int>& timestamp_to_id);
   void next_similar_kf();
+  void next_hashbow_frame();
   void next_island();
   void get_loop_detection_error();
 

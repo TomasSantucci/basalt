@@ -491,7 +491,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
             out_lc_vis_queue.pop(data);
 
             if (data.get()) {
-              loop_closing_vis_map[data->t_ns] = data;
+              if (data->loop_closure_found) {
+                loop_closing_vis_map[data->t_ns] = data;
+              }
             } else {
               break;
             }
@@ -670,6 +672,15 @@ struct basalt_vio_ui : vis::VIOUIBase {
       similar_keyframes_display->SetBounds(0.0, 0.6, UI_WIDTH, pangolin::Attach::Pix(UI_WIDTH_PIX + DEFAULT_W));
       similar_keyframes_display->AddDisplay(*similar_keyframes_view);
       similar_keyframes_display->Show(show_similar_keyframes);
+
+      hashbow_results_view = make_shared<pangolin::ImageView>();
+      hashbow_results_view->extern_draw_function = [this](View& /*v*/) {
+        draw_hashbow_results_overlay(vio_dataset, timestamp_to_id);
+      };
+      hashbow_results_display = &pangolin::CreateDisplay();
+      hashbow_results_display->SetBounds(0.0, 0.6, UI_WIDTH, pangolin::Attach::Pix(UI_WIDTH_PIX + DEFAULT_W));
+      hashbow_results_display->AddDisplay(*hashbow_results_view);
+      hashbow_results_display->Show(show_hashbow_results);
 
       pangolin::CreatePanel("ui").SetBounds(0.0, 1.0, 0.0, UI_WIDTH);
       menus.push_back(&trajectory_menu);
@@ -1180,10 +1191,26 @@ struct basalt_vio_ui : vis::VIOUIBase {
         glLineWidth(0.25);
         pangolin::glDrawLines(curr_map_vis_data->covisibility);
       }
+
+      if (show_spanning_tree) {
+        glColor3ubv(vis::GREEN);
+        glLineWidth(0.5);
+        pangolin::glDrawLines(curr_map_vis_data->spanning_tree);
+      }
+
+      if (show_loop_closures) {
+        glColor3ubv(vis::GREEN);
+        glLineWidth(0.5);
+        pangolin::glDrawLines(curr_map_vis_data->loop_closures);
+      }
     }
     if (show_similar_keyframes) {
       LoopClosingVisualizationData::Ptr curr_lc_vis_data = get_curr_lc_vis_data();
-      if (curr_lc_vis_data == nullptr) return;
+      if (curr_lc_vis_data == nullptr) {
+        return;
+      }
+
+      if (!curr_lc_vis_data->loop_closure_found) return;
 
       glLineWidth(0.25);
       pangolin::glDrawAxis(curr_lc_vis_data->keyframe_pose.matrix(), 0.1);
@@ -1257,30 +1284,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
         glPointSize(3);
       }
 
-      //      Eigen::aligned_vector<Eigen::Vector3d> curr_island_landmarks = curr_lc_vis_data->landmarks[island_idx];
-      //      // show the points without using show_3d_points to avoid filtering by highlights
-      //      glPointSize(10);
-      //      glColor3ubv(vis::GREEN);
-      //      pangolin::glDrawPoints(curr_island_landmarks);
-      //      glPointSize(3);
-
-      /*
-            for (const auto& pose : curr_lc_vis_data->corrected_loop_poses) {
-              pangolin::glDrawAxis(pose.matrix(), 0.1);
-            }
-
-            glColor3f(0.0f, 1.0f, 0.0f);
-            glLineWidth(0.5);
-            for (size_t i = 0; i < curr_lc_vis_data->corrected_loop_poses.size() - 1; i++) {
-              const auto& pose1 = curr_lc_vis_data->corrected_loop_poses[i];
-              const auto& pose2 = curr_lc_vis_data->corrected_loop_poses[i + 1];
-              glBegin(GL_LINES);
-              glVertex3d(pose1.translation().x(), pose1.translation().y(), pose1.translation().z());
-              glVertex3d(pose2.translation().x(), pose2.translation().y(), pose2.translation().z());
-              glEnd();
-            }
-      */
-      if (show_gt) {
+      if (show_gt && !gt_t_ns.empty() && !gt_T_w_i.empty()) {
         Sophus::SE3d T_gt_start, T_gt_end;
         associate_loop(candidate_id, curr_lc_vis_data->t_ns, gt_t_ns, gt_T_w_i, T_gt_start, T_gt_end);
 

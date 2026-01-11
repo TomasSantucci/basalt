@@ -80,11 +80,18 @@ void LoopClosing::initialize() {
       TimeCamId best_candidate_tcid;
       Sophus::SE3f best_corrected_pose;
       std::vector<FrameId> best_island;
-      bool success = runLoopClosure(loop_closing_input, best_candidate_tcid, best_corrected_pose, best_island);
+      std::unordered_map<LandmarkId, LandmarkId> lm_fusions;
+      std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>> curr_lc_obs;
+      bool success = runLoopClosure(loop_closing_input, best_candidate_tcid, best_corrected_pose, best_island,
+                                    lm_fusions, curr_lc_obs);
 
       if (!success) {
         lc_time_stats.loop_closed = false;
         notify_lc_finished = true;
+        loop_closing_visualization_data->loop_closure_found = false;
+        if (out_lc_vis_queue) {
+          out_lc_vis_queue->push(loop_closing_visualization_data);
+        }
         continue;
       }
 
@@ -93,28 +100,35 @@ void LoopClosing::initialize() {
       auto map_msg = std::make_shared<ReadMapReqMsg>();
       map_msg->frame_id = loop_closing_input->t_ns;
       out_map_req_queue->push(map_msg);
-      in_map_res_queue.pop(loop_kfs_poses);
+      in_map_res_queue.pop(map_response);
 
       // get the distance between best_corrected_pose and the current pose
-      Sophus::SE3f current_pose = loop_kfs_poses->at(loop_closing_input->t_ns).cast<float>();
+      Sophus::SE3f current_pose = map_response->keyframe_poses->at(loop_closing_input->t_ns).cast<float>();
       float drift_reduced = (current_pose.translation() - best_corrected_pose.translation()).norm();
       if (drift_reduced < config.loop_closing_min_drift_reduction) {
         notify_lc_finished = true;
+        loop_closing_visualization_data->loop_closure_found = false;
+        if (out_lc_vis_queue) {
+          out_lc_vis_queue->push(loop_closing_visualization_data);
+        }
         continue;
       }
 
       if (out_lc_vis_queue) {
-        loop_closing_visualization_data->keyframe_pose = loop_kfs_poses->at(loop_closing_input->t_ns).cast<float>();
+        loop_closing_visualization_data->keyframe_pose =
+            map_response->keyframe_poses->at(loop_closing_input->t_ns).cast<float>();
         for (const auto& kf_id : best_island) {
-          loop_closing_visualization_data->candidate_pose[kf_id] = loop_kfs_poses->at(kf_id).cast<float>();
+          loop_closing_visualization_data->candidate_pose[kf_id] =
+              map_response->keyframe_poses->at(kf_id).cast<float>();
         }
       }
 
       if (config.close_loops) {
-        success = closeLoop(loop_closing_input->t_ns, best_candidate_tcid, best_corrected_pose);
+        success = closeLoop(loop_closing_input->t_ns, best_island, best_corrected_pose, lm_fusions, curr_lc_obs);
         lc_time_stats.addTime(LCTimeStage::LoopClosure, true);
 
-        if (loop_closing_visualization_data->candidate_kfs.size() > 0 && out_lc_vis_queue) {
+        if (out_lc_vis_queue) {
+          loop_closing_visualization_data->loop_closure_found = success;
           out_lc_vis_queue->push(loop_closing_visualization_data);
         }
 
@@ -122,7 +136,8 @@ void LoopClosing::initialize() {
           close_loop = false;
         }
       } else {
-        if (loop_closing_visualization_data->candidate_kfs.size() > 0 && out_lc_vis_queue) {
+        if (out_lc_vis_queue) {
+          loop_closing_visualization_data->loop_closure_found = success;
           out_lc_vis_queue->push(loop_closing_visualization_data);
         }
 
@@ -149,16 +164,13 @@ void LoopClosing::initialize() {
   processing_thread.reset(new std::thread(proc_func));
 }
 
-bool LoopClosing::closeLoop(const FrameId curr_kf_id, const TimeCamId& best_candidate_tcid,
-                            const Sophus::SE3f& best_corrected_pose) {
-  std::vector<Sophus::SE3f> poses;
-  std::vector<Sophus::SE3f> relative_poses;
-
-  buildPoseGraph(TimeCamId{curr_kf_id, 0}, best_candidate_tcid, best_corrected_pose, poses, relative_poses);
-
+bool LoopClosing::closeLoop(const FrameId curr_kf_id, const std::vector<FrameId>& best_island,
+                            const Sophus::SE3f& best_corrected_pose,
+                            const std::unordered_map<LandmarkId, LandmarkId>& lm_fusions,
+                            const std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>>& curr_lc_obs) {
   MapOfPoses map_of_poses;
   VectorOfConstraints constraints;
-  buildCeresParams(poses, relative_poses, map_of_poses, constraints);
+  buildPoseGraph(TimeCamId{curr_kf_id, 0}, best_island, best_corrected_pose, map_of_poses, constraints);
 
   ceres::Problem problem;
   buildOptimizationProblem(constraints, &map_of_poses, &problem);
@@ -169,19 +181,23 @@ bool LoopClosing::closeLoop(const FrameId curr_kf_id, const TimeCamId& best_cand
     return false;
   }
 
-  restorePosesFromCeres(map_of_poses, poses);
-
-  updateMap(poses, best_candidate_tcid);
+  restorePosesFromCeres(map_of_poses);
 
   auto map_update_msg = std::make_shared<WriteMapUpdateMsg>();
-  map_update_msg->map_update = loop_kfs_poses;
+  map_update_msg->keyframe_poses = map_response->keyframe_poses;
+  map_update_msg->candidate_kf_id = best_island[0];
+  map_update_msg->curr_kf_id = curr_kf_id;
+  map_update_msg->lm_fusions = lm_fusions;
+  map_update_msg->curr_lc_obs = curr_lc_obs;
   if (out_map_update_queue) out_map_update_queue->push(map_update_msg);
 
   return true;
 }
 
 bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input, TimeCamId& best_candidate_tcid,
-                                 Sophus::SE3f& best_corrected_pose, std::vector<FrameId>& best_island) {
+                                 Sophus::SE3f& best_corrected_pose, std::vector<FrameId>& best_island,
+                                 std::unordered_map<LandmarkId, LandmarkId>& lm_fusions,
+                                 std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>>& curr_lc_obs) {
   FrameId curr_kf_id = loop_closing_input->t_ns;
 
   if (out_lc_vis_queue) {
@@ -247,10 +263,16 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
   hash_bow_database->compute_bow(descriptors, hashes, bow_vector);
 
   std::vector<FrameId> candidate_kfs;
-  query_hashbow_database(curr_kf_id, bow_vector, candidate_kfs);
+  std::vector<double> candidate_scores;
+  query_hashbow_database(curr_kf_id, bow_vector, candidate_kfs, candidate_scores);
   lc_time_stats.addTime(LCTimeStage::HashBowSearch, true);
 
   if (candidate_kfs.empty()) return false;
+
+  if (out_lc_vis_queue) {
+    loop_closing_visualization_data->hashbow_results = candidate_kfs;
+    loop_closing_visualization_data->hashbow_scores = candidate_scores;
+  }
 
   bool loop_found = false;
   for (const auto& candidate_kf : candidate_kfs) {
@@ -367,6 +389,10 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     std::vector<Eigen::aligned_vector<Vec2>> rematched_keypoints(config.loop_closing_cameras_to_reproject.size());
     for (size_t i = 0; i < config.loop_closing_cameras_to_reproject.size(); i++) {
       size_t cam_id = config.loop_closing_cameras_to_reproject[i];
+
+      if (points_3d->find(TimeCamId{candidate_kf, cam_id}) == points_3d->end()) {
+        continue;
+      }
       reproject_landmarks(absolute_pose, kfs_island[0], reprojected_keypoints[i], cam_id,
                           points_3d->at(TimeCamId{candidate_kf, cam_id}));
 
@@ -435,6 +461,21 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
                 << std::endl;
     }
 
+    // Fuse the landmarks
+    for (const auto& [kf_id, inlier_matches_vec] : inlier_matches) {
+      for (const auto& match : inlier_matches_vec) {
+        LandmarkId candidate_lm_id = match.target_kpt_id;
+        LandmarkId curr_lm_id = match.source_kpt_id;
+
+        if (lm_fusions.find(candidate_lm_id) == lm_fusions.end()) {
+          lm_fusions[curr_lm_id] = candidate_lm_id;
+        }
+
+        TimeCamId curr_tcid{curr_kf_id, match.source_cam};
+        curr_lc_obs[curr_tcid][curr_lm_id] = curr_kf_kpts[match.source_cam][curr_lm_id].translation().cast<float>();
+      }
+    }
+
     if (out_lc_vis_queue) {
       loop_closing_visualization_data->islands.emplace_back(kfs_island);
       loop_closing_visualization_data->corrected_pose[candidate_kf] = absolute_pose.cast<float>();
@@ -464,6 +505,11 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
         for (size_t i = 0; i < calib.intrinsics.size(); i++) {
           TimeCamId kf_tcid = TimeCamId{kf_id, i};
 
+          loop_closing_visualization_data->candidate_keypoints[kf_tcid] = Eigen::aligned_vector<Vec2>();
+
+          if (points_3d->find(kf_tcid) == points_3d->end()) {
+            continue;
+          }
           for (const auto& lms : points_3d->at(kf_tcid)) {
             auto& positions = kpts_positions[kf_tcid];
             if (positions.find(lms.first) == positions.end()) {
@@ -598,7 +644,8 @@ void LoopClosing::filter_matches(std::vector<FrameId>& kfs_island,
   }
 }
 
-void LoopClosing::query_hashbow_database(FrameId curr_kf_id, HashBowVector& bow_vector, std::vector<FrameId>& results) {
+void LoopClosing::query_hashbow_database(FrameId curr_kf_id, HashBowVector& bow_vector, std::vector<FrameId>& results,
+                                         std::vector<double>& scores) {
   results.clear();
 
   std::vector<std::pair<TimeCamId, double>> query_results;
@@ -612,6 +659,7 @@ void LoopClosing::query_hashbow_database(FrameId curr_kf_id, HashBowVector& bow_
 
     if (std::find(results.begin(), results.end(), candidate_kf_tcid.frame_id) != results.end()) continue;
     results.emplace_back(candidate_kf_tcid.frame_id);
+    scores.emplace_back(score);
   }
 }
 
@@ -927,38 +975,77 @@ void LoopClosing::validateLoopCandidates(
   }
 }
 
-void LoopClosing::buildPoseGraph(const TimeCamId& curr_kf_tcid, const TimeCamId& best_candidate_tcid,
-                                 const Sophus::SE3f& best_corrected_pose, std::vector<Sophus::SE3f>& poses,
-                                 std::vector<Sophus::SE3f>& relative_poses) {
-  poses.clear();
-  relative_poses.clear();
+void LoopClosing::buildPoseGraph(const TimeCamId& curr_kf_tcid, const std::vector<FrameId>& best_island,
+                                 const Sophus::SE3f& best_corrected_pose, MapOfPoses& map_of_poses,
+                                 VectorOfConstraints& constraints) {
+  map_of_poses.clear();
+  constraints.clear();
 
-  const Eigen::aligned_map<FrameId, Sophus::SE3f>& keyframe_poses = *loop_kfs_poses;
+  const Eigen::aligned_map<FrameId, Sophus::SE3f>& keyframe_poses = *map_response->keyframe_poses;
+  const CovisibilityGraph::Ptr& covisibility_graph = map_response->covisibility_graph;
 
-  auto itStart = keyframe_poses.lower_bound(best_candidate_tcid.frame_id);
-  auto itEnd = keyframe_poses.upper_bound(curr_kf_tcid.frame_id);
-
-  Sophus::SE3f T_w_i = keyframe_poses.at(itStart->first);
-  Sophus::SE3f actual_candidate_pose_corrected =
-      keyframe_poses.at(curr_kf_tcid.frame_id) *
-      (best_corrected_pose.inverse() * keyframe_poses.at(best_candidate_tcid.frame_id));
-
-  poses.emplace_back(actual_candidate_pose_corrected);
-  itStart++;
-
-  for (; itStart != itEnd; itStart++) {
-    Sophus::SE3f T_w_next_i = keyframe_poses.at(itStart->first);
-    poses.emplace_back(T_w_next_i);
-
-    Sophus::SE3f T_i_next_i = T_w_i.inverse() * T_w_next_i;
-
-    relative_poses.emplace_back(T_i_next_i);
-
-    T_w_i = T_w_next_i;
+  for (const auto& [kf_id, pose] : keyframe_poses) {
+    map_of_poses[kf_id] = Pose3d{pose.translation().cast<double>(), pose.unit_quaternion().cast<double>()};
   }
 
-  Sophus::SE3f T_corrected_candidate = best_corrected_pose.inverse() * keyframe_poses.at(best_candidate_tcid.frame_id);
-  relative_poses.emplace_back(T_corrected_candidate);
+  // add the constraints based on the relative poses of the spanning tree
+  FrameId spanning_tree_root = covisibility_graph->getRoot();
+  for (const auto& [kf_id, T_w_i] : keyframe_poses) {
+    if (kf_id == spanning_tree_root) continue;
+
+    FrameId parent_kf_id = covisibility_graph->getParentNode(kf_id);
+    Sophus::SE3f T_w_p = keyframe_poses.at(parent_kf_id);
+    Sophus::SE3f T_p_i = T_w_p.inverse() * T_w_i;
+    Constraint3d c;
+    c.id_begin = parent_kf_id;
+    c.id_end = kf_id;
+    Pose3d relative_pose;
+    relative_pose.p = T_p_i.translation().cast<double>();
+    relative_pose.q = T_p_i.unit_quaternion().cast<double>();
+    c.t_be = relative_pose;
+    c.information = Eigen::Matrix<double, 6, 6>::Identity();
+    constraints.push_back(c);
+  }
+
+  // add the past loop closure constraints
+  for (const auto& [kf_id, loop_closures] : covisibility_graph->getAllLoopClosures()) {
+    for (const auto& loop_kf_id : loop_closures) {
+      if (kf_id < loop_kf_id) {
+        Sophus::SE3f T_w_i = keyframe_poses.at(kf_id);
+        Sophus::SE3f T_w_j = keyframe_poses.at(loop_kf_id);
+        Sophus::SE3f T_i_j = T_w_i.inverse() * T_w_j;
+        Constraint3d c;
+        c.id_begin = kf_id;
+        c.id_end = loop_kf_id;
+        Pose3d relative_pose;
+        relative_pose.p = T_i_j.translation().cast<double>();
+        relative_pose.q = T_i_j.unit_quaternion().cast<double>();
+        c.t_be = relative_pose;
+        c.information = Eigen::Matrix<double, 6, 6>::Identity();
+        constraints.push_back(c);
+      }
+    }
+  }
+
+  // add the current loop closure constraints
+  for (const auto& kf_id : best_island) {
+    if (kf_id == curr_kf_tcid.frame_id) {  // shouldn't even be necessary at this point
+      continue;
+    }
+
+    Sophus::SE3f T_w_i = keyframe_poses.at(kf_id);
+    Sophus::SE3f T_w_j = best_corrected_pose;
+    Sophus::SE3f T_i_j = T_w_i.inverse() * T_w_j;
+    Constraint3d c;
+    c.id_begin = kf_id;
+    c.id_end = curr_kf_tcid.frame_id;
+    Pose3d relative_pose;
+    relative_pose.p = T_i_j.translation().cast<double>();
+    relative_pose.q = T_i_j.unit_quaternion().cast<double>();
+    c.t_be = relative_pose;
+    c.information = Eigen::Matrix<double, 6, 6>::Identity();
+    constraints.push_back(c);
+  }
 }
 
 void LoopClosing::buildCeresParams(const std::vector<Sophus::SE3f>& poses,
@@ -987,27 +1074,31 @@ void LoopClosing::buildCeresParams(const std::vector<Sophus::SE3f>& poses,
   }
 }
 
-void LoopClosing::restorePosesFromCeres(const MapOfPoses& map_of_poses, std::vector<Sophus::SE3f>& poses) {
-  poses.clear();
-  poses.reserve(map_of_poses.size());
-  for (const auto& [id, pose] : map_of_poses) {
-    poses.emplace_back(pose.q.cast<float>(), pose.p.cast<float>());
+void LoopClosing::restorePosesFromCeres(const MapOfPoses& map_of_poses) {
+  for (const auto& [id, updated_pose] : map_of_poses) {
+    if (map_response->keyframe_poses->find(id) == map_response->keyframe_poses->end()) {
+      std::cerr << "Error: Keyframe ID " << id << " not found in map_response->keyframe_poses." << std::endl;
+      continue;
+    }
+    Sophus::SE3f& pose = map_response->keyframe_poses->at(id);
+    pose.translation() = updated_pose.p.cast<float>();
+    pose.so3() = Sophus::SO3f(updated_pose.q.cast<float>());
   }
 }
 
 void LoopClosing::updateMap(const std::vector<Sophus::SE3f>& poses, const TimeCamId& best_candidate_tcid) {
   // transform the poses before itStart to align with the optimized poses
-  Sophus::SE3f T_w_correction = poses[0] * loop_kfs_poses->at(best_candidate_tcid.frame_id).inverse();
-  auto itStart2 = loop_kfs_poses->lower_bound(best_candidate_tcid.frame_id);
-  for (auto it = loop_kfs_poses->begin(); it != itStart2; it++) {
-    Sophus::SE3f& old_pose = loop_kfs_poses->at(it->first);
+  Sophus::SE3f T_w_correction = poses[0] * map_response->keyframe_poses->at(best_candidate_tcid.frame_id).inverse();
+  auto itStart2 = map_response->keyframe_poses->lower_bound(best_candidate_tcid.frame_id);
+  for (auto it = map_response->keyframe_poses->begin(); it != itStart2; it++) {
+    Sophus::SE3f& old_pose = map_response->keyframe_poses->at(it->first);
     old_pose = T_w_correction * old_pose;
   }
 
   // update the poses of the keyframes involved in the loop closure
-  auto itStart = loop_kfs_poses->lower_bound(best_candidate_tcid.frame_id);
+  auto itStart = map_response->keyframe_poses->lower_bound(best_candidate_tcid.frame_id);
   for (size_t i = 0; i < poses.size(); i++) {
-    Sophus::SE3f& old_pose = loop_kfs_poses->at(itStart->first);
+    Sophus::SE3f& old_pose = map_response->keyframe_poses->at(itStart->first);
     old_pose = poses[i];
     itStart++;
   }
@@ -1293,12 +1384,6 @@ void LoopClosing::buildOptimizationProblem(const VectorOfConstraints& constraint
   CHECK(pose_to_fix != poses->end()) << "There are no poses.";
   problem->SetParameterBlockConstant(pose_to_fix->second.p.data());
   problem->SetParameterBlockConstant(pose_to_fix->second.q.coeffs().data());
-
-  // fixing the first pose as well
-  auto start_pose_to_fix = poses->begin();
-  CHECK(start_pose_to_fix != poses->end()) << "There are no poses.";
-  problem->SetParameterBlockConstant(start_pose_to_fix->second.p.data());
-  problem->SetParameterBlockConstant(start_pose_to_fix->second.q.coeffs().data());
 }
 
 bool LoopClosing::solveOptimizationProblem(ceres::Problem* problem) {

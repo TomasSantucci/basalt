@@ -159,6 +159,17 @@ bool VIOUIBase::toggle_similar_keyframes() {
   return show_similar_keyframes;
 }
 
+bool VIOUIBase::toggle_hashbow_results() {
+  show_hashbow_results = do_toggle_hashbow_results();
+  return show_hashbow_results;
+}
+
+void VIOUIBase::next_hashbow_frame() {
+  if (hashbow_results_count) {
+    hashbow_result_idx = (hashbow_result_idx + 1) % hashbow_results_count;
+  }
+}
+
 void VIOUIBase::next_similar_kf() {
   if (similar_kf_count) {
     similar_kf_idx = (similar_kf_idx + 1) % similar_kf_count;
@@ -715,7 +726,11 @@ void VIOUIBase::draw_blocks_overlay() {
 void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
                                                tbb::concurrent_unordered_map<int64_t, int>& timestamp_to_id) {
   const LoopClosingVisualizationData::Ptr curr_lc_vis_data = get_curr_lc_vis_data();
-  if (curr_lc_vis_data == nullptr) return;
+  if (curr_lc_vis_data == nullptr) {
+    return;
+  }
+
+  if (!curr_lc_vis_data->loop_closure_found) return;
 
   const std::vector<FrameId>& candidate_kfs = curr_lc_vis_data->candidate_kfs;
   const std::vector<std::vector<FrameId>>& islands = curr_lc_vis_data->islands;
@@ -871,6 +886,41 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
   std::ostringstream ss1;
   ss1 << timestamp_to_id[t_ns] << " : " << t_ns << " (" << recent_kf_cam_id << ")";
   FONT.Text(ss1.str()).Draw(5, 20);
+}
+
+void VIOUIBase::draw_hashbow_results_overlay(const VioDatasetPtr& vio_dataset,
+                                             tbb::concurrent_unordered_map<int64_t, int>& timestamp_to_id) {
+  const LoopClosingVisualizationData::Ptr curr_lc_vis_data = get_curr_lc_vis_data();
+  if (curr_lc_vis_data == nullptr) {
+    return;
+  }
+
+  if (curr_lc_vis_data->t_ns != last_kf_with_hashbows) {
+    last_kf_with_hashbows = curr_lc_vis_data->t_ns;
+
+    hashbow_result_idx = 0;
+    hashbow_results_count = curr_lc_vis_data->hashbow_results.size();
+  }
+
+  if (curr_lc_vis_data->hashbow_results.empty()) return;
+
+  int64_t t_ns = curr_lc_vis_data->hashbow_results[hashbow_result_idx];
+  // for now, just show the image of a keyframe
+  basalt::ManagedImage<uint16_t>::Ptr current_img = vio_dataset->get_image_data(t_ns)[0].img;
+
+  pangolin::GlPixFormat fmt;
+  fmt.glformat = GL_LUMINANCE;
+  fmt.gltype = GL_UNSIGNED_SHORT;
+  fmt.scalable_internal_format = GL_LUMINANCE16;
+  hashbow_results_view->SetImage(current_img->ptr, current_img->w, current_img->h, current_img->pitch, fmt);
+
+  std::ostringstream ss;
+  ss << timestamp_to_id[t_ns] << " : " << t_ns << " (" << hashbow_result_idx + 1 << " of " << hashbow_results_count
+     << ")";
+  if (!curr_lc_vis_data->hashbow_scores.empty() && hashbow_result_idx < curr_lc_vis_data->hashbow_scores.size()) {
+    ss << "  score: " << curr_lc_vis_data->hashbow_scores[hashbow_result_idx];
+  }
+  FONT.Text(ss.str()).Draw(5, 20);
 }
 
 void VIOUIBase::draw_jacobian_overlay(const UIJacobians& uij) {
@@ -1051,6 +1101,33 @@ bool VIOUIBase::do_toggle_similar_keyframes() {
   plot_display->SetBounds(0.0, 0.4, X_ATTACH, 1.0);
 
   return show_similar_keyframes;
+}
+
+bool VIOUIBase::do_toggle_hashbow_results() {
+  hashbow_results_display->ToggleShow();
+  bool show_hashbow_results = hashbow_results_display->IsShown();
+
+  size_t child_count = img_view_display->NumVisibleChildren();
+  if (child_count == 0) return show_hashbow_results;
+
+  if (!show_hashbow_results) {
+    plot_display->SetBounds(0.0, 0.4, UI_WIDTH, 1.0);
+    return show_hashbow_results;
+  }
+
+  View* last_view = &img_view_display->VisibleChild(child_count - 1);
+  auto* last_img_view = dynamic_cast<pangolin::ImageView*>(last_view);
+  pangolin::XYRangef range = last_img_view->GetDefaultView();
+  float xmax = -1;
+  float ymax = -1;
+  last_img_view->ImageToScreen(last_img_view->v, range.x.max, range.y.max, xmax, ymax);
+
+  auto X_ATTACH = pangolin::Attach::Pix(xmax * 2 - UI_WIDTH_PIX);
+  auto Y_ATTACH = pangolin::Attach::Pix(ymax);
+  hashbow_results_display->SetBounds(0.0, Y_ATTACH, UI_WIDTH, X_ATTACH);
+  plot_display->SetBounds(0.0, 0.4, X_ATTACH, 1.0);
+
+  return show_hashbow_results;
 }
 
 void VIOUIBase::do_show_blocks() {
