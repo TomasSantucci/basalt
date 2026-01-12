@@ -445,16 +445,22 @@ void MapDatabase::updateCovisibilityGraph(const LandmarkDatabase<Scalar>::Ptr& l
     }
 
     // Compute the covisibility edges
+    // Count each landmark only once per keyframe, even if seen from multiple cameras
     std::unordered_map<FrameId, int> covisibilities;
+    std::unordered_set<LandmarkId> counted_landmarks;
     for (size_t cam_id = 0; cam_id < calib.intrinsics.size(); cam_id++) {
       TimeCamId kf_tcid{kf_id, static_cast<CamId>(cam_id)};
 
-      if (map->getKeyframeObs().find(kf_tcid) == map->getKeyframeObs().end()) {
+      auto obs_it = map->getKeyframeObs().find(kf_tcid);
+      if (obs_it == map->getKeyframeObs().end()) {
         continue;
       }
 
-      for (const auto& obs : map->getKeyframeObs().at(kf_tcid)) {
-        const Landmark<float>& lm = map->getLandmark(obs);
+      for (const auto& lm_id : obs_it->second) {
+        // Only count each landmark once per keyframe
+        if (!counted_landmarks.insert(lm_id).second) continue;
+
+        const Landmark<float>& lm = map->getLandmark(lm_id);
 
         for (const auto& lm_obs : lm.obs) {
           FrameId other_kf_id = lm_obs.first.frame_id;
