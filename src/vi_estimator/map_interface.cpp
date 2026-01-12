@@ -12,7 +12,7 @@ void WriteMapUpdateMsg::execute(MapDatabase& db) {
 
 void ReadCovisibilityReqMsg::execute(MapDatabase& db) { db.read_covisibility_req(keypoints); }
 
-void Read3dPointsReqMsg::execute(MapDatabase& db) { db.read_3d_points_req(keyframes); }
+void Read3dPointsReqMsg::execute(MapDatabase& db) { db.read_3d_points_req(keyframe, neighbors_num); }
 
 void ReadMapReqMsg::execute(MapDatabase& db) { db.read_map_req(frame_id); }
 

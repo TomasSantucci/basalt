@@ -48,7 +48,8 @@ struct ReadCovisibilityReqMsg : ReadMessage {
 };
 
 struct Read3dPointsReqMsg : ReadMessage {
-  std::shared_ptr<std::vector<FrameId>> keyframes;
+  FrameId keyframe;
+  size_t neighbors_num;
   void execute(MapDatabase& db) override;
 };
 

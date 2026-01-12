@@ -237,9 +237,7 @@ class LoopClosing {
   tbb::concurrent_bounded_queue<MapResponse::Ptr> in_map_res_queue;
   tbb::concurrent_bounded_queue<ReadMessage::Ptr>* out_map_req_queue = nullptr;
   tbb::concurrent_bounded_queue<WriteMessage::Ptr>* out_map_update_queue = nullptr;
-  tbb::concurrent_bounded_queue<
-      std::shared_ptr<std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Eigen::Matrix<double, 3, 1>>>>>
-      in_map_3d_points_queue;
+  tbb::concurrent_bounded_queue<MapIslandResponse::Ptr> in_map_3d_points_queue;
 
   tbb::concurrent_bounded_queue<LoopClosingInput::Ptr> in_optical_flow_queue;
 

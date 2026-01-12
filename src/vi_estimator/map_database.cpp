@@ -170,16 +170,18 @@ void MapDatabase::read_covisibility_req(std::shared_ptr<std::vector<KeypointId>>
   handleCovisibilityReq(keypoints);
 }
 
-void MapDatabase::read_3d_points_req(std::shared_ptr<std::vector<FrameId>>& keyframes) {
-  if (keyframes == nullptr) {
-    return;
-  }
-
+void MapDatabase::read_3d_points_req(FrameId keyframe, size_t neighbors_num) {
   std::unique_lock<std::mutex> lock(mutex);
+
+  std::vector<FrameId> keyframes = {keyframe};
+
+  for (const auto& covi_kf : covisibility_graph->getTopK(keyframe, neighbors_num)) {
+    keyframes.push_back(covi_kf);
+  }
 
   auto landmarks_3d_map = std::make_shared<std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>>();
 
-  for (const auto& kf_id : *keyframes) {
+  for (const auto& kf_id : keyframes) {
     for (size_t cam_id = 0; cam_id < calib.intrinsics.size(); cam_id++) {
       if (!map->keyframeExists(kf_id)) {
         std::cout << "Keyframe " << kf_id << " does not exist in the map database." << std::endl;
@@ -214,7 +216,10 @@ void MapDatabase::read_3d_points_req(std::shared_ptr<std::vector<FrameId>>& keyf
   }
 
   if (out_3d_points_res_queue) {
-    out_3d_points_res_queue->push(landmarks_3d_map);
+    MapIslandResponse::Ptr map_island_response = std::make_shared<MapIslandResponse>();
+    map_island_response->island_keyframes = keyframes;
+    map_island_response->landmarks_3d_map = *landmarks_3d_map;
+    out_3d_points_res_queue->push(map_island_response);
   }
 }
 

@@ -65,6 +65,13 @@ struct MapResponse {
   CovisibilityGraph::Ptr covisibility_graph;
 };
 
+struct MapIslandResponse {
+  using Ptr = std::shared_ptr<MapIslandResponse>;
+
+  std::vector<FrameId> island_keyframes;
+  std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Eigen::Matrix<double, 3, 1>>> landmarks_3d_map;
+};
+
 struct MapDatabaseVisualizationData {
   using Ptr = std::shared_ptr<MapDatabaseVisualizationData>;
 
@@ -112,7 +119,7 @@ class MapDatabase {
 
   void read_covisibility_req(std::shared_ptr<std::vector<KeypointId>>& keypoints_ptr);
 
-  void read_3d_points_req(std::shared_ptr<std::vector<FrameId>>& keyframes);
+  void read_3d_points_req(FrameId keyframe, size_t neighbors_num);
 
   void read_map_req(FrameId frame_id);
 
@@ -152,9 +159,7 @@ class MapDatabase {
   tbb::concurrent_bounded_queue<MapDatabaseVisualizationData::Ptr>* out_vis_queue = nullptr;
   tbb::concurrent_bounded_queue<LandmarkDatabase<Scalar>::Ptr>* out_covi_res_queue = nullptr;
   tbb::concurrent_bounded_queue<MapResponse::Ptr>* out_map_res_queue;
-  tbb::concurrent_bounded_queue<
-      std::shared_ptr<std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Eigen::Matrix<double, 3, 1>>>>>*
-      out_3d_points_res_queue = nullptr;
+  tbb::concurrent_bounded_queue<MapIslandResponse::Ptr>* out_3d_points_res_queue = nullptr;
 
   SyncState* sync_map_stamp = nullptr;
   SyncState* sync_lc_finished = nullptr;

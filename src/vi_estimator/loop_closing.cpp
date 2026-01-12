@@ -305,32 +305,29 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     }
     lc_time_stats.addTime(LCTimeStage::InitialMatch, true);
 
-    std::vector<FrameId> neighboring_kfs;
-    if (config.loop_closing_num_neighbors > 0) {
-      get_neighboring_keyframes(candidate_kf, config.loop_closing_num_neighbors, neighboring_kfs);
-      // check whether the neighboring kf is in the map, otherwise discard it
-    }
-
-    std::vector<FrameId> kfs_island = {candidate_kf};
-    kfs_island.insert(kfs_island.end(), neighboring_kfs.begin(), neighboring_kfs.end());
-
     // get the 3d points from the map database
     auto msg = std::make_shared<Read3dPointsReqMsg>();
-    msg->keyframes =
-        std::make_shared<std::vector<FrameId>>(kfs_island);  // is it necessary to make this a new shared ptr?
+    msg->keyframe = candidate_kf;
+    msg->neighbors_num = config.loop_closing_num_neighbors;
     out_map_req_queue->push(msg);
 
-    auto points_3d = std::make_shared<std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>>();
-    in_map_3d_points_queue.pop(points_3d);
+    MapIslandResponse::Ptr map_island = std::make_shared<MapIslandResponse>();
+    in_map_3d_points_queue.pop(map_island);
+    std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>> points_3d = map_island->landmarks_3d_map;
+
+    std::vector<FrameId> kfs_island = {candidate_kf};
+    std::vector<FrameId> neighboring_kfs = map_island->island_keyframes;
+    kfs_island.insert(kfs_island.end(), neighboring_kfs.begin(), neighboring_kfs.end());
+
     lc_time_stats.addTime(LCTimeStage::LandmarksRequest, true);
 
     candidate_kf_kpts.resize(calib.intrinsics.size());
     for (size_t i = 0; i < calib.intrinsics.size(); i++) {
       TimeCamId candidate_tcid{candidate_kf, i};
-      if (points_3d->find(candidate_tcid) == points_3d->end()) {
+      if (points_3d.find(candidate_tcid) == points_3d.end()) {
         continue;
       }
-      for (const auto& point_3d : points_3d->at(candidate_tcid)) {
+      for (const auto& point_3d : points_3d.at(candidate_tcid)) {
         candidate_kf_kpts[i].emplace_back(point_3d.first);
       }
     }
@@ -347,10 +344,10 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
       std::vector<std::vector<KeypointId>> candidate_kf_kpts(calib.intrinsics.size());
       for (size_t i = 0; i < calib.intrinsics.size(); i++) {
         TimeCamId candidate_tcid{neighbor_kf, i};
-        if (points_3d->find(candidate_tcid) == points_3d->end()) {
+        if (points_3d.find(candidate_tcid) == points_3d.end()) {
           continue;
         }
-        for (const auto& point_3d : points_3d->at(candidate_tcid)) {
+        for (const auto& point_3d : points_3d.at(candidate_tcid)) {
           candidate_kf_kpts[i].emplace_back(point_3d.first);
         }
       }
@@ -366,7 +363,7 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     lc_time_stats.addTime(LCTimeStage::IslandMatch, true);
 
     Sophus::SE3d absolute_pose;
-    size_t num_inliers = computeAbsolutePoseMultiCam(curr_kf_id, kfs_island, curr_kf_kpts, *points_3d, matches,
+    size_t num_inliers = computeAbsolutePoseMultiCam(curr_kf_id, kfs_island, curr_kf_kpts, points_3d, matches,
                                                      inlier_matches, absolute_pose);
 
     if (num_inliers < config.loop_closing_pnp_min_inliers) {
@@ -390,12 +387,11 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     for (size_t i = 0; i < config.loop_closing_cameras_to_reproject.size(); i++) {
       size_t cam_id = config.loop_closing_cameras_to_reproject[i];
 
-      if (points_3d->find(TimeCamId{candidate_kf, cam_id}) == points_3d->end()) {
+      if (points_3d.find(TimeCamId{candidate_kf, cam_id}) == points_3d.end()) {
         continue;
       }
       reproject_landmarks(absolute_pose, kfs_island[0], reprojected_keypoints[i], cam_id,
-                          points_3d->at(TimeCamId{candidate_kf, cam_id}));
-
+                          points_3d.at(TimeCamId{candidate_kf, cam_id}));
       std::vector<KeyframesMatch> new_matched_keypoints;
       for (const auto& kp : reprojected_keypoints[i]) {
         Eigen::aligned_vector<Vec2>& redetected_kpts = redetected_keypoints_map[i][kp.first];
@@ -443,7 +439,7 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     if (config.loop_closing_use_rematches) {
       // recompute the absolute pose with the new matches
       inlier_matches.clear();
-      size_t new_num_inliers = computeAbsolutePoseMultiCam(curr_kf_id, kfs_island, curr_kf_kpts, *points_3d, matches,
+      size_t new_num_inliers = computeAbsolutePoseMultiCam(curr_kf_id, kfs_island, curr_kf_kpts, points_3d, matches,
                                                            inlier_matches, absolute_pose);
 
       lc_time_stats.addTime(LCTimeStage::ReprojectedGeometricVerification, true);
@@ -507,10 +503,10 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
 
           loop_closing_visualization_data->candidate_keypoints[kf_tcid] = Eigen::aligned_vector<Vec2>();
 
-          if (points_3d->find(kf_tcid) == points_3d->end()) {
+          if (points_3d.find(kf_tcid) == points_3d.end()) {
             continue;
           }
-          for (const auto& lms : points_3d->at(kf_tcid)) {
+          for (const auto& lms : points_3d.at(kf_tcid)) {
             auto& positions = kpts_positions[kf_tcid];
             if (positions.find(lms.first) == positions.end()) {
               std::cout << "1. Landmark " << lms.first << " does not have a keypoint position in the map." << std::endl;
@@ -567,7 +563,7 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
           */
 
           const auto& target_tcid = TimeCamId{kf_id, match.target_cam};
-          const auto& world_pt = points_3d->at(target_tcid).at(match.target_kpt_id);
+          const auto& world_pt = points_3d.at(target_tcid).at(match.target_kpt_id);
 
           curr_island_landmarks.emplace_back(world_pt);
           curr_island_landmark_ids.emplace_back(match.target_kpt_id);
