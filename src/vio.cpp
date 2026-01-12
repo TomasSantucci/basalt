@@ -1187,9 +1187,44 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
       // SHOW COVISIBILITY
       if (show_covisibility) {
-        glColor3ubv(vis::BLUE);
-        glLineWidth(0.25);
-        pangolin::glDrawLines(curr_map_vis_data->covisibility);
+        const int max_weight = config.loop_closing_pgo_min_covisibility_weight;  // example threshold
+        for (size_t i = 0; i + 1 < curr_map_vis_data->covisibility.size(); i += 2) {
+          float alpha = 0.1f;
+          if (i / 2 < curr_map_vis_data->covisibility_w.size()) {
+            int w = curr_map_vis_data->covisibility_w[i / 2];
+            // Normalize alpha between 0.2 and 1.0
+            alpha = 0.1f + 0.8f * (float(w) / float(max_weight));
+            if (alpha > 1.0f) alpha = 1.0f;
+            if (alpha < 0.2f) alpha = 0.2f;
+          }
+          glColor4f(0.0f, 0.0f, 1.0f, alpha);  // blue with variable alpha
+          glLineWidth(0.25f);
+          glBegin(GL_LINES);
+          glVertex3d(curr_map_vis_data->covisibility[i].x(), curr_map_vis_data->covisibility[i].y(),
+                     curr_map_vis_data->covisibility[i].z());
+          glVertex3d(curr_map_vis_data->covisibility[i + 1].x(), curr_map_vis_data->covisibility[i + 1].y(),
+                     curr_map_vis_data->covisibility[i + 1].z());
+          glEnd();
+        }
+      }
+
+      if (show_high_covisibility) {
+        const int high_covisibility_threshold = config.loop_closing_pgo_min_covisibility_weight;
+        for (size_t i = 0; i + 1 < curr_map_vis_data->covisibility.size(); i += 2) {
+          if (i / 2 < curr_map_vis_data->covisibility_w.size()) {
+            int w = curr_map_vis_data->covisibility_w[i / 2];
+            if (w >= high_covisibility_threshold) {
+              glColor3ubv(vis::BLUE);
+              glLineWidth(1.0f);
+              glBegin(GL_LINES);
+              glVertex3d(curr_map_vis_data->covisibility[i].x(), curr_map_vis_data->covisibility[i].y(),
+                         curr_map_vis_data->covisibility[i].z());
+              glVertex3d(curr_map_vis_data->covisibility[i + 1].x(), curr_map_vis_data->covisibility[i + 1].y(),
+                         curr_map_vis_data->covisibility[i + 1].z());
+              glEnd();
+            }
+          }
+        }
       }
 
       if (show_spanning_tree) {

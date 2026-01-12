@@ -328,11 +328,12 @@ void MapDatabase::computeMapVisualData() {
     for (const auto& [kf_id, _pose] : map->getKeyframes()) {
       if (!covisibility_graph->hasNode(kf_id)) continue;
 
-      for (const auto& [other_kf_id, _weight] : covisibility_graph->getCovisibleKfs(kf_id)) {
+      for (const auto& [other_kf_id, weight] : covisibility_graph->getCovisibleKfs(kf_id)) {
         Eigen::Vector3d p1 = map->getKeyframePose(kf_id).template cast<double>().translation();
         Eigen::Vector3d p2 = map->getKeyframePose(other_kf_id).template cast<double>().translation();
         map_visual_data->covisibility.emplace_back(p1);
         map_visual_data->covisibility.emplace_back(p2);
+        map_visual_data->covisibility_w.push_back(weight);
       }
     }
   }

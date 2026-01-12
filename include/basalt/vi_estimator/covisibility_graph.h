@@ -43,6 +43,33 @@ class CovisibilityGraph {
     covis_[id2][id1] += weight;
   }
 
+  std::vector<FrameId> getTopK(FrameId id, size_t k) const {
+    std::vector<std::pair<FrameId, int>> neighbors;
+    for (const auto& [neighbor_id, weight] : covis_.at(id)) {
+      neighbors.emplace_back(neighbor_id, weight);
+    }
+
+    std::sort(neighbors.begin(), neighbors.end(),
+              [](const std::pair<FrameId, int>& a, const std::pair<FrameId, int>& b) { return a.second > b.second; });
+
+    std::vector<FrameId> top_k;
+    for (size_t i = 0; i < std::min(k, neighbors.size()); i++) {
+      top_k.push_back(neighbors[i].first);
+    }
+
+    return top_k;
+  }
+
+  std::vector<FrameId> getAboveWeight(FrameId id, int weight_threshold) const {
+    std::vector<FrameId> result;
+    for (const auto& [neighbor_id, weight] : covis_.at(id)) {
+      if (weight >= weight_threshold) {
+        result.push_back(neighbor_id);
+      }
+    }
+    return result;
+  }
+
   void removeNode(FrameId id) {
     for (auto& [other_id, neighbors] : covis_[id]) {
       covis_[other_id].erase(id);

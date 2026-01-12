@@ -75,6 +75,7 @@ struct MapDatabaseVisualizationData {
   Eigen::aligned_map<FrameId, size_t> keyframe_idx;
   Eigen::aligned_map<int64_t, Sophus::SE3d> keyframe_poses;
   Eigen::aligned_vector<Eigen::Vector3d> covisibility;
+  std::vector<int> covisibility_w;
   Eigen::aligned_vector<Eigen::Vector3d> spanning_tree;
   Eigen::aligned_vector<Eigen::Vector3d> loop_closures;
   std::map<int, Eigen::aligned_vector<Eigen::Vector3d>> observations;

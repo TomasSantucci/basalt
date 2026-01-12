@@ -161,6 +161,7 @@ struct VioConfig {
   bool close_loops;
   bool loop_closing_use_rematches;
   std::vector<size_t> loop_closing_cameras_to_reproject;
+  int loop_closing_pgo_min_covisibility_weight;
 
   bool debug1;
   bool debug2;

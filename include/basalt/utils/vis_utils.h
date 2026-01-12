@@ -309,6 +309,7 @@ struct VIOUIBase {
   Var<bool> loop_closing_show_gt_poses{"map_menu.loop_closing_show_gt_poses", false, true};
   Button get_loop_detection_error_btn{"map_menu.get_loop_detection_error", [this]() { get_loop_detection_error(); }};
   Var<bool> show_covisibility{"map_menu.show_covisibility", true, true};
+  Var<bool> show_high_covisibility{"map_menu.show_high_covisibility", false, true};
   Var<bool> show_spanning_tree{"map_menu.show_spanning_tree", false, true};
   Var<bool> show_loop_closures{"map_menu.show_loop_closures", false, true};
   Var<bool> show_observations{"map_menu.show_observations", false, true};

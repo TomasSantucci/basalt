@@ -351,6 +351,7 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.close_loops));
   ar(CEREAL_NVP(config.loop_closing_use_rematches));
   ar(CEREAL_NVP(config.loop_closing_cameras_to_reproject));
+  ar(CEREAL_NVP(config.loop_closing_pgo_min_covisibility_weight));
 
   ar(CEREAL_NVP(config.debug1));
   ar(CEREAL_NVP(config.debug2));

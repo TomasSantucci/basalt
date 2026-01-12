@@ -1027,6 +1027,38 @@ void LoopClosing::buildPoseGraph(const TimeCamId& curr_kf_tcid, const std::vecto
     }
   }
 
+  // Add constraints for the most covisible keyframes
+  for (const auto& [kf_id, T_w_i] : keyframe_poses) {
+    std::vector<FrameId> most_covisible_kfs =
+        covisibility_graph->getAboveWeight(kf_id, config.loop_closing_pgo_min_covisibility_weight);
+    for (const auto& covisible_kf_id : most_covisible_kfs) {
+      if (kf_id >= covisible_kf_id) continue;
+
+      if (kf_id != spanning_tree_root) {
+        if (covisibility_graph->getParentNode(kf_id) == covisible_kf_id) {
+          continue;  // already added as part of the spanning tree
+        }
+      }
+      if (covisible_kf_id != spanning_tree_root) {
+        if (covisibility_graph->getParentNode(covisible_kf_id) == kf_id) {
+          continue;  // already added as part of the spanning tree
+        }
+      }
+
+      Sophus::SE3f T_w_j = keyframe_poses.at(covisible_kf_id);
+      Sophus::SE3f T_i_j = T_w_i.inverse() * T_w_j;
+      Constraint3d c;
+      c.id_begin = kf_id;
+      c.id_end = covisible_kf_id;
+      Pose3d relative_pose;
+      relative_pose.p = T_i_j.translation().cast<double>();
+      relative_pose.q = T_i_j.unit_quaternion().cast<double>();
+      c.t_be = relative_pose;
+      c.information = Eigen::Matrix<double, 6, 6>::Identity();
+      constraints.push_back(c);
+    }
+  }
+
   // add the current loop closure constraints
   for (const auto& kf_id : best_island) {
     if (kf_id == curr_kf_tcid.frame_id) {  // shouldn't even be necessary at this point
