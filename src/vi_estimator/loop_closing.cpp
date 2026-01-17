@@ -315,7 +315,7 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     in_map_3d_points_queue.pop(map_island);
     std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>> points_3d = map_island->landmarks_3d_map;
 
-    std::vector<FrameId> kfs_island = {candidate_kf};
+    std::vector<FrameId> kfs_island;
     std::vector<FrameId> neighboring_kfs = map_island->island_keyframes;
     kfs_island.insert(kfs_island.end(), neighboring_kfs.begin(), neighboring_kfs.end());
 

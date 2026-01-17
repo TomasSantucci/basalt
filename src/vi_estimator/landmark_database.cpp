@@ -260,7 +260,7 @@ template <class Scalar_>
 void LandmarkDatabase<Scalar_>::mergeLMDB(LandmarkDatabase<Scalar>::Ptr lmdb, bool override) {
   // Add keyframes
   for (const auto& [kf_id, pose] : lmdb->getKeyframes()) {
-    if (!override && keyframeExists(kf_id)) continue;  // Skip if the landmark already exists
+    if (!override && keyframeExists(kf_id)) continue;  // Skip if the keyframe already exists
     auto idx = lmdb->getKeyframeIndex(kf_id);
     addKeyframe(kf_id, idx, pose);
   }

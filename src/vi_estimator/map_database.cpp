@@ -86,6 +86,16 @@ void MapDatabase::write_map_update(
     for (const auto& [curr_lm_id, obs] : lm_obs_map) {
       LandmarkId host_lm_id = lm_fusions[curr_lm_id];
 
+      if (!map->landmarkExists(host_lm_id)) {
+        std::cout << "Host landmark " << host_lm_id << " does not exist in the map." << std::endl;
+        std::cout << "Cannot fuse landmark " << curr_lm_id << std::endl;
+        std::cout << "Current keyframe tcid: " << curr_tcid << std::endl;
+        // print all the observations of the current lm_obs_map
+        for (const auto& [lm_id, obs] : lm_obs_map) {
+          std::cout << "Landmark " << lm_id << " observation: " << obs.transpose() << std::endl;
+        }
+        continue;
+      }
       BASALT_ASSERT(map->landmarkExists(host_lm_id));
 
       if (!map->landmarkExists(curr_lm_id) || host_lm_id == curr_lm_id) {
