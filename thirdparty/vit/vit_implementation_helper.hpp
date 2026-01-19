@@ -53,7 +53,8 @@ struct TimeStats {
 		}
 
 		if (timing_titles != nullptr) {
-			const std::string expected(timing_titles[timings.size()]);
+			// TODO@mateosss: the conversion to string_view differs from main vit utility, open MR
+			const std::string_view expected(timing_titles[timings.size()]);
 			if (expected != name) {
 				std::cout << "Invalid timing stage\n";
 				std::cout << "expected: " << expected;

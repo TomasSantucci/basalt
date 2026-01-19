@@ -325,6 +325,7 @@ struct MargLinData {
 struct MargData {
   typedef std::shared_ptr<MargData> Ptr;
 
+  int64_t t_ns;
   AbsOrderMap aom;
   Eigen::MatrixXd abs_H;
   Eigen::VectorXd abs_b;

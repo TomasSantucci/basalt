@@ -57,6 +57,54 @@ NfrMapper::NfrMapper(const Calibration<double>& calib, const VioConfig& config)
   hash_bow_database.reset(new HashBow<256>(config.mapper_bow_num_bits));
 }
 
+void NfrMapper::initialize() {
+  auto proc_func = [&]() {
+    basalt::MargData::Ptr marg_data;
+    while (true) {
+      in_marg_queue.pop(marg_data);
+
+      if (marg_data.get()) {
+        std::cout << "Procesando MargData" << std::endl;
+        addMargData(marg_data);
+
+        std::vector<int64_t> kf_ids;
+        for (const auto& [kf_id, _] : marg_data->frame_poses)
+          if (detected_keyframes.count(kf_id) == 0) kf_ids.push_back(kf_id);
+        detect_keypoints(kf_ids);
+        // detect_keypoints();       // --> Ajustar para que el mapper funcione bien con la detección del VIO
+
+        match_stereo();           // --> Ajustar para que el mapper funcione bien con la detección del VIO
+        match_all();              // --> Muy costoso. No debería hacerse en todas las iteraciones
+
+        build_tracks();           // --> Ajustar
+        setup_opt();              // --> El mapper no debería triangular ni agregar Landmarks. Reemplazar por AddMap con lmdb del VIO.
+
+        // int num_opt_iter = 10;
+        optimize(1); // --> Muy costoso. No debería hacerse en todas las iteraciones
+
+        if (out_vis_queue) {
+          mapper_visual_data = std::make_shared<NfrMapperVisualizationData>();
+
+          mapper_visual_data->t_ns = marg_data->t_ns;
+
+          for (const auto& kv : marg_data->frame_poses) {
+            SE3 T_w_i = kv.second.getPose();
+            mapper_visual_data->keyframe_poses[kv.first] = T_w_i.template cast<double>();
+          }
+          get_current_points(mapper_visual_data->landmarks, mapper_visual_data->landmarks_ids);
+
+          out_vis_queue->push(mapper_visual_data);
+        }
+      } else {
+        std::cout << "Done" << std::endl;
+        break;
+      }
+    }
+  };
+
+  processing_thread.reset(new std::thread(proc_func));
+}
+
 void NfrMapper::addMargData(MargData::Ptr& data) {
   processMargData(*data);
   bool valid = extractNonlinearFactors(*data);
@@ -433,7 +481,10 @@ void NfrMapper::detect_keypoints() {
       keys.emplace_back(kv.first);
     }
   }
+  detect_keypoints(keys);
+}
 
+void NfrMapper::detect_keypoints(std::vector<int64_t> keys) {
   auto t1 = std::chrono::high_resolution_clock::now();
 
   tbb::parallel_for(tbb::blocked_range<size_t>(0, keys.size()), [&](const tbb::blocked_range<size_t>& r) {
@@ -470,7 +521,9 @@ void NfrMapper::detect_keypoints() {
 
   auto elapsed1 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1);
 
-  std::cout << "Processed " << feature_corners.size() << " frames." << std::endl;
+  detected_keyframes.insert(keys.begin(), keys.end());
+
+  std::cout << "Processed " << detected_keyframes.size() << " frames." << std::endl;
 
   std::cout << "Detection time: " << elapsed1.count() * 1e-6 << "s." << std::endl;
 }

@@ -42,6 +42,7 @@ namespace basalt {
 enum class LinearizationType { ABS_QR, ABS_SC, REL_SC };
 enum class MatchingGuessType { SAME_PIXEL, REPROJ_FIX_DEPTH, REPROJ_AVG_DEPTH };
 enum class KeyframeMargCriteria { KF_MARG_DEFAULT, KF_MARG_FORWARD_VECTOR };
+enum class MapCovisibilityCriteria { MAP_COV_DEFAULT, MAP_COV_STS };
 
 struct VioConfig {
   VioConfig();
@@ -89,6 +90,8 @@ struct VioConfig {
   double vio_obs_huber_thresh;
   double vio_min_triangulation_dist;
 
+  bool vio_erase_old_vis_data;
+
   bool vio_enforce_realtime;
 
   bool vio_use_lm;
@@ -106,6 +109,10 @@ struct VioConfig {
   bool vio_fix_long_term_keyframes;
   double vio_kf_marg_feature_ratio;
   KeyframeMargCriteria vio_kf_marg_criteria;  // Keyframe removal criteria
+  bool vio_always_get_covisibility_map;
+  MapCovisibilityCriteria map_covisibility_criteria;
+  int map_sts_max_size;
+  bool map_sts_use_last_frame;
 
   double mapper_obs_std_dev;
   double mapper_obs_huber_thresh;
@@ -121,6 +128,51 @@ struct VioConfig {
   double mapper_min_triangulation_dist;
   bool mapper_no_factor_weights;
   bool mapper_use_factors;
+  int mapper_pnp_min_inliers;
+  int mapper_pnp_ransac_iterations;
+  double mapper_pnp_ransac_threshold;
+  bool enable_mapper;
+
+  bool enable_loop_closing;
+  int loop_closing_frequency;
+  std::vector<int64_t> loop_closing_timestamps;
+  bool loop_closing_skip_covisible;
+  int loop_closing_bow_num_bits;
+  double loop_closing_num_frames_to_match;
+  double loop_closing_frames_to_match_threshold;
+  double loop_closing_max_hamming_distance;
+  double loop_closing_second_best_test_ratio;
+  double loop_closing_min_matches;
+  double loop_closing_pnp_ransac_threshold;
+  int loop_closing_pnp_ransac_iterations;
+  int loop_closing_pnp_min_inliers;
+  bool loop_closing_validate_candidates;
+  bool loop_closing_use_all_recent_keypoints;
+  bool loop_closing_query_with_all_cameras;
+  bool dump_loop_detection_result;
+  bool loop_closing_show_reprojections;
+  int loop_closing_fast_threshold;
+  bool loop_closing_fast_nonmax_suppression;
+  size_t loop_closing_fast_grid_size;
+  double loop_closing_redetect_max_hamming_distance;
+  double loop_closing_redetect_second_best_test_ratio;
+  int loop_closing_num_neighbors;
+  bool always_detect_loop;
+  bool close_loops;
+  bool loop_closing_use_rematches;
+  std::vector<size_t> loop_closing_cameras_to_reproject;
+  int loop_closing_pgo_min_covisibility_weight;
+
+  bool debug1;
+  bool debug2;
+  bool debug3;
+  bool debug4;
+  bool debug5;
+
+  int loop_closing_frame_time_margin_s;
+  double loop_closing_min_drift_reduction;
+  bool loop_closing_skip_initial_matching;
+  int loop_closing_min_initial_matches;
 
   bool mapper_use_lm;
   double mapper_lm_lambda_min;

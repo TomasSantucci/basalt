@@ -75,6 +75,64 @@ clang19-ubuntu-2404:
     - cmake --preset=ci
     - time cmake --build build
 
+aarch64-raspberry-bookworm:
+  extends: .ccache
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+  tags: [basalt-docker]
+  stage: build
+  when: manual
+  script:
+    - echo BUILD_RASPBERRY_BOOKWORM_JOB_ID=$CI_JOB_ID >> release.env
+    - apt-get update && apt-get install -y wget
+    - wget --no-verbose https://syncandshare.lrz.de/dl/fi2VEkRPgLW2mb6UHaXJk3/bookworm-arm64-sysroot.tar.xz # TODO: update to use basalt-lfs
+    - wget --no-verbose https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - tar -xf x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - tar -xf bookworm-arm64-sysroot.tar.xz
+    - git apply --directory thirdparty/Pangolin/ scripts/aarch64-patches/pangolin.patch
+    - cmake --preset=rpi4
+    - time cmake --build build
+    - cd build && cpack
+    - mv *.deb ../basalt-monado-raspberry-bookworm-pi4-aarch64.deb
+    - cd ..
+    - cmake --preset=rpi5
+    - time cmake --build build
+    - cd build && cpack
+    - mv *.deb ../basalt-monado-raspberry-bookworm-pi5-aarch64.deb
+  artifacts:
+    name: basalt-monado-raspberry-bookworm
+    expose_as: "basalt-monado-raspberry-bookworm-aarch64-debs"
+    paths:
+      - "basalt-monado-raspberry-bookworm-pi4-aarch64.deb"
+      - "basalt-monado-raspberry-bookworm-pi5-aarch64.deb"
+    reports:
+      dotenv: release.env
+
+aarch64-radxa-jammy:
+  extends: .ccache
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+  tags: [basalt-docker]
+  stage: build
+  when: manual
+  script:
+    - echo BUILD_RADXA_JAMMY_JOB_ID=$CI_JOB_ID >> release.env
+    - apt-get update && apt-get install -y wget
+    - wget --no-verbose https://syncandshare.lrz.de/dl/fiUqksbXqxo49qofyjgwUe/jammy-arm64-sysroot.tar.xz # TODO: update to use basalt-lfs
+    - wget --no-verbose https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - tar -xf x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - tar -xf jammy-arm64-sysroot.tar.xz
+    - git apply --directory thirdparty/Pangolin/ scripts/aarch64-patches/pangolin.patch
+    - cmake --preset=radxa
+    - time cmake --build build
+    - cd build && cpack
+    - mv *.deb ../basalt-monado-radxa-jammy-aarch64.deb
+  artifacts:
+    name: basalt-monado-radxa-jammy
+    expose_as: "basalt-monado-radxa-jammy-aarch64"
+    paths:
+      - "basalt-monado-radxa-jammy-aarch64.deb"
+    reports:
+      dotenv: release.env
+
 clangd-tidy-delta:
   stage: analyze
   image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
@@ -104,18 +162,27 @@ release:
     - echo "Releasing artifacts of previous jobs"
     - curl --location --output /usr/local/bin/release-cli "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64"
     - chmod +x /usr/local/bin/release-cli
-  needs: ["gcc-ubuntu-2204", "gcc-ubuntu-2404-wtest"]
+  needs: ["gcc-ubuntu-2204", "gcc-ubuntu-2404-wtest", "aarch64-raspberry-bookworm", "aarch64-radxa-jammy"]
   release:
     name: "Release of $CI_COMMIT_SHORT_SHA"
     tag_name: "release-$CI_COMMIT_SHORT_SHA"
     description: "Release of Monado's Basalt for $CI_COMMIT_SHORT_SHA"
     assets:
       links:
-        - name: "Ubuntu 22.04 .deb (amd64, -march=haswell)"
+        - name: "Ubuntu 22.04 .deb (lib only, amd64, -march=haswell)"
           url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_UBUNTU_2204_JOB_ID}/artifacts/raw/basalt-monado-ubuntu-22.04-haswell-amd64.deb"
           link_type: package
-        - name: "Ubuntu 24.04 .deb (amd64, -march=haswell)"
+        - name: "Ubuntu 24.04 .deb (lib only, amd64, -march=haswell)"
           url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_UBUNTU_2404_JOB_ID}/artifacts/raw/basalt-monado-ubuntu-24.04-haswell-amd64.deb"
+          link_type: package
+        - name: "Raspberry Pi 4: Raspberry OS Bookworm 12.5 .deb (aarch64, -mcpu=cortex-a72)"
+          url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_RASPBERRY_BOOKWORM_JOB_ID}/artifacts/raw/basalt-monado-raspberry-bookworm-pi4-aarch64.deb"
+          link_type: package
+        - name: "Raspberry Pi 5: Raspberry OS Bookworm 12.5 .deb (aarch64, -mcpu=cortex-a76)"
+          url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_RASPBERRY_BOOKWORM_JOB_ID}/artifacts/raw/basalt-monado-raspberry-bookworm-pi5-aarch64.deb"
+          link_type: package
+        - name: "Radxa Zero 3W: Ubuntu 22.04 .deb (aarch64, -mcpu=cortex-a55)"
+          url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_RADXA_JAMMY_JOB_ID}/artifacts/raw/basalt-monado-radxa-jammy-aarch64.deb"
           link_type: package
 
 create-evaluation:
@@ -125,9 +192,12 @@ create-evaluation:
   variables:
     EVALSETS: "quickset1"
     DETERMINISTIC: "1"
+    TIMING_EVALSETS: "MOO02"
+    TIMING_DETERMINISTIC: "1"
+    TIMING_REPETITIONS: "3"
   script:
     - echo "Generating evaluation pipeline for evalsets $EVALSETS"
-    - .ci/cievalgen.py --deterministic $DETERMINISTIC .ci/evaluation.json $EVALSETS .ci/cieval.template.yaml .ci/cieval.yaml
+    - .ci/cievalgen.py --deterministic $DETERMINISTIC --timing_deterministic $TIMING_DETERMINISTIC --timing_repetitions $TIMING_REPETITIONS .ci/evaluation.json $EVALSETS $TIMING_EVALSETS .ci/cieval.template.yaml .ci/cieval.yaml
   artifacts:
     paths:
       - .ci/cieval.yaml
@@ -161,11 +231,12 @@ get-results:
     - export ZIP_JOB_ID=$(cat output.json | jq -r '.[] | select(.name=="zip") | .id')
     - echo $ZIP_JOB_ID
     - curl -H "$AUTH" -L --output artifacts.zip "${CI_SERVER_URL}/api/v4/projects/${CI_PROJECT_ID}/jobs/${ZIP_JOB_ID}/artifacts"
-    - unzip -o artifacts.zip # Generates results.zip
+    - unzip -o artifacts.zip # Generates results.zip and timing-results.zip
   artifacts:
     name: "results"
     paths:
       - results.zip
+      - timing-results.zip
 
 report:
   stage: evaluate
@@ -175,12 +246,49 @@ report:
     - export xrtmet=/storage/local/ssd/mayom/Documents/projects/xrtslam-metrics
     - source $xrtmet/.venv/bin/activate
     - unzip -o results.zip
-    - $xrtmet/batch.py results $xrtmet/test/data/targets --metrics ate rte --save_file batch.json > metrics.md
-    - zip batch.zip batch.json
+    - echo "# Evaluation" > report.md
+    - echo "" >> report.md
+    - cat results/README.md >> report.md
+    - echo "" >> report.md
+    - echo "## Tables" >> report.md
+    - echo "" >> report.md
+    - $xrtmet/batch.py results $xrtmet/test/data/targets --metrics ate rte timing memory --highlights bold --save_file batch.json >> report.md
+    - mv batch.json results/
+    - echo "" >> report.md
+    - unzip -o timing-results.zip
+    - echo "# Timing Results" >> report.md
+    - echo "" >> report.md
+    - cat timing-results/README.md >> report.md
+    - echo "" >> report.md
+    - echo "## Tables" >> report.md
+    - $xrtmet/batch.py timing-results $xrtmet/test/data/targets --metrics timing memory --highlights bold --save_file timing-batch.json >> report.md
+    - mv timing-batch.json timing-results/
+    - echo "" >> report.md
+    - echo "## Stats" >> report.md
+    - echo '```python' >> report.md
+    - |
+      find timing-results -type f -name 'timing.csv' -print0 | while IFS= read -r -d '' csv; do
+        rel_dir="$(realpath --relative-to="$(pwd)" "$(dirname "$csv")")"
+        png="$rel_dir/$(basename "$csv" .csv).png"
+        $xrtmet/timing.py -p -fc 4 -lc -2 "$csv" --save_plot $png >> report.md
+      done
+    - echo '```' >> report.md
+    - echo "" >> report.md
+    - echo "## Plots" >> report.md
+    - echo "" >> report.md
+    - |
+      find timing-results -type f -name 'timing.csv' -print0 | while IFS= read -r -d '' csv; do
+        rel_dir="$(realpath --relative-to="$(pwd)" "$(dirname "$csv")")"
+        png="$rel_dir/$(basename "$csv" .csv).png"
+        echo "- Timing plot for $csv:" >> report.md
+        echo "  ![Timing plot]($png)" >> report.md
+      done
+    - pandoc --metadata title="Evaluation Report" --metadata document-css=false --toc --standalone --to html5 --include-in-header scripts/report/style.html report.md --output report.html
   artifacts:
-    name: results
+    name: report
     expose_as: "Results and metrics"
     paths:
-      - results.zip
-      - metrics.md
-      - batch.zip
+      - report.md
+      - report.html
+      - timing-results/
+      - results/

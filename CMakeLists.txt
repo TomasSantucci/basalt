@@ -5,6 +5,10 @@ project(basalt)
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules/" ${CMAKE_MODULE_PATH})
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if(CMAKE_TOOLCHAIN_FILE)
+  message(STATUS "Using CMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
+endif()
+
 # Try to use mold linker if found
 find_program(MOLD_PROGRAM mold)
 if(MOLD_PROGRAM)
@@ -20,13 +24,15 @@ if(NOT EIGEN_ROOT)
 endif()
 
 string(TOLOWER "${PROJECT_NAME}" PROJECT_NAME_LOWERCASE)
-find_program(DPKG_PROGRAM dpkg DOC "dpkg program of Debian-based systems")
-if(DPKG_PROGRAM)
-  execute_process(
-    COMMAND ${DPKG_PROGRAM} --print-architecture OUTPUT_VARIABLE CPACK_DEBIAN_PACKAGE_ARCHITECTURE
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-  )
-endif(DPKG_PROGRAM)
+if(NOT CPACK_DEBIAN_PACKAGE_ARCHITECTURE)
+  find_program(DPKG_PROGRAM dpkg DOC "dpkg program of Debian-based systems")
+  if(DPKG_PROGRAM)
+    execute_process(
+      COMMAND ${DPKG_PROGRAM} --print-architecture OUTPUT_VARIABLE CPACK_DEBIAN_PACKAGE_ARCHITECTURE
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+  endif()
+endif()
 
 find_program(LSB_RELEASE_PROGRAM lsb_release DOC "lsb_release program of Debian-based systems")
 if(LSB_RELEASE_PROGRAM)
@@ -95,6 +101,10 @@ if(NOT APPLE OR NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
   set(BASALT_MARCH_FLAGS "-march=${CXX_MARCH}")
 else()
   message(STATUS "Running on Apple ${CMAKE_SYSTEM_PROCESSOR}. Disabled -march flag.")
+endif()
+
+if(CXX_MCPU)
+  set(BASALT_MCPU_FLAGS "-mcpu=${CXX_MCPU}")
 endif()
 
 set(CMAKE_CXX_STANDARD 17)
@@ -255,7 +265,7 @@ if(BASALT_INSTANTIATIONS_FLOAT)
 endif()
 
 # setup combined compiler flags
-set(CMAKE_CXX_FLAGS "${BASALT_CXX_FLAGS} ${BASALT_MARCH_FLAGS} ${BASALT_PASSED_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "${BASALT_CXX_FLAGS} ${BASALT_MARCH_FLAGS} ${BASALT_MCPU_FLAGS} ${BASALT_PASSED_CXX_FLAGS}")
 
 set(EIGEN_INCLUDE_DIR_HINTS ${EIGEN_ROOT})
 find_package(Eigen3 3.4.0 EXACT REQUIRED MODULE)
@@ -292,7 +302,9 @@ set_property(TARGET basalt::opencv PROPERTY INTERFACE_LINK_LIBRARIES ${OpenCV_LI
 find_package(fmt REQUIRED)
 message(STATUS "Found {fmt} ${fmt_VERSION} in: ${fmt_DIR}")
 
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5) # TODO: Patch for opengv, sophus, ros
 add_subdirectory(thirdparty)
+set(CMAKE_POLICY_VERSION_MINIMUM)
 
 # custom scoped vit target: https://gitlab.freedesktop.org/monado/utilities/vit/
 add_library(basalt::vit INTERFACE IMPORTED)
@@ -324,74 +336,81 @@ target_include_directories(basalt_internal PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/i
 # List all header and source files with target_sources.
 # This ensures, e.g., that QtCreator >= 6.0 properly recognize these headers to belong to the project.
 # To support cmake < 3.13, use absolute paths (see: https://crascit.com/2016/01/31/enhanced-source-file-handling-with-target_sources/)
-target_sources(
-  basalt_internal
-  PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/hash_bow/hash_bow.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/linearization/block_diagonal.hpp
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/linearization/imu_block.hpp
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/linearization/landmark_block.hpp
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/linearization/landmark_block_abs_dynamic.hpp
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/linearization/linearization_abs_qr.hpp
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/linearization/linearization_abs_sc.hpp
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/linearization/linearization_base.hpp
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/linearization/linearization_rel_sc.hpp
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optical_flow/frame_to_frame_optical_flow.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optical_flow/multiscale_frame_to_frame_optical_flow.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optical_flow/optical_flow.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optical_flow/patch.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optical_flow/patch_optical_flow.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optical_flow/patterns.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optimization/accumulator.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optimization/linearize.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optimization/poses_linearize.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optimization/poses_optimize.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optimization/spline_linearize.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optimization/spline_optimize.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/ba_utils.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/cast_utils.hpp
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/common_types.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/filesystem.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/format.hpp
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/imu_types.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/keypoints.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/nfr.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/sim_utils.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/system_utils.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/test_utils.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/time_utils.hpp
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/tracks.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/union_find.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/vio_config.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/vis_matrices.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/vis_utils.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/ba_base.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/landmark_database.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/marg_helper.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/sc_ba_base.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/sqrt_ba_base.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/sqrt_keypoint_vio.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/sqrt_keypoint_vo.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/vio_estimator.h
-  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/io/marg_data_io.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/linearization/landmark_block.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/linearization/linearization_abs_qr.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/linearization/linearization_abs_sc.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/linearization/linearization_base.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/linearization/linearization_rel_sc.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/optical_flow/optical_flow.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/keypoints.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/system_utils.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/time_utils.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/vio_config.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/vis_utils.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/ba_base.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/landmark_database.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/marg_helper.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/sc_ba_base.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/sqrt_ba_base.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/sqrt_keypoint_vio.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/sqrt_keypoint_vo.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/vio_estimator.cpp
+target_sources(basalt_internal
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/hash_bow/hash_bow.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/linearization/block_diagonal.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/linearization/imu_block.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/linearization/landmark_block.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/linearization/landmark_block_abs_dynamic.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/linearization/linearization_abs_qr.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/linearization/linearization_abs_sc.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/linearization/linearization_base.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/linearization/linearization_rel_sc.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optical_flow/frame_to_frame_optical_flow.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optical_flow/multiscale_frame_to_frame_optical_flow.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optical_flow/optical_flow.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optical_flow/patch.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optical_flow/patch_optical_flow.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optical_flow/patterns.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optimization/accumulator.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optimization/linearize.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optimization/poses_linearize.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optimization/poses_optimize.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optimization/spline_linearize.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/optimization/spline_optimize.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/ba_utils.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/cast_utils.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/common_types.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/filesystem.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/format.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/imu_types.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/keypoints.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/nfr.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/sim_utils.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/system_utils.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/test_utils.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/time_utils.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/tracks.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/union_find.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/vio_config.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/vis_matrices.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/vis_utils.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/ba_base.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/landmark_database.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/loop_closing.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/marg_helper.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/sc_ba_base.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/sqrt_ba_base.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/sqrt_keypoint_vio.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/sqrt_keypoint_vo.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/vio_estimator.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/map_database.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/map_interface.h
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/io/marg_data_io.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/linearization/landmark_block.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/linearization/linearization_abs_qr.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/linearization/linearization_abs_sc.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/linearization/linearization_base.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/linearization/linearization_rel_sc.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/optical_flow/optical_flow.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/keypoints.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/system_utils.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/time_utils.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/vio_config.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/vis_utils.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/ba_base.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/landmark_database.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/loop_closing.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/marg_helper.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/sc_ba_base.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/sqrt_ba_base.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/sqrt_keypoint_vio.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/sqrt_keypoint_vo.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/vio_estimator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/map_database.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/map_interface.cpp
 )
 
 target_link_libraries(
@@ -404,7 +423,7 @@ target_link_libraries(
          basalt::cli11
          basalt::vit
          basalt::magic_enum
-  PRIVATE nlohmann::json fmt::fmt
+  PRIVATE nlohmann::json fmt::fmt Ceres::ceres
 )
 target_include_directories(basalt_internal PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(basalt_internal PUBLIC ${BASALT_COMPILE_DEFINITIONS})
@@ -474,7 +493,7 @@ if(NOT BASALT_BUILD_SHARED_LIBRARY_ONLY)
   target_link_libraries(basalt_opt_flow basalt_internal pangolin basalt::cli11)
 
   add_executable(basalt_vio src/vio.cpp)
-  target_link_libraries(basalt_vio basalt_internal pangolin basalt::cli11)
+  target_link_libraries(basalt_vio basalt_internal pangolin basalt::cli11 Ceres::ceres)
 
   add_executable(basalt_time_alignment src/time_alignment.cpp)
   target_link_libraries(basalt_time_alignment basalt_internal pangolin basalt::cli11)
@@ -504,9 +523,10 @@ set_target_properties(
              VERSION "${VIT_VERSION_MAJOR}.${VIT_VERSION_MINOR}.${VIT_VERSION_PATCH}" SOVERSION ${VIT_VERSION_MAJOR}
 )
 
+include(GNUInstallDirs)
 if(BASALT_BUILD_SHARED_LIBRARY_ONLY)
-  install(TARGETS basalt RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
-          ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+  install(TARGETS basalt RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+          ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   )
   set(CONFIG_FILES "${CMAKE_CURRENT_SOURCE_DIR}/data/msd/msdmo_config.json"
                    "${CMAKE_CURRENT_SOURCE_DIR}/data/msd/msdmo_calib.json"
@@ -526,25 +546,25 @@ else()
             basalt_vio
             basalt_kitti_eval
             basalt_time_alignment
-    RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
-    LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   )
 
   if(BASALT_INSTANTIATIONS_DOUBLE)
-    install(TARGETS basalt_mapper_sim_naive RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
-            LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+    install(TARGETS basalt_mapper_sim_naive RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     )
   endif()
 
   if(realsense2_FOUND)
-    install(TARGETS basalt_rs_t265_record basalt_rs_t265_vio RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
-            LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+    install(TARGETS basalt_rs_t265_record basalt_rs_t265_vio RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     )
   endif()
 
   file(GLOB SCRIPTS_TO_INSTALL "${CMAKE_CURRENT_SOURCE_DIR}/scripts/basalt_*.py")
-  install(PROGRAMS ${SCRIPTS_TO_INSTALL} DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)
+  install(PROGRAMS ${SCRIPTS_TO_INSTALL} DESTINATION ${CMAKE_INSTALL_BINDIR})
 
   file(GLOB_RECURSE CONFIG_FILES "${CMAKE_CURRENT_SOURCE_DIR}/data/*.json")
   file(GLOB ABSOLUTE_UNIFIED_CONFIG_FILES "${CMAKE_CURRENT_SOURCE_DIR}/data/vit/*.toml.in")
@@ -556,7 +576,7 @@ else()
 endif(BASALT_BUILD_SHARED_LIBRARY_ONLY)
 
 # Configure and install unified config toml files
-set(CONFIG_FILE_INSTALL_DESTINATION ${CMAKE_INSTALL_PREFIX}/share/basalt) # Used for unified_config.in
+set(CONFIG_FILE_INSTALL_DESTINATION ${CMAKE_INSTALL_DATADIR}/${PROJECT_NAME}) # Used for unified_config.in
 foreach(unified_config IN LISTS UNIFIED_CONFIG_FILES)
   configure_file(
     ${CMAKE_CURRENT_LIST_DIR}/data/vit/${unified_config}.in ${CMAKE_CURRENT_BINARY_DIR}/data/vit/${unified_config}
@@ -568,7 +588,7 @@ endforeach()
 install(FILES ${CONFIG_FILES} DESTINATION ${CONFIG_FILE_INSTALL_DESTINATION})
 
 configure_file(${CMAKE_CURRENT_LIST_DIR}/cmake_modules/basalt.pc.in ${CMAKE_CURRENT_BINARY_DIR}/basalt.pc @ONLY)
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/basalt.pc DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/pkgconfig)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/basalt.pc DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 
 # Replace install() to do-nothing macro.
 macro(install)

@@ -55,11 +55,26 @@ namespace basalt {
 template <size_t N>
 class HashBow;
 
+struct NfrMapperVisualizationData {
+  using Ptr = std::shared_ptr<NfrMapperVisualizationData>;
+
+  int64_t t_ns;
+
+  Eigen::aligned_vector<Eigen::Vector3d> landmarks;
+  std::vector<int> landmarks_ids;
+  Eigen::aligned_map<FrameId, size_t> keyframe_idx;
+  Eigen::aligned_map<int64_t, Sophus::SE3d> keyframe_poses;
+  //  std::map<int, Eigen::aligned_vector<Eigen::Vector3d>> observations;
+};
+
 class NfrMapper : public ScBundleAdjustmentBase<double> {
  public:
   using Scalar = double;
 
   using Ptr = std::shared_ptr<NfrMapper>;
+  using Vec3d = Eigen::Matrix<double, 3, 1>;
+  using Vec4d = Eigen::Matrix<double, 4, 1>;
+  using Mat4d = Eigen::Matrix<double, 4, 4>;
 
   template <class AccumT>
   struct MapperLinearizeAbsReduce : public ScBundleAdjustmentBase<Scalar>::LinearizeAbsReduce<AccumT> {
@@ -144,6 +159,10 @@ class NfrMapper : public ScBundleAdjustmentBase<double> {
 
   NfrMapper(const basalt::Calibration<double>& calib, const VioConfig& config);
 
+  ~NfrMapper() { maybe_join(); }
+
+  void initialize();
+
   void addMargData(basalt::MargData::Ptr& data);
 
   void processMargData(basalt::MargData& m);
@@ -160,6 +179,8 @@ class NfrMapper : public ScBundleAdjustmentBase<double> {
 
   void detect_keypoints();
 
+  void detect_keypoints(std::vector<int64_t> keys);
+
   // Feature matching and inlier filtering for stereo pairs with known pose
   void match_stereo();
 
@@ -169,12 +190,21 @@ class NfrMapper : public ScBundleAdjustmentBase<double> {
 
   void setup_opt();
 
+  inline void maybe_join() {
+    if (processing_thread) {
+      processing_thread->join();
+      processing_thread.reset();
+    }
+  }
+
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   Eigen::aligned_vector<RollPitchFactor> roll_pitch_factors;
   Eigen::aligned_vector<RelPoseFactor> rel_pose_factors;
 
   std::unordered_map<int64_t, OpticalFlowInput::Ptr> img_data;
+
+  std::set<int64_t> detected_keyframes;
 
   Corners feature_corners;
 
@@ -187,5 +217,13 @@ class NfrMapper : public ScBundleAdjustmentBase<double> {
   VioConfig config;
 
   double lambda, min_lambda, max_lambda, lambda_vee;
+
+  tbb::concurrent_bounded_queue<MargData::Ptr> in_marg_queue;
+
+  std::shared_ptr<std::thread> processing_thread;
+
+  NfrMapperVisualizationData::Ptr map_visual_data;
+  tbb::concurrent_bounded_queue<NfrMapperVisualizationData::Ptr>* out_vis_queue = nullptr;
+  NfrMapperVisualizationData::Ptr mapper_visual_data;
 };
 }  // namespace basalt

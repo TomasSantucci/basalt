@@ -125,7 +125,7 @@ struct MatchData {
 };
 
 /// feature matches is a collection of { (imageId, imageId) => MatchData }
-using Matches = tbb::concurrent_unordered_map<
+using Matches = std::unordered_map<
     std::pair<TimeCamId, TimeCamId>, MatchData, std::hash<std::pair<TimeCamId, TimeCamId>>,
     std::equal_to<std::pair<TimeCamId, TimeCamId>>,
     Eigen::aligned_allocator<std::pair<const std::pair<TimeCamId, TimeCamId>, MatchData>>>;

@@ -42,6 +42,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pangolin/gl/glfont.h>
 
 #include <basalt/utils/vis_matrices.h>
+#include <basalt/vi_estimator/loop_closing.h>
+#include <basalt/vi_estimator/map_database.h>
+#include <basalt/vi_estimator/nfr_mapper.h>
 #include <basalt/vi_estimator/vio_estimator.h>
 #include <pangolin/var/var.h>
 #include <pangolin/var/varvaluegeneric.h>
@@ -57,7 +60,7 @@ using basalt::vis::FONT;
 const uint8_t cam_color[3]{250, 0, 125};
 const uint8_t state_color[3]{250, 0, 26};
 const uint8_t pose_color[3]{0, 50, 255};
-const uint8_t gt_color[3]{0, 171, 47};
+const uint8_t gt_color[3]{40, 40, 40};
 constexpr float MIN_DEPTH_COLOR[3]{0.27, 0.79, 1};      // blue
 constexpr float MAX_DEPTH_COLOR[3]{1, 0.1, 0.42};       // pink
 constexpr uint8_t MIN_DEPTH_COLOR_UB[3]{69, 201, 255};  // blue
@@ -186,6 +189,7 @@ const uint8_t GREEN[4]{0x4C, 0xAF, 0x50, 0xFF};
 const uint8_t LGREEN[4]{0x76, 0xFF, 0x03, 0xFF};
 const uint8_t RED[4]{0xF4, 0x43, 0x36, 0xFF};
 const uint8_t YELLOW[4]{0xFF, 0xFF, 0x00, 0xFF};
+const uint8_t ORANGE[4] = {(0xF4 + 0xFF) / 2, (0x43 + 0xFF) / 2, (0x36 + 0xFF) / 2, 0xFF};
 
 inline Colour C_BLUEGREY() { return {69 / 255.0, 90 / 255.0, 100 / 255.0}; }
 inline Colour C_RED() { return {244 / 255.0, 67 / 255.0, 54 / 255.0}; }
@@ -244,8 +248,23 @@ struct VIOUIBase {
   View* plot_display;
   View* blocks_display;
   shared_ptr<ImageView> blocks_view;
+  View* similar_keyframes_display;
+  View* hashbow_results_display;
+  bool show_hashbow_results = false;
+  shared_ptr<ImageView> similar_keyframes_view;
+  shared_ptr<ImageView> hashbow_results_view;
+  int64_t last_kf_with_similars;
+  int64_t last_kf_with_hashbows;
+  bool show_similar_keyframes = false;
+  size_t island_idx = 0;
+  size_t islands_count = 0;
+  size_t similar_kf_idx = 0;
+  size_t similar_kf_count = 0;
+  size_t hashbow_result_idx = 0;
+  size_t hashbow_results_count = 0;
   vector<shared_ptr<ImageView>> img_view;
   bool show_blocks = false;
+  bool print_loop_detection_error = false;
   Selection highlights{};
   VioConfig config;
   Calibration<double> calib;
@@ -253,6 +272,9 @@ struct VIOUIBase {
   VioEstimatorBase::Ptr vio;
   // TODO: Make vis_map into a queue that stores a range of frames, even in realtime mode
   unordered_map<int64_t, VioVisualizationData::Ptr> vis_map;
+  MapDatabase::Ptr map_db;
+  NfrMapper::Ptr nfr_mapper;
+  LoopClosing::Ptr loop_closing;
 
   Var<int> show_frame{"ui.show_frame", 0, META_FLAG_READONLY};
 
@@ -266,6 +288,34 @@ struct VIOUIBase {
   Var<bool> show_recall_guess{"features_menu.show_recall_guess", false, true};
   Var<bool> show_obs{"features_menu.show_obs", true, true};
   Var<bool> show_depth{"features_menu.show_depth", false, true};
+
+  Var<bool> map_menu{"ui.Map Menu", true, true};
+  Var<string> map_menu_title{"map_menu.MENU", "Map Menu", META_FLAG_READONLY};
+  Var<bool> show_mapper{"map_menu.show_mapper", false, true};
+  Var<bool> show_vio{"map_menu.show_vio", true, true};
+  Var<bool> show_map{"map_menu.show_map", true, true};
+  Var<bool> show_keyframe_poses{"map_menu.show_keyframe_poses", true, true};
+  Button trigger_loop_closure_btn{"map_menu.Close Loop", [this]() { trigger_loop_closure(); }};
+  Button toggle_hashbow_results_btn{"map_menu.toggle_hashbow_results", [this]() { toggle_hashbow_results(); }};
+  Button toggle_similar_keyframes_btn{"map_menu.toggle_similar_kfs", [this]() { toggle_similar_keyframes(); }};
+  Button next_island_btn{"map_menu.next_island", [this]() { next_island(); }};
+  Button next_similar_keyframe_btn{"map_menu.next_similar_kf", [this]() { next_similar_kf(); }};
+  Button next_hashbow_frame_btn{"map_menu.next_hashbow_frame", [this]() { next_hashbow_frame(); }};
+  Var<bool> show_reprojections{"map_menu.show_reprojections", false, true};
+  Var<bool> show_redetections{"map_menu.show_redetections", false, true};
+  Var<bool> show_rematches{"map_menu.show_rematches", false, true};
+  Var<bool> show_similar_kf_kpts{"map_menu.show_similar_kf_kpts", false, true};
+  Var<bool> loop_closing_show_aligned_gt{"map_menu.loop_closing_show_aligned_gt", false, true};
+  Var<bool> loop_closing_show_gt_poses{"map_menu.loop_closing_show_gt_poses", false, true};
+  Button get_loop_detection_error_btn{"map_menu.get_loop_detection_error", [this]() { get_loop_detection_error(); }};
+  Var<bool> show_covisibility{"map_menu.show_covisibility", true, true};
+  Var<bool> show_high_covisibility{"map_menu.show_high_covisibility", false, true};
+  Var<bool> show_spanning_tree{"map_menu.show_spanning_tree", false, true};
+  Var<bool> show_loop_closures{"map_menu.show_loop_closures", false, true};
+  Var<bool> show_observations{"map_menu.show_observations", false, true};
+  Var<int> recent_kf_cam_id{"map_menu.recent_kf_cam_id", 0};
+  Var<int> candidate_kf_cam_id{"map_menu.candidate_kf_cam_id", 0};
+  Button take_map_btn{"map_menu.Get Covisibility Map", [this]() { get_covisibility_map(); }};
 
   Var<bool> highlights_menu{"ui.Highlights Menu", false, true};
   Var<string> highlights_menu_title{"highlights_menu.MENU", "Highlights Menu", META_FLAG_READONLY};
@@ -311,15 +361,18 @@ struct VIOUIBase {
   Var<bool> show_est_bg{"curves_menu.show_est_bg", false, true};
   Var<bool> show_est_ba{"curves_menu.show_est_ba", false, true};
 
-  Var<bool> follow{"ui.follow", true, true};
+  Var<bool> follow{"ui.follow", false, true};
   Button reset_state_btn{"ui.Reset State", [this]() { reset_state(); }};
 
   vector<Var<bool>*> menus{&features_menu, &highlights_menu, &blocks_menu, &keyframe_menu,
-                           &image_menu,    &guesses_menu,    &curves_menu};
-  vector<string> menus_str{"features_menu", "highlights_menu", "blocks_menu", "keyframe_menu",
-                           "image_menu",    "guesses_menu",    "curves_menu", "trajectory_menu"};
+                           &image_menu,    &guesses_menu,    &curves_menu, &map_menu};
+  vector<string> menus_str{"features_menu", "highlights_menu", "blocks_menu", "keyframe_menu",  "image_menu",
+                           "guesses_menu",  "curves_menu",     "map_menu",    "trajectory_menu"};
 
   virtual VioVisualizationData::Ptr get_curr_vis_data() = 0;
+  virtual MapDatabaseVisualizationData::Ptr get_curr_map_vis_data() = 0;
+  virtual LoopClosingVisualizationData::Ptr get_curr_lc_vis_data() = 0;
+  virtual NfrMapperVisualizationData::Ptr get_curr_nfrmapper_vis_data() = 0;
 
   KeypointId get_kpid_at(size_t cam_id, int x, int y, float radius = 10);
   bool is_highlighted(size_t lmid) const { return vis::is_selected(highlights, lmid); }
@@ -329,7 +382,9 @@ struct VIOUIBase {
   void clear_highlights();
   bool toggle_blocks();
   bool take_ltkf();
+  bool trigger_loop_closure();
   bool reset_state();
+  bool get_covisibility_map();
   void do_show_flow(size_t cam_id);
   void do_show_highlights(size_t cam_id);
   void do_show_tracking_guess(size_t cam_id, size_t frame_id, const VioVisualizationData::Ptr& prev_vis_data);
@@ -351,6 +406,18 @@ struct VIOUIBase {
   void do_show_hessian(UIHessians& uih);
   void do_show_jacobian(UIJacobians& uij);
   bool do_follow_highlight(bool follow, bool smooth_zoom);
+  bool toggle_hashbow_results();
+  bool do_toggle_hashbow_results();
+  bool toggle_similar_keyframes();
+  bool do_toggle_similar_keyframes();
+  void draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
+                                      tbb::concurrent_unordered_map<int64_t, int>& timestamp_to_id);
+  void draw_hashbow_results_overlay(const VioDatasetPtr& vio_dataset,
+                                    tbb::concurrent_unordered_map<int64_t, int>& timestamp_to_id);
+  void next_similar_kf();
+  void next_hashbow_frame();
+  void next_island();
+  void get_loop_detection_error();
 
   void do_render_camera(const Sophus::SE3d& T_w_c, size_t i, size_t ts, const uint8_t* color);
 };

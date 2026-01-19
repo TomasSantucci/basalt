@@ -95,6 +95,13 @@ template <class Scalar_>
 class LandmarkDatabase {
  public:
   using Scalar = Scalar_;
+  using SE3 = Sophus::SE3<Scalar>;
+
+  typedef std::shared_ptr<LandmarkDatabase<Scalar>> Ptr;
+
+  LandmarkDatabase(std::string name = "Landmark Database");
+
+  LandmarkDatabase(const LandmarkDatabase&);
 
   // Non-const
   void addLandmark(LandmarkId lm_id, const Landmark<Scalar>& pos);
@@ -104,6 +111,9 @@ class LandmarkDatabase {
   void clear() {
     kpts.clear();
     observations.clear();
+    keyframe_idx.clear();
+    keyframe_poses->clear();
+    keyframe_obs.clear();
   }
 
   void removeKeyframes(const std::set<FrameId>& kfs_to_marg, const std::set<FrameId>& poses_to_marg,
@@ -112,6 +122,32 @@ class LandmarkDatabase {
   void addObservation(const TimeCamId& tcid_target, const KeypointObservation<Scalar>& o);
 
   Landmark<Scalar>& getLandmark(LandmarkId lm_id);
+
+  void addKeyframe(FrameId kf_id, size_t index, const SE3& pos);
+
+  SE3& getKeyframePose(FrameId kf_id);
+
+  size_t& getKeyframeIndex(FrameId kf_id);
+
+  TimeCamId getLastKeyframe();
+
+  void getCovisibilityMap(LandmarkDatabase<Scalar>::Ptr submap);
+
+  void getSubmap(std::set<TimeCamId> tcids, LandmarkDatabase<Scalar>::Ptr submap);
+
+  void mergeObservations(const Landmark<Scalar_>& existing_lm, const Landmark<Scalar_>& incoming_lm);
+
+  void mergeLMDB(LandmarkDatabase<Scalar>::Ptr lmdb, bool override);
+
+  void mergeLandmarks(const LandmarkId& from_lm_id, const LandmarkId& to_lm_id);
+
+  void mergeKeyframesPoses(std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3<Scalar_>>> loop_kfs_poses);
+
+  void print_landmark(const Landmark<Scalar>& lm);
+
+  bool debug_check_landmark_consistency(const Landmark<Scalar>& lm);
+
+  bool debug_check_keyframes_consistency(std::string caller);
 
   // Const
   const Landmark<Scalar>& getLandmark(LandmarkId lm_id) const;
@@ -126,7 +162,15 @@ class LandmarkDatabase {
 
   const Eigen::aligned_unordered_map<LandmarkId, Landmark<Scalar>>& getLandmarks() const;
 
+  const Eigen::aligned_map<FrameId, SE3>& getKeyframes() const;
+
+  const Eigen::aligned_map<TimeCamId, std::set<LandmarkId>>& getKeyframeObs() const;
+
   bool landmarkExists(int lm_id) const;
+
+  bool keyframeExists(FrameId kf_id) const;
+
+  bool observationExists(TimeCamId target_tcid, LandmarkId lm_id);
 
   size_t numLandmarks() const;
 
@@ -134,9 +178,13 @@ class LandmarkDatabase {
 
   int numObservations(LandmarkId lm_id) const;
 
+  int numKeyframes() const;
+
   void removeLandmark(LandmarkId lm_id);
 
   void removeObservations(LandmarkId lm_id, const std::set<TimeCamId>& obs);
+
+  void print(bool show_ids = false);
 
   inline void backup() {
     for (auto& kv : kpts) kv.second.backup();
@@ -156,7 +204,15 @@ class LandmarkDatabase {
 
   std::unordered_map<TimeCamId, std::map<TimeCamId, std::set<LandmarkId>>> observations;
 
+  Eigen::aligned_map<FrameId, size_t> keyframe_idx;
+
+  std::shared_ptr<Eigen::aligned_map<FrameId, SE3>> keyframe_poses;
+
+  Eigen::aligned_map<TimeCamId, std::set<LandmarkId>> keyframe_obs;
+
   static constexpr int min_num_obs = 2;
+
+  std::string debug_name;
 };
 
 }  // namespace basalt

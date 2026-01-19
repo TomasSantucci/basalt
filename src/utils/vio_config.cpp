@@ -107,6 +107,10 @@ VioConfig::VioConfig() {
 
   vio_kf_marg_feature_ratio = 0.1;
   vio_kf_marg_criteria = KeyframeMargCriteria::KF_MARG_DEFAULT;
+  vio_always_get_covisibility_map = false;
+  map_covisibility_criteria = MapCovisibilityCriteria::MAP_COV_DEFAULT;
+  map_sts_max_size = 7;
+  map_sts_use_last_frame = true;
 
   mapper_obs_std_dev = 0.25;
   mapper_obs_huber_thresh = 1.5;
@@ -194,6 +198,27 @@ void load_minimal(const Archive& ar, basalt::KeyframeMargCriteria& marg_crit, co
 }
 
 template <class Archive>
+std::string save_minimal(const Archive& ar, const basalt::MapCovisibilityCriteria& cov_crit) {
+  UNUSED(ar);
+  auto name = magic_enum::enum_name(cov_crit);
+  return std::string(name);
+}
+
+template <class Archive>
+void load_minimal(const Archive& ar, basalt::MapCovisibilityCriteria& cov_crit, const std::string& name) {
+  UNUSED(ar);
+
+  auto crit_enum = magic_enum::enum_cast<basalt::MapCovisibilityCriteria>(name);
+
+  if (crit_enum.has_value()) {
+    cov_crit = crit_enum.value();
+  } else {
+    std::cerr << "Could not find the MapCovisibilityCriteria for " << name << std::endl;
+    std::abort();
+  }
+}
+
+template <class Archive>
 std::string save_minimal(const Archive& ar, const basalt::LinearizationType& linearization_type) {
   UNUSED(ar);
   auto name = magic_enum::enum_name(linearization_type);
@@ -255,6 +280,8 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.vio_obs_huber_thresh));
   ar(CEREAL_NVP(config.vio_min_triangulation_dist));
 
+  ar(CEREAL_NVP(config.vio_erase_old_vis_data));
+
   ar(CEREAL_NVP(config.vio_enforce_realtime));
 
   ar(CEREAL_NVP(config.vio_use_lm));
@@ -272,6 +299,10 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.vio_fix_long_term_keyframes));
   ar(CEREAL_NVP(config.vio_kf_marg_feature_ratio));
   ar(CEREAL_NVP(config.vio_kf_marg_criteria));
+  ar(CEREAL_NVP(config.vio_always_get_covisibility_map));
+  ar(CEREAL_NVP(config.map_covisibility_criteria));
+  ar(CEREAL_NVP(config.map_sts_max_size));
+  ar(CEREAL_NVP(config.map_sts_use_last_frame));
 
   ar(CEREAL_NVP(config.mapper_obs_std_dev));
   ar(CEREAL_NVP(config.mapper_obs_huber_thresh));
@@ -287,6 +318,51 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.mapper_min_triangulation_dist));
   ar(CEREAL_NVP(config.mapper_no_factor_weights));
   ar(CEREAL_NVP(config.mapper_use_factors));
+  ar(CEREAL_NVP(config.mapper_pnp_min_inliers));
+  ar(CEREAL_NVP(config.mapper_pnp_ransac_iterations));
+  ar(CEREAL_NVP(config.mapper_pnp_ransac_threshold));
+  ar(CEREAL_NVP(config.enable_mapper));
+
+  ar(CEREAL_NVP(config.enable_loop_closing));
+  ar(CEREAL_NVP(config.loop_closing_frequency));
+  ar(CEREAL_NVP(config.loop_closing_timestamps));
+  ar(CEREAL_NVP(config.loop_closing_skip_covisible));
+  ar(CEREAL_NVP(config.loop_closing_bow_num_bits));
+  ar(CEREAL_NVP(config.loop_closing_num_frames_to_match));
+  ar(CEREAL_NVP(config.loop_closing_frames_to_match_threshold));
+  ar(CEREAL_NVP(config.loop_closing_max_hamming_distance));
+  ar(CEREAL_NVP(config.loop_closing_second_best_test_ratio));
+  ar(CEREAL_NVP(config.loop_closing_min_matches));
+  ar(CEREAL_NVP(config.loop_closing_pnp_ransac_threshold));
+  ar(CEREAL_NVP(config.loop_closing_pnp_ransac_iterations));
+  ar(CEREAL_NVP(config.loop_closing_pnp_min_inliers));
+  ar(CEREAL_NVP(config.loop_closing_validate_candidates));
+  ar(CEREAL_NVP(config.loop_closing_use_all_recent_keypoints));
+  ar(CEREAL_NVP(config.loop_closing_query_with_all_cameras));
+  ar(CEREAL_NVP(config.dump_loop_detection_result));
+  ar(CEREAL_NVP(config.loop_closing_show_reprojections));
+  ar(CEREAL_NVP(config.loop_closing_fast_threshold));
+  ar(CEREAL_NVP(config.loop_closing_fast_nonmax_suppression));
+  ar(CEREAL_NVP(config.loop_closing_fast_grid_size));
+  ar(CEREAL_NVP(config.loop_closing_redetect_max_hamming_distance));
+  ar(CEREAL_NVP(config.loop_closing_redetect_second_best_test_ratio));
+  ar(CEREAL_NVP(config.loop_closing_num_neighbors));
+  ar(CEREAL_NVP(config.always_detect_loop));
+  ar(CEREAL_NVP(config.close_loops));
+  ar(CEREAL_NVP(config.loop_closing_use_rematches));
+  ar(CEREAL_NVP(config.loop_closing_cameras_to_reproject));
+  ar(CEREAL_NVP(config.loop_closing_pgo_min_covisibility_weight));
+
+  ar(CEREAL_NVP(config.debug1));
+  ar(CEREAL_NVP(config.debug2));
+  ar(CEREAL_NVP(config.debug3));
+  ar(CEREAL_NVP(config.debug4));
+  ar(CEREAL_NVP(config.debug5));
+
+  ar(CEREAL_NVP(config.loop_closing_frame_time_margin_s));
+  ar(CEREAL_NVP(config.loop_closing_min_drift_reduction));
+  ar(CEREAL_NVP(config.loop_closing_skip_initial_matching));
+  ar(CEREAL_NVP(config.loop_closing_min_initial_matches));
 
   ar(CEREAL_NVP(config.mapper_use_lm));
   ar(CEREAL_NVP(config.mapper_lm_lambda_min));

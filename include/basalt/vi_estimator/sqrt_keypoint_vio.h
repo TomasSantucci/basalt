@@ -96,8 +96,7 @@ class SqrtKeypointVioEstimator : public VioEstimatorBase, public SqrtBundleAdjus
                   const Eigen::Vector3d& ba) override;
 
   void scheduleResetState() override;
-  bool resetState(typename IntegratedImuMeasurement<Scalar>::Ptr& meas, OpticalFlowResult::Ptr& curr_frame,
-                  OpticalFlowResult::Ptr& prev_frame);
+  bool resetState(typename IntegratedImuMeasurement<Scalar>::Ptr& meas);
 
   void initialize(const Eigen::Vector3d& bg, const Eigen::Vector3d& ba) override;
 
@@ -113,6 +112,9 @@ class SqrtKeypointVioEstimator : public VioEstimatorBase, public SqrtBundleAdjus
   void addIMUToQueue(const ImuData<double>::Ptr& data) override;
   void addVisionToQueue(const OpticalFlowResult::Ptr& data) override;
   void takeLongTermKeyframe() override;
+  void GetCovisibilityMap() override;
+  void addCovisibilityMap() override;
+  void addZeroKeyframeToMargData(FrameId toadd_ts);
 
   typename ImuData<Scalar>::Ptr popFromImuDataQueue();
 
@@ -122,10 +124,10 @@ class SqrtKeypointVioEstimator : public VioEstimatorBase, public SqrtBundleAdjus
   // void addNewState(int64_t data_t_ns);
 
   bool optimize_and_marg(const OpticalFlowInput::Ptr& input_images, const std::map<int64_t, int>& num_points_connected,
-                         const std::unordered_set<KeypointId>& lost_landmaks);
+                         const std::unordered_set<KeypointId>& lost_landmaks, const int64_t curr_frame_t_ns);
 
   bool marginalize(const std::map<int64_t, int>& num_points_connected,
-                   const std::unordered_set<KeypointId>& lost_landmaks);
+                   const std::unordered_set<KeypointId>& lost_landmaks, const int64_t curr_frame_t_ns);
   bool optimize();
 
   bool show_uimat(UIMAT m) const;
@@ -208,13 +210,19 @@ class SqrtKeypointVioEstimator : public VioEstimatorBase, public SqrtBundleAdjus
   using BundleAdjustmentBase<Scalar>::calib;
 
  private:
+  OpticalFlowResult::Ptr prev_frame;
+  OpticalFlowResult::Ptr curr_frame;
+
   bool take_kf;
   int frames_after_kf;
   size_t frame_count = 0;
   std::set<int64_t> kf_ids;
   std::set<int64_t> ltkfs;  // Long term keyframes
   bool take_ltkf;           // Whether the next keyframe should be made into ltkfs
+  std::set<int64_t> removed_ltkfs;
   Eigen::aligned_map<int64_t, size_t> frame_idx;
+  bool get_map = false;
+  typename LandmarkDatabase<Scalar>::Ptr covisible_submap{};
 
   int64_t last_state_t_ns;
   Eigen::aligned_map<int64_t, IntegratedImuMeasurement<Scalar>> imu_meas;

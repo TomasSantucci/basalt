@@ -33,6 +33,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <basalt/vi_estimator/map_interface.h>
 #include <basalt/vi_estimator/marg_helper.h>
 #include <basalt/vi_estimator/sqrt_keypoint_vio.h>
 
@@ -40,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/optimization/accumulator.h>
 #include <basalt/utils/assert.h>
 #include <basalt/utils/system_utils.h>
+#include <basalt/vi_estimator/loop_closing.h>
 #include <basalt/vi_estimator/sc_ba_base.h>
 #include <basalt/utils/cast_utils.hpp>
 #include <basalt/utils/format.hpp>
@@ -114,6 +116,8 @@ SqrtKeypointVioEstimator<Scalar_>::SqrtKeypointVioEstimator(const Eigen::Vector3
 
   vision_data_queue.set_capacity(10);
   imu_data_queue.set_capacity(300);
+
+  lmdb = LandmarkDatabase<Scalar>("VIO LMDB");
 }
 
 template <class Scalar>
@@ -127,9 +131,119 @@ void SqrtKeypointVioEstimator<Scalar>::takeLongTermKeyframe() {
 }
 
 template <class Scalar>
-bool SqrtKeypointVioEstimator<Scalar>::resetState(typename IntegratedImuMeasurement<Scalar>::Ptr& meas,
-                                                  OpticalFlowResult::Ptr& curr_frame,
-                                                  OpticalFlowResult::Ptr& prev_frame) {
+void SqrtKeypointVioEstimator<Scalar>::GetCovisibilityMap() {
+  get_map = true;
+}
+
+template <class Scalar>
+void SqrtKeypointVioEstimator<Scalar>::addZeroKeyframeToMargData(FrameId toadd_ts) {
+  // Update marg_data for a timestamped keyframe so that H and b add corresponding zeroed indices
+
+  size_t old_total_rows = marg_data.b.rows();
+  size_t new_total_rows = old_total_rows + POSE_SIZE;
+  size_t old_total_cols = marg_data.H.cols();
+  size_t new_total_cols = old_total_cols + POSE_SIZE;
+  MatX Hm;
+  VecX bm;
+  Hm.setZero(new_total_rows, new_total_cols);
+  bm.setZero(new_total_rows);
+
+  AbsOrderMap order{};
+  size_t added_idx = SIZE_MAX;
+  for (const auto& [ts, idxsize] : marg_data.order.abs_order_map) {
+    if (added_idx == SIZE_MAX && toadd_ts < ts) {
+      added_idx = order.total_size;
+      order.abs_order_map[toadd_ts] = std::make_pair(added_idx, POSE_SIZE);
+      order.total_size += POSE_SIZE;
+      order.items++;
+    }
+
+    const auto& [idx, size] = idxsize;
+    order.abs_order_map[ts] = std::make_pair(order.total_size, size);
+    order.total_size += size;
+    order.items++;
+  }
+
+  if (added_idx == SIZE_MAX) {  // In the unusual case the frame to add is in the future
+    added_idx = order.total_size;
+    order.abs_order_map[toadd_ts] = std::make_pair(added_idx, POSE_SIZE);
+    order.total_size += POSE_SIZE;
+    order.items++;
+  }
+
+  size_t bef = added_idx;                       // Side size to the left (before)
+  size_t aft_row = old_total_rows - added_idx;  // cols at the right of idx
+  size_t aft_col = old_total_cols - added_idx;  // rows after idx
+  size_t i = added_idx;                         // Index to insert at
+  size_t s = POSE_SIZE;                         // Number of inserted vars
+
+  if (old_total_rows < added_idx) {  // If cols > rows
+    Hm.template block(0, 0, old_total_rows, bef) = marg_data.H.template block(0, 0, old_total_rows, bef);  // left
+    Hm.template block(0, i + s, old_total_rows, aft_col) =
+        marg_data.H.template block(0, i, old_total_rows, aft_col);  // right
+  } else if (old_total_cols < added_idx) {                          // If rows > cols
+    Hm.template block(0, 0, bef, old_total_cols) = marg_data.H.template block(0, 0, bef, old_total_cols);  // left
+    Hm.template block(0, i + s, aft_row, old_total_cols) =
+        marg_data.H.template block(0, i, aft_row, old_total_cols);  // right
+  } else {                                                          // If H is square
+    if (i == 0) {                                                   // If at the beginning
+      Hm.template block(i + s, i + s, aft_row, aft_col) =
+          marg_data.H.template block(i, i, aft_row, aft_col);  // bottomright
+      bm.tail(aft_row) = marg_data.b.tail(aft_row);
+    } else if (i + s == order.total_size) {                                            // If at the end
+      Hm.template block(0, 0, bef, bef) = marg_data.H.template block(0, 0, bef, bef);  // topleft
+      bm.head(bef) = marg_data.b.head(bef);
+    } else {                                                                                       // If in the middle
+      Hm.template block(0, 0, bef, bef) = marg_data.H.template block(0, 0, bef, bef);              // topleft
+      Hm.template block(0, i + s, bef, aft_col) = marg_data.H.template block(0, i, bef, aft_col);  // topright
+      Hm.template block(i + s, 0, aft_row, bef) = marg_data.H.template block(i, 0, aft_row, bef);  // bottomleft
+      Hm.template block(i + s, i + s, aft_row, aft_col) =
+          marg_data.H.template block(i, i, aft_row, aft_col);  // bottomright
+      bm.head(bef) = marg_data.b.head(bef);
+      bm.tail(aft_row) = marg_data.b.tail(aft_row);
+    }
+  }
+
+  marg_data.H = Hm;
+  marg_data.b = bm;
+  marg_data.order = order;
+}
+
+template <class Scalar>
+void SqrtKeypointVioEstimator<Scalar>::addCovisibilityMap() {
+  if (show_uimat(UIMAT::HB_M_PRIOR_BEFORE)) {
+    visual_data->geth(UIMAT::HB_M_PRIOR_BEFORE).H =
+        std::make_shared<Eigen::MatrixXf>(marg_data.H.template cast<float>());
+    visual_data->geth(UIMAT::HB_M_PRIOR_BEFORE).b =
+        std::make_shared<Eigen::VectorXf>(marg_data.b.template cast<float>());
+    visual_data->geth(UIMAT::HB_M_PRIOR_BEFORE).aom = std::make_shared<AbsOrderMap>(marg_data.order);
+  }
+
+  for (auto& [kf_id, pos] : covisible_submap->getKeyframes()) {
+    if (kf_ids.find(kf_id) == kf_ids.end() && ltkfs.find(kf_id) == ltkfs.end()) {
+      // Add Prior Keyframe as long term keyframe
+      ltkfs.emplace(kf_id);
+      // Add pose to poses state window
+      frame_poses.emplace(kf_id, PoseStateWithLin(kf_id, pos.template cast<Scalar>(), true));
+      if (out_vis_queue) visual_data->ltframes[kf_id] = pos.template cast<double>();
+      // Adjust Marg Data to the new window of keyframes
+      addZeroKeyframeToMargData(kf_id);
+    }
+  }
+
+  if (show_uimat(UIMAT::HB_M_PRIOR_AFTER)) {
+    visual_data->geth(UIMAT::HB_M_PRIOR_AFTER).H =
+        std::make_shared<Eigen::MatrixXf>(marg_data.H.template cast<float>());
+    visual_data->geth(UIMAT::HB_M_PRIOR_AFTER).b =
+        std::make_shared<Eigen::VectorXf>(marg_data.b.template cast<float>());
+    visual_data->geth(UIMAT::HB_M_PRIOR_AFTER).aom = std::make_shared<AbsOrderMap>(marg_data.order);
+  }
+
+  lmdb.mergeLMDB(covisible_submap, false);
+}
+
+template <class Scalar>
+bool SqrtKeypointVioEstimator<Scalar>::resetState(typename IntegratedImuMeasurement<Scalar>::Ptr& meas) {
   meas = nullptr;
   curr_frame = nullptr;
   prev_frame = nullptr;
@@ -225,7 +339,6 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
   Vec3 ba_init = ba_.cast<Scalar>();
 
   auto proc_func = [&, bg = bg_init, ba = ba_init] {
-    OpticalFlowResult::Ptr prev_frame, curr_frame;
     typename IntegratedImuMeasurement<Scalar>::Ptr meas;
 
     const Vec3 accel_cov = calib.dicrete_time_accel_noise_std().array().square();
@@ -242,7 +355,7 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
     while (run) {
       bool reset_performed = schedule_reset;
       if (reset_performed) {
-        bool exit_requested = resetState(meas, curr_frame, prev_frame);
+        bool exit_requested = resetState(meas);
         if (exit_requested) break;
       }
 
@@ -253,10 +366,8 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
         while (!vision_data_queue.empty()) vision_data_queue.pop(curr_frame);
       }
 
-      if (!curr_frame.get()) {
-        break;
-      }
-      curr_frame->input_images->addTime("vio_start");
+      if (curr_frame == nullptr) break;
+      curr_frame->input_images->addTime("backend_keypoints_received");
       curr_frame->input_images->state_reset = reset_performed;
 
       // Correct camera time offset
@@ -265,6 +376,10 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
       if (out_vis_queue) {
         visual_data = std::make_shared<VioVisualizationData>();
         visual_data->t_ns = curr_frame->t_ns;
+      }
+      if (out_vio_data_queue) {
+        map_stamp = std::make_shared<MapStamp>();
+        map_stamp->t_ns = curr_frame->t_ns;
       }
 
       if (!initialized) {
@@ -342,7 +457,31 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
           data->t_ns = tmp;
         }
       }
-      curr_frame->input_images->addTime("imu_preintegrated");
+
+      bool send_covisibility_request = out_covi_req_queue && (config.vio_always_get_covisibility_map || get_map);
+      if (send_covisibility_request) {
+        // NOTE: Moving these keyframes to 'kf_ids' causes Basalt to marginalize them again, so they will have twice the
+        // influence in the optimization. This could be a potential issue.
+        if (covisible_submap != nullptr) {
+          for (const auto& [kf_id, _] : covisible_submap->getKeyframes()) {
+            if (ltkfs.count(kf_id) > 0) {
+              kf_ids.emplace(kf_id);
+              ltkfs.erase(kf_id);
+              removed_ltkfs.emplace(kf_id);
+            }
+          }
+        }
+        std::vector<KeypointId> keypoint_ids;
+        for (size_t i = 0; i < curr_frame->keypoints.size(); i++) {
+          for (const auto& kv : curr_frame->keypoints[i]) keypoint_ids.emplace_back(kv.first);
+        }
+        auto msg = std::make_shared<ReadCovisibilityReqMsg>();
+        msg->keypoints = std::make_shared<std::vector<KeypointId>>(keypoint_ids);
+        out_covi_req_queue->push(msg);
+        get_map = false;
+      }
+
+      while (in_covi_res_queue.try_pop(covisible_submap)) addCovisibilityMap();
 
       bool success = measure(curr_frame, meas);
       if (!success) {
@@ -353,7 +492,7 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
           auto data = std::make_shared<PoseVelBiasState<double>>();
           data->t_ns = curr_frame->t_ns;
           data->input_images = curr_frame->input_images;
-          data->input_images->addTime("pose_produced");
+          data->input_images->addTime("backend_state_pushed");
           out_state_queue->push(data);
         }
         continue;
@@ -364,7 +503,10 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
 
     if (out_vis_queue) out_vis_queue->push(nullptr);
     if (out_marg_queue) out_marg_queue->push(nullptr);
+    if (out_vio_data_queue) out_vio_data_queue->push(nullptr);
     if (out_state_queue) out_state_queue->push(nullptr);
+    if (out_covi_req_queue) out_covi_req_queue->push(nullptr);
+    if (out_opt_flow_queue_loop_closing) out_opt_flow_queue_loop_closing->push(nullptr);
 
     finished = true;
 
@@ -481,13 +623,15 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
     take_ltkf = false;
   }
 
+  bool sent_keyframe_to_lc = false;
   if (take_kf) {
     // Triangulate new points from one of the observations (with sufficient
     // baseline) and make keyframe
-    take_kf = false;
     frames_after_kf = 0;
     kf_ids.emplace(last_state_t_ns);
     if (visual_data) visual_data->keyframed_idx[last_state_t_ns] = frame_idx.at(last_state_t_ns);
+    const SE3 pos = getPoseStateWithLin(last_state_t_ns).getPose();
+    lmdb.addKeyframe(last_state_t_ns, frame_idx.at(last_state_t_ns), pos);
 
     int num_points_added = 0;
     for (int i = 0; i < NUM_CAMS; i++) {
@@ -578,10 +722,61 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
       }
     }
   }
-  opt_flow_meas->input_images->addTime("landmarks_updated");
+  opt_flow_meas->input_images->addTime("backend_observations_processed");
 
-  bool success = optimize_and_marg(opt_flow_meas->input_images, num_points_connected, lost_landmaks);
+  bool success =
+      optimize_and_marg(opt_flow_meas->input_images, num_points_connected, lost_landmaks, opt_flow_meas->t_ns);
   if (!success) return false;
+
+  if (take_kf) {
+    take_kf = false;
+    // Send a map stamp to the Map Database
+    BASALT_ASSERT(lmdb.debug_check_keyframes_consistency("VIO"));
+
+    map_stamp->lmdb = std::make_shared<LandmarkDatabase<Scalar_>>(lmdb);
+
+    BASALT_ASSERT(map_stamp->lmdb->debug_check_keyframes_consistency("VIO.MapStamp"));
+
+    auto msg = std::make_shared<WriteMapStampMsg>();
+    msg->map_stamp = map_stamp;
+    out_vio_data_queue->push(msg);
+
+    if (sync_map_stamp != nullptr) {
+      std::unique_lock<std::mutex> lk(sync_map_stamp->m);
+      sync_map_stamp->cvar.wait(lk, [&] { return sync_map_stamp->ready; });
+      sync_map_stamp->ready = false;
+    }
+
+    if (out_opt_flow_queue_loop_closing) {
+      LoopClosingInput::Ptr loop_closing_input = std::make_shared<LoopClosingInput>();
+      loop_closing_input->input_images = opt_flow_meas->input_images;
+      loop_closing_input->t_ns = opt_flow_meas->t_ns;
+
+      std::vector<Keypoints> landmarks(NUM_CAMS);
+
+      const Eigen::aligned_map<TimeCamId, std::set<LandmarkId>>& obs = lmdb.getKeyframeObs();
+
+      for (int i = 0; i < NUM_CAMS; i++) {
+        TimeCamId tcid(opt_flow_meas->t_ns, i);
+        if (obs.count(tcid) == 0) continue;
+        const std::set<LandmarkId>& lm_ids = obs.at(tcid);
+        for (const LandmarkId& lm_id : lm_ids) {
+          landmarks[i][lm_id] = opt_flow_meas->keypoints[i].at(lm_id);
+        }
+      }
+
+      loop_closing_input->keypoints = opt_flow_meas->keypoints;
+      loop_closing_input->landmarks = landmarks;
+
+      out_opt_flow_queue_loop_closing->push(loop_closing_input);
+      sent_keyframe_to_lc = true;
+    }
+    if (sent_keyframe_to_lc && sync_lc_finished != nullptr) {
+      std::unique_lock<std::mutex> lk(sync_lc_finished->m);
+      sync_lc_finished->cvar.wait(lk, [&] { return sync_lc_finished->ready; });
+      sync_lc_finished->ready = false;
+    }
+  }
 
   size_t num_cams = opt_flow_meas->keypoints.size();
   bool features_ext = opt_flow_meas->input_images->stats.enabled_exts.has_pose_features;
@@ -601,7 +796,6 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
     typename PoseVelBiasState<double>::Ptr data(new PoseVelBiasState<double>(p.getState().template cast<double>()));
 
     data->input_images = opt_flow_meas->input_images;
-    data->input_images->addTime("pose_produced");
 
     if (avg_depth_needed) {
       double avg_invdepth = 0;
@@ -630,6 +824,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
         }
       }
     }
+    curr_frame->input_images->addTime("backend_state_pushed");
     if (out_state_queue) out_state_queue->push(data);
     if (opt_flow_state_queue) opt_flow_state_queue->push(data);
   }
@@ -720,8 +915,12 @@ bool SqrtKeypointVioEstimator<Scalar>::show_uimat(UIMAT m) const {
 
 template <class Scalar_>
 bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>& num_points_connected,
-                                                    const std::unordered_set<KeypointId>& lost_landmaks) {
-  if (!opt_started) return true;
+                                                    const std::unordered_set<KeypointId>& lost_landmaks,
+                                                    const int64_t curr_frame_t_ns) {
+  if (!opt_started) {
+    curr_frame->input_images->addTime("backend_marginalization_ended");
+    return true;
+  }
 
   Timer t_total;
 
@@ -888,6 +1087,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
       poses_to_marg.emplace(id_to_marg);
 
       kf_ids.erase(id_to_marg);
+      if (removed_ltkfs.count(id_to_marg) > 0) removed_ltkfs.erase(id_to_marg);
     }
 
     //    std::cout << "marg order" << std::endl;
@@ -933,6 +1133,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
       }
 
       std::set<FrameId> fixed_kfs = config.vio_fix_long_term_keyframes ? ltkfs : std::set<FrameId>{};
+      for (const int64_t& ts : removed_ltkfs) fixed_kfs.insert(ts);
       auto lqr = LinearizationBase<Scalar, POSE_SIZE>::create(this, aom, lqr_options, &marg_data, &ild, &kfs_to_marg,
                                                               &lost_landmaks, last_state_to_marg, &fixed_kfs);
 
@@ -965,6 +1166,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
 
       {
         MargData::Ptr m(new MargData);
+        m->t_ns = curr_frame_t_ns;
         m->aom = aom;
 
         if (is_lin_sqrt && marg_data.is_sqrt) {
@@ -1045,6 +1247,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
       }
 
       std::set<FrameId> fixed_kfs = config.vio_fix_long_term_keyframes ? ltkfs : std::set<FrameId>{};
+      for (const int64_t& ts : removed_ltkfs) fixed_kfs.insert(ts);
       auto lqr =
           LinearizationBase<Scalar, POSE_SIZE>::create(this, aom, lqr_options, &nullspace_marg_data, &ild, &kfs_to_marg,
                                                        &lost_landmaks, last_state_to_marg, &fixed_kfs);
@@ -1103,7 +1306,6 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
     for (const int64_t id : states_to_marg_all) {
       if (visual_data) visual_data->marginalized_idx[id] = frame_idx.at(id);
       frame_states.erase(id);
-      frame_idx.erase(id);
       imu_meas.erase(id);
       prev_opt_flow_res.erase(id);
     }
@@ -1120,7 +1322,6 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
     for (const int64_t id : poses_to_marg) {
       if (visual_data) visual_data->marginalized_idx[id] = frame_idx.at(id);
       frame_poses.erase(id);
-      frame_idx.erase(id);
       prev_opt_flow_res.erase(id);
     }
 
@@ -1207,6 +1408,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
   }
 
   stats_sums_.add("marginalize", t_total.elapsed()).format("ms");
+  curr_frame->input_images->addTime("backend_marginalization_ended");
 
   return true;
 }
@@ -1216,6 +1418,9 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
   if (config.vio_debug) {
     std::cout << "=================================" << std::endl;
   }
+
+  int64_t initial_ts = std::chrono::steady_clock::now().time_since_epoch().count();
+  std::array<int64_t, 4> times = {0, 0, 0, 0};  // linearize, solver, backsub, error
 
   if (opt_started || frame_states.size() > 4) {
     opt_started = true;
@@ -1280,6 +1485,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
     }
 
     std::set<FrameId> fixed_kfs = config.vio_fix_long_term_keyframes ? ltkfs : std::set<FrameId>{};
+    for (const int64_t& ts : removed_ltkfs) fixed_kfs.insert(ts);
 
     {
       Timer t;
@@ -1307,6 +1513,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
         // TODO: execution could be done staged
 
         Timer t;
+        Timer tt;  // TODO: Unify timing measurements
 
         // linearize residuals
         bool numerically_valid;
@@ -1337,6 +1544,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
         if (show_uimat(UIMAT::JR_QR)) visual_data->getj(UIMAT::JR_QR).Jr = lqr->getUILandmarkBlocks();
 
         stats.add("performQR", t.reset()).format("ms");
+        times[0] += tt.elapsed_ns();
       }
 
       if (config.vio_debug) {
@@ -1401,6 +1609,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
         VecX inc;
         {
           Timer t;
+          Timer tt;  // TODO: Unify timing measurements
 
           // get dense reduced camera system
           MatX H;
@@ -1412,6 +1621,16 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
             for (const int64_t& ts : ltkfs) {
               if (aom.abs_order_map.count(ts) == 0) {
                 std::cerr << "[UNEXPECTED] ltkfs ts=" << ts << " not in aom" << std::endl;
+                continue;
+              }
+              const auto& [idx, size] = aom.abs_order_map.at(ts);
+              H.template block<>(idx, 0, size, H.cols()).setZero();
+              H.diagonal().template segment<POSE_SIZE>(idx).array() = 1e20;
+              b.template segment<>(idx, size).setZero();
+            }
+            for (const int64_t& ts : removed_ltkfs) {
+              if (aom.abs_order_map.count(ts) == 0) {
+                std::cerr << "[UNEXPECTED] kfs ts=" << ts << " not in aom" << std::endl;
                 continue;
               }
               const auto& [idx, size] = aom.abs_order_map.at(ts);
@@ -1454,6 +1673,8 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
             visual_data->geth(UIMAT::HB).b = std::make_shared<Eigen::VectorXf>(b.template cast<float>());
             visual_data->geth(UIMAT::HB).aom = std::make_shared<AbsOrderMap>(aom);
           }
+
+          times[1] += tt.elapsed_ns();
         }
 
         // backup state (then apply increment and check cost decrease)
@@ -1466,8 +1687,11 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
           inc = -inc;
 
           Timer t;
+          Timer tt;  // TODO: Unify timing measurements
           l_diff = lqr->backSubstitute(inc);
           stats.add("backSubstitute", t.reset()).format("ms");
+
+          times[2] += tt.elapsed_ns();
         }
 
         // undo jacobian scaling before applying increment to poses
@@ -1495,6 +1719,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
 
         {
           Timer t;
+          Timer tt;  // TODO: Unify timing measurements
           computeError(after_update_vision_and_inertial_error);
           computeMargPriorError(marg_data, after_update_marg_prior_error);
 
@@ -1506,6 +1731,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
           after_update_vision_and_inertial_error += after_update_imu_error + after_bg_error + after_ba_error;
 
           stats.add("computerError2", t.reset()).format("ms");
+          times[3] += tt.elapsed_ns();
         }
 
         Scalar after_error_total = after_update_vision_and_inertial_error + after_update_marg_prior_error;
@@ -1635,22 +1861,32 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
     }
   }
 
+  times[0] += initial_ts;
+  times[1] += times[0];
+  times[2] += times[1];
+  times[3] += times[2];
+
+  curr_frame->input_images->addTime("backend_cumulative_linearization_ended", times[0]);
+  curr_frame->input_images->addTime("backend_cumulative_solver_ended", times[1]);
+  curr_frame->input_images->addTime("backend_cumulative_backsubstitution_ended", times[2]);
+  curr_frame->input_images->addTime("backend_cumulative_error_computed", times[3]);
+  curr_frame->input_images->addTime("backend_optimization_ended");
+
   return true;
 }
 
 template <class Scalar_>
 bool SqrtKeypointVioEstimator<Scalar_>::optimize_and_marg(const OpticalFlowInput::Ptr& input_images,
                                                           const std::map<int64_t, int>& num_points_connected,
-                                                          const std::unordered_set<KeypointId>& lost_landmaks) {
+                                                          const std::unordered_set<KeypointId>& lost_landmaks,
+                                                          const int64_t curr_frame_t_ns) {
   bool success = true;
 
   success &= optimize();
   if (!success) return false;
-  input_images->addTime("optimized");
 
-  success &= marginalize(num_points_connected, lost_landmaks);
+  success &= marginalize(num_points_connected, lost_landmaks, curr_frame_t_ns);
   if (!success) return false;
-  input_images->addTime("marginalized");
 
   return success;
 }

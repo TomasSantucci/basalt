@@ -39,7 +39,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <thread>
 #include <utility>
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Waggressive-loop-optimizations"
 #include <Eigen/Geometry>
+#pragma GCC diagnostic pop
 
 #include <basalt/utils/vio_config.h>
 

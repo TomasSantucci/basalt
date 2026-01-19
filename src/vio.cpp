@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <magic_enum.hpp>
 
+#include <sophus/interpolate.hpp>
 #include <sophus/se3.hpp>
 
 #include <Eigen/src/Core/Matrix.h>
@@ -63,12 +64,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/io/marg_data_io.h>
 #include <basalt/spline/se3_spline.h>
 #include <basalt/utils/assert.h>
+#include <basalt/vi_estimator/loop_closing.h>
+#include <basalt/vi_estimator/map_database.h>
+#include <basalt/vi_estimator/nfr_mapper.h>
 #include <basalt/vi_estimator/vio_estimator.h>
 #include <basalt/calibration/calibration.hpp>
 
 #include <basalt/serialization/headers_serialization.h>
 
 #include <basalt/utils/keypoints.h>
+#include <basalt/utils/sync_utils.h>
 #include <basalt/utils/system_utils.h>
 #include <basalt/utils/vio_config.h>
 #include <basalt/utils/vis_matrices.h>
@@ -94,7 +99,45 @@ using std::thread;
 using vis::Button;
 using UIMAT = vis::UIMAT;
 
+namespace {
+std::array timing_titles = {"frames_original_timestamp",
+                            "frames_read_started",
+                            "frames_read",
+                            "frames_pushed",
+                            "frontend_frames_received",
+                            "frontend_preintegration_computed",
+                            "frontend_pyramid_created",
+                            "frontend_tracking_ended",
+                            "frontend_recall_ended",
+                            "frontend_detection_cam0_ended",
+                            "frontend_matching_ended",
+                            "frontend_detection_cami_ended",
+                            "frontend_filter_ended",
+                            "frontend_keypoints_pushed",
+                            "backend_keypoints_received",
+                            "backend_observations_processed",
+                            "backend_cumulative_linearization_ended",
+                            "backend_cumulative_solver_ended",
+                            "backend_cumulative_backsubstitution_ended",
+                            "backend_cumulative_error_computed",
+                            "backend_optimization_ended",
+                            "backend_marginalization_ended",
+                            "backend_state_pushed",
+                            "consumer_state_received"};
+
+std::ostream& operator<<(std::ostream& os, const vit::TimeStats& s) {
+  for (const int64_t& ts : s.timings) os << ts << (&ts != &s.timings.back() ? "," : "\n");
+  return os;
+}
+}  // namespace
+
 struct basalt_vio_ui : vis::VIOUIBase {
+  std::unordered_map<int64_t, VioVisualizationData::Ptr> vis_map;
+  std::unordered_map<int64_t, MapDatabaseVisualizationData::Ptr> mapper_vis_map;
+  std::unordered_map<int64_t, LoopClosingVisualizationData::Ptr> loop_closing_vis_map;
+  NfrMapperVisualizationData::Ptr mapper_set_vis_data = nullptr;
+  std::unordered_map<int64_t, NfrMapperVisualizationData::Ptr> nfrmapper_vis_map;
+
   VioDatasetPtr vio_dataset;
   int64_t start_t_ns = -1;
 
@@ -104,7 +147,11 @@ struct basalt_vio_ui : vis::VIOUIBase {
   pangolin::OpenGlRenderState camera;
 
   tbb::concurrent_bounded_queue<basalt::VioVisualizationData::Ptr> out_vis_queue;
+  tbb::concurrent_bounded_queue<basalt::MapDatabaseVisualizationData::Ptr> out_mapper_vis_queue;
+  tbb::concurrent_bounded_queue<basalt::LoopClosingVisualizationData::Ptr> out_lc_vis_queue;
+  tbb::concurrent_bounded_queue<basalt::NfrMapperVisualizationData::Ptr> out_nfrmapper_vis_queue;
   tbb::concurrent_bounded_queue<basalt::PoseVelBiasState<double>::Ptr> out_state_queue;
+  tbb::concurrent_bounded_queue<basalt::MapUpdate::Ptr> out_map_update_queue;
 
   std::vector<int64_t> vio_t_ns;
   Eigen::aligned_vector<Eigen::Vector3d> vio_t_w_i;
@@ -119,11 +166,19 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
   tbb::concurrent_unordered_map<int64_t, int> timestamp_to_id;
 
+  SyncState sync_hashbow_index;
+  SyncState sync_map_stamp;
+  SyncState sync_vio_finished;
+  SyncState sync_lc_finished;
+
   std::mutex m;
   std::condition_variable cvar;
   bool step_by_step = false;
   bool deterministic = false;
+  bool save_times = false;
   size_t max_frames = 0;
+
+  std::ofstream timing_csv{};
 
   std::atomic<bool> terminate = false;
 
@@ -140,13 +195,18 @@ struct basalt_vio_ui : vis::VIOUIBase {
   thread feed_imu_thread;
   thread vis_thread;
   thread ui_thread;
+  thread map_vis_thread;
+  thread loop_closing_vis_thread;
+  thread nfrmapper_vis_thread;
   thread state_consumer_thread;
+  thread map_updates_thread;
   thread queues_printer_thread;
 
   Var<bool> trajectory_menu{"ui.Trajectory Menu", false, true};
   Var<string> trajectory_menu_title{"trajectory_menu.MENU", "Trajectory Menu", META_FLAG_READONLY};
   Var<bool> show_gt{"trajectory_menu.show_gt", true, true};
   Button align_se3_btn{"trajectory_menu.align_se3", [this]() { alignButton(); }};
+  Button get_distance_travelled_btn{"trajectory_menu.get_distance_travelled", [this]() { getDistanceTravelled(); }};
   Var<bool> euroc_fmt{"trajectory_menu.euroc_fmt", true, true};
   Var<bool> tum_rgbd_fmt{"trajectory_menu.tum_rgbd_fmt", false, true};
   Var<bool> kitti_fmt{"trajectory_menu.kitti_fmt", false, true};
@@ -210,7 +270,8 @@ struct basalt_vio_ui : vis::VIOUIBase {
     app.add_option("--step-by-step", step_by_step, "Whether to wait for manual input before running the dataset");
     app.add_option("--save-trajectory", trajectory_fmt, "Save trajectory. Supported formats <tum, euroc, kitti>");
     app.add_option("--save-trajectory-fn", trajectory_name, "Name of the saved trajectory (default: trajectory.csv)");
-    app.add_option("--save-groundtruth", trajectory_groundtruth, "In addition to trajectory, save also ground turth");
+    app.add_option("--save-groundtruth", trajectory_groundtruth, "In addition to trajectory, save also ground truth");
+    app.add_option("--save-times", save_times, "Measure and save timing information.");
     app.add_option("--use-imu", use_imu, "Use IMU: visual-inertial vs visual-only pipeline");
     app.add_option("--use-double", use_double, "Use double not float.");
     app.add_option("--deterministic", deterministic, "Make the pipeline output reproducible (some performance impact)");
@@ -245,6 +306,16 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
     load_data(cam_calib_path);
 
+    if (save_times) {
+      string timing_fn = string("timing.") + trajectory_name;
+      timing_csv = std::ofstream{timing_fn};
+      timing_csv << "#";
+      for (const auto& col : timing_titles) {
+        string delimiter = &col != &timing_titles.back() ? "," : "\n";
+        timing_csv << col << delimiter;
+      }
+    }
+
     {
       basalt::DatasetIoInterfacePtr dataset_io = basalt::DatasetIoFactory::getDatasetIo(dataset_type);
 
@@ -255,6 +326,11 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
       show_frame.Meta().range[1] = vio_dataset->get_image_timestamps().size() - 1;
       show_frame.Meta().gui_changed = true;
+
+      recent_kf_cam_id.Meta().range[1] = calib.intrinsics.size() - 1;
+      recent_kf_cam_id.Meta().gui_changed = true;  // es necesario?
+      candidate_kf_cam_id.Meta().range[1] = calib.intrinsics.size() - 1;
+      candidate_kf_cam_id.Meta().gui_changed = true;  // es necesario?
 
       opt_flow = basalt::OpticalFlowFactory::getOpticalFlow(config, calib);
       opt_flow->start();
@@ -277,6 +353,52 @@ struct basalt_vio_ui : vis::VIOUIBase {
       vio->opt_flow_depth_guess_queue = &opt_flow->input_depth_queue;
       vio->opt_flow_state_queue = &opt_flow->input_state_queue;
       vio->opt_flow_lm_bundle_queue = &opt_flow->input_lm_bundle_queue;
+      if (deterministic) {
+        if (config.enable_loop_closing) {
+          vio->sync_hashbow_index = &sync_hashbow_index;
+          vio->sync_vio_finished = &sync_vio_finished;
+          vio->sync_lc_finished = &sync_lc_finished;
+        }
+        vio->sync_map_stamp = &sync_map_stamp;
+      }
+    }
+    {
+      map_db = std::make_shared<basalt::MapDatabase>(config, calib);
+      map_db->initialize();
+      vio->out_vio_data_queue = &map_db->write_queue;
+      vio->out_covi_req_queue = &map_db->read_queue;
+      map_db->out_covi_res_queue = &vio->in_covi_res_queue;
+      if (config.enable_loop_closing) map_db->out_map_update_queue = &out_map_update_queue;
+      if (deterministic) {
+        map_db->sync_map_stamp = &sync_map_stamp;
+        if (config.enable_loop_closing) map_db->sync_lc_finished = &sync_lc_finished;
+      }
+      if (show_gui) map_db->out_vis_queue = &out_mapper_vis_queue;
+    }
+    if (config.enable_mapper) {
+      nfr_mapper = std::make_shared<basalt::NfrMapper>(calib, config);
+      nfr_mapper.reset(new basalt::NfrMapper(calib, config));
+      nfr_mapper->initialize();
+      vio->out_marg_queue = &nfr_mapper->in_marg_queue;
+      if (show_gui) {
+        nfr_mapper->out_vis_queue = &out_nfrmapper_vis_queue;
+      }
+    }
+    if (config.enable_loop_closing) {
+      loop_closing = std::make_shared<basalt::LoopClosing>(config, calib);
+      loop_closing->initialize();
+      loop_closing->deterministic = deterministic;
+      loop_closing->out_map_req_queue = &map_db->read_queue;
+      map_db->out_map_res_queue = &loop_closing->in_map_res_queue;
+      map_db->out_3d_points_res_queue = &loop_closing->in_map_3d_points_queue;
+      loop_closing->out_map_update_queue = &map_db->write_queue;
+      vio->out_opt_flow_queue_loop_closing = &loop_closing->in_optical_flow_queue;
+      if (deterministic) {
+        loop_closing->sync_hashbow_index = &sync_hashbow_index;
+        loop_closing->sync_vio_finished = &sync_vio_finished;
+        loop_closing->sync_lc_finished = &sync_lc_finished;
+      }
+      if (show_gui) loop_closing->out_lc_vis_queue = &out_lc_vis_queue;
     }
 
     basalt::MargDataSaver::Ptr marg_data_saver;
@@ -308,7 +430,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     feed_images_thread = thread([this]() { feed_images(); });
     feed_imu_thread = thread([this]() { feed_imu(); });
 
-    if (show_gui)
+    if (show_gui) {
       vis_thread = thread([&]() {
         basalt::VioVisualizationData::Ptr data;
 
@@ -316,6 +438,16 @@ struct basalt_vio_ui : vis::VIOUIBase {
           out_vis_queue.pop(data);
 
           if (data.get()) {
+            if (config.vio_erase_old_vis_data) {
+              int64_t last_frame_ts = vio_dataset->get_image_timestamps().at(show_frame);
+              for (auto it = vis_map.begin(); it != vis_map.end();) {
+                if (it->first < last_frame_ts) {
+                  it = vis_map.erase(it);
+                } else {
+                  ++it;
+                }
+              }
+            }
             vis_map[data->t_ns] = data;
           } else {
             break;
@@ -324,6 +456,71 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
         std::cout << "Finished t3" << std::endl;
       });
+
+      map_vis_thread = thread([&]() {
+        basalt::MapDatabaseVisualizationData::Ptr data;
+
+        while (true) {
+          out_mapper_vis_queue.pop(data);
+
+          if (data.get()) {
+            if (config.vio_erase_old_vis_data) {
+              int64_t last_frame_ts = vio_dataset->get_image_timestamps().at(show_frame);
+              for (auto it = mapper_vis_map.begin(); it != mapper_vis_map.end();) {
+                if (it->first < last_frame_ts) {
+                  it = mapper_vis_map.erase(it);
+                } else {
+                  ++it;
+                }
+              }
+            }
+            mapper_vis_map[data->t_ns] = data;
+          } else {
+            break;
+          }
+        }
+
+        std::cout << "Finished map visualization thread" << std::endl;
+      });
+
+      if (config.enable_loop_closing) {
+        loop_closing_vis_thread = thread([&]() {
+          basalt::LoopClosingVisualizationData::Ptr data;
+
+          while (true) {
+            out_lc_vis_queue.pop(data);
+
+            if (data.get()) {
+              if (data->loop_closure_found) {
+                loop_closing_vis_map[data->t_ns] = data;
+              }
+            } else {
+              break;
+            }
+          }
+
+          std::cout << "Finished loop closing visualization thread" << std::endl;
+        });
+      }
+
+      if (config.enable_mapper) {
+        nfrmapper_vis_thread = thread([&]() {
+          basalt::NfrMapperVisualizationData::Ptr data;
+
+          while (true) {
+            out_nfrmapper_vis_queue.pop(data);
+
+            if (data.get()) {
+              nfrmapper_vis_map[data->t_ns] = data;
+            } else {
+              break;
+            }
+          }
+
+          std::cout << "Finished NFR mapper visualization thread" << std::endl;
+        });
+      }
+    }
 
     if (!deterministic) {
       state_consumer_thread = thread([&]() {
@@ -340,6 +537,12 @@ struct basalt_vio_ui : vis::VIOUIBase {
       });
     }
 
+    if (config.enable_loop_closing) {
+      map_updates_thread = thread([&]() {
+        while (pop_map_updates()) continue;
+      });
+    }
+
     time_start = std::chrono::high_resolution_clock::now();
 
     // record if we close the GUI before VIO is finished.
@@ -350,11 +553,54 @@ struct basalt_vio_ui : vis::VIOUIBase {
     return 0;
   }
 
+  bool pop_map_updates() {
+    basalt::MapUpdate::Ptr map_update;
+    out_map_update_queue.pop(map_update);
+
+    if (map_update.get() == nullptr) return false;
+
+    Sophus::SE3d T_correction = Sophus::SE3d();
+    Sophus::SE3d current_kf_pose, next_kf_pose;
+    FrameId current_kf_ns = 0, next_kf_ns = 0;
+    for (size_t i = 0; i < vio_t_w_i.size(); i++) {
+      int64_t ts = vio_t_ns[i];
+
+      if (map_update->keyframe_poses.count(ts)) {
+        vio_T_w_i[i] = map_update->keyframe_poses.at(ts).cast<double>();
+        vio_t_w_i[i] = vio_T_w_i[i].translation();
+        current_kf_pose = vio_T_w_i[i];
+        current_kf_ns = ts;
+        // get the next keyframe pose in keyframe poses
+        auto it = map_update->keyframe_poses.find(ts);
+        it++;
+        if (it != map_update->keyframe_poses.end()) {
+          next_kf_pose = it->second.cast<double>();
+          next_kf_ns = it->first;
+        } else {
+          next_kf_pose = current_kf_pose;
+          next_kf_ns = current_kf_ns;
+        }
+      } else {
+        // interpolate the pose
+        if (current_kf_ns > 0 && next_kf_ns > current_kf_ns) {
+          double ratio = double(ts - current_kf_ns) / double(next_kf_ns - current_kf_ns);
+          vio_T_w_i[i] = Sophus::interpolate(current_kf_pose, next_kf_pose, ratio);
+          vio_t_w_i[i] = vio_T_w_i[i].translation();
+        }
+      }
+    }
+
+    return true;
+  }
+
   bool pop_state() {
     basalt::PoseVelBiasState<double>::Ptr data;
     out_state_queue.pop(data);
 
     if (data.get() == nullptr) return false;
+
+    data->input_images->addTime("consumer_state_received");
+    if (save_times) timing_csv << data->input_images->stats;  // Write CSV line
 
     int64_t t_ns = data->t_ns;
 
@@ -417,6 +663,24 @@ struct basalt_vio_ui : vis::VIOUIBase {
       blocks_display->SetBounds(0.0, 0.6, UI_WIDTH, pangolin::Attach::Pix(UI_WIDTH_PIX + DEFAULT_W));
       blocks_display->AddDisplay(*blocks_view);
       blocks_display->Show(show_blocks);
+
+      similar_keyframes_view = make_shared<pangolin::ImageView>();
+      similar_keyframes_view->extern_draw_function = [this](View& /*v*/) {
+        draw_similar_keyframes_overlay(vio_dataset, timestamp_to_id);
+      };
+      similar_keyframes_display = &pangolin::CreateDisplay();
+      similar_keyframes_display->SetBounds(0.0, 0.6, UI_WIDTH, pangolin::Attach::Pix(UI_WIDTH_PIX + DEFAULT_W));
+      similar_keyframes_display->AddDisplay(*similar_keyframes_view);
+      similar_keyframes_display->Show(show_similar_keyframes);
+
+      hashbow_results_view = make_shared<pangolin::ImageView>();
+      hashbow_results_view->extern_draw_function = [this](View& /*v*/) {
+        draw_hashbow_results_overlay(vio_dataset, timestamp_to_id);
+      };
+      hashbow_results_display = &pangolin::CreateDisplay();
+      hashbow_results_display->SetBounds(0.0, 0.6, UI_WIDTH, pangolin::Attach::Pix(UI_WIDTH_PIX + DEFAULT_W));
+      hashbow_results_display->AddDisplay(*hashbow_results_view);
+      hashbow_results_display->Show(show_hashbow_results);
 
       pangolin::CreatePanel("ui").SetBounds(0.0, 1.0, 0.0, UI_WIDTH);
       menus.push_back(&trajectory_menu);
@@ -620,8 +884,12 @@ struct basalt_vio_ui : vis::VIOUIBase {
     terminate = true;
 
     // join other threads
-    if (show_gui) vis_thread.join();
+    if (show_gui) {
+      vis_thread.join();
+      map_vis_thread.join();
+    }
     if (!deterministic) state_consumer_thread.join();
+
     if (print_queue) queues_printer_thread.join();
 
     // after joining all threads, print final queue sizes.
@@ -693,14 +961,50 @@ struct basalt_vio_ui : vis::VIOUIBase {
       }
       os.close();
     }
+
+    if (save_times) timing_csv.close();
   }
 
+  // TODO: get_curr_vis_data and get_curr_map_vis_data check concurrent access
   VioVisualizationData::Ptr get_curr_vis_data() override {
     int64_t curr_ts = vio_dataset->get_image_timestamps().at(show_frame);
     auto it = vis_map.find(curr_ts);
     if (it == vis_map.end()) return nullptr;
     VioVisualizationData::Ptr curr_vis_data = it->second;
     return curr_vis_data;
+  }
+
+  MapDatabaseVisualizationData::Ptr get_curr_map_vis_data() override {
+    int map_last_frame = show_frame;
+    while (true) {
+      if (map_last_frame == 0) return nullptr;
+      int64_t curr_ts = vio_dataset->get_image_timestamps().at(map_last_frame);
+      auto it = mapper_vis_map.find(curr_ts);
+      if (it != mapper_vis_map.end()) return it->second;
+      map_last_frame--;
+    }
+  }
+
+  LoopClosingVisualizationData::Ptr get_curr_lc_vis_data() override {
+    int map_last_frame = show_frame;
+    while (true) {
+      if (map_last_frame == 0) return nullptr;
+      int64_t curr_ts = vio_dataset->get_image_timestamps().at(map_last_frame);
+      auto it = loop_closing_vis_map.find(curr_ts);
+      if (it != loop_closing_vis_map.end()) return it->second;
+      map_last_frame--;
+    }
+  }
+
+  NfrMapperVisualizationData::Ptr get_curr_nfrmapper_vis_data() override {
+    int map_last_frame = show_frame;
+    while (true) {
+      if (map_last_frame == 0) return nullptr;
+      int64_t curr_ts = vio_dataset->get_image_timestamps().at(map_last_frame);
+      auto it = nfrmapper_vis_map.find(curr_ts);
+      if (it != nfrmapper_vis_map.end()) return it->second;
+      map_last_frame--;
+    }
   }
 
   // Feed functions
@@ -719,19 +1023,31 @@ struct basalt_vio_ui : vis::VIOUIBase {
         cvar.wait(lk);
       }
 
+      int64_t t_ns = vio_dataset->get_image_timestamps()[i];
       basalt::OpticalFlowInput::Ptr img(new basalt::OpticalFlowInput(NUM_CAMS));
 
-      img->t_ns = vio_dataset->get_image_timestamps()[i];
+      if (save_times) {
+        img->stats.ts = t_ns;
+        img->stats.enabled_exts.has_pose_timing = true;
+        img->stats.timings.reserve(timing_titles.size());  // This enables timing measurements in the pipeline
+        img->stats.timing_titles = timing_titles.data();
+      }
+      img->addTime("frames_original_timestamp", t_ns);
+      img->addTime("frames_read_started");
+
+      img->t_ns = t_ns;
       img->img_data = vio_dataset->get_image_data(img->t_ns);
       if (img->img_data.size() != size_t(NUM_CAMS)) {
         std::cout << "Skipping incomplete frameset for timestamp " << img->t_ns << std::endl;
         continue;
       }
+      img->addTime("frames_read");
 
       timestamp_to_id[img->t_ns] = i;
 
+      img->addTime("frames_pushed");
       opt_flow->input_img_queue.push(img);
-      if (i % 50 == 0) {
+      if (i % 64 == 0) {
         size_t frame_count = vio_dataset->get_image_timestamps().size();
         float completion = 100.0 * i / frame_count;
         std::cout << "[{:.2f}%] Input image {}/{}\t\r"_format(completion, i, frame_count) << std::flush;
@@ -802,36 +1118,324 @@ struct basalt_vio_ui : vis::VIOUIBase {
     glColor3ubv(gt_color);
     if (show_gt) pangolin::glDrawLineStrip(gt_t_w_i);
 
-    VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
-    if (curr_vis_data == nullptr) return;
+    pangolin::glDrawAxis(Sophus::SE3d().matrix(), 1.0);
 
-    for (size_t i = 0; i < calib.T_i_c.size(); i++) {
-      if (!curr_vis_data->states.empty()) {
-        const auto& [ts, p] = *curr_vis_data->states.rbegin();
-        do_render_camera(p * calib.T_i_c[i], i, ts, cam_color);
-      } else if (!curr_vis_data->frames.empty()) {
-        const auto& [ts, p] = *curr_vis_data->frames.rbegin();
-        do_render_camera(p * calib.T_i_c[i], i, ts, cam_color);
+    if (show_vio) {
+      VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
+      if (curr_vis_data == nullptr) return;
+
+      for (size_t i = 0; i < calib.T_i_c.size(); i++) {
+        if (!curr_vis_data->states.empty()) {
+          const auto& [ts, p] = *curr_vis_data->states.rbegin();
+          do_render_camera(p * calib.T_i_c[i], i, ts, cam_color);
+        } else if (!curr_vis_data->frames.empty()) {
+          const auto& [ts, p] = *curr_vis_data->frames.rbegin();
+          do_render_camera(p * calib.T_i_c[i], i, ts, cam_color);
+        }
+      }
+
+      for (const auto& [ts, p] : curr_vis_data->states)
+        for (size_t i = 0; i < calib.T_i_c.size(); i++) do_render_camera(p * calib.T_i_c[i], i, ts, state_color);
+
+      for (const auto& [ts, p] : curr_vis_data->frames)
+        for (size_t i = 0; i < calib.T_i_c.size(); i++) do_render_camera(p * calib.T_i_c[i], i, ts, pose_color);
+
+      for (const auto& [ts, p] : curr_vis_data->ltframes)
+        for (size_t i = 0; i < calib.T_i_c.size(); i++) do_render_camera(p * calib.T_i_c[i], i, ts, vis::BLUE);
+
+      show_3d_points(curr_vis_data->points, curr_vis_data->point_ids, vis::BLUE);
+    }
+    if (show_map) {
+      MapDatabaseVisualizationData::Ptr curr_map_vis_data = get_curr_map_vis_data();
+      if (curr_map_vis_data == nullptr) return;
+
+      glPointSize(3);
+      glEnable(GL_BLEND);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+      // SHOW LANDMARKS
+      show_3d_points(curr_map_vis_data->landmarks, curr_map_vis_data->landmarks_ids, vis::ORANGE);
+
+      // SHOW OBSERVATIONS
+      if (show_observations) {
+        glLineWidth(0.25);
+        glColor3f(0.75, 0.75, 0.75);
+        for (const auto& [lm_id, obs] : curr_map_vis_data->observations) {
+          if (filter_highlights && is_highlighted(lm_id)) {
+            pangolin::glDrawLines(curr_map_vis_data->observations.at(lm_id));
+          }
+          if (!filter_highlights) {
+            pangolin::glDrawLines(curr_map_vis_data->observations.at(lm_id));
+          }
+        }
+      }
+
+      // SHOW KEYFRAMES POSES
+      if (show_keyframe_poses) {
+        glLineWidth(0.25);
+        for (const auto& [kf_id, pose] : curr_map_vis_data->keyframe_poses) {
+          pangolin::glDrawAxis(pose.matrix(), 0.1);
+          if (show_ids) {
+            glPushMatrix();
+            glMultMatrixd(pose.matrix().data());
+            glColor3ubv(vis::BLUE);
+            FONT.Text("%d", curr_map_vis_data->keyframe_idx[kf_id]).Draw(0, 0, -0.01F);
+            glPopMatrix();
+          }
+        }
+      }
+
+      // SHOW COVISIBILITY
+      if (show_covisibility) {
+        const int max_weight = config.loop_closing_pgo_min_covisibility_weight;  // example threshold
+        for (size_t i = 0; i + 1 < curr_map_vis_data->covisibility.size(); i += 2) {
+          float alpha = 0.1f;
+          if (i / 2 < curr_map_vis_data->covisibility_w.size()) {
+            int w = curr_map_vis_data->covisibility_w[i / 2];
+            // Normalize alpha between 0.2 and 1.0
+            alpha = 0.1f + 0.8f * (float(w) / float(max_weight));
+            if (alpha > 1.0f) alpha = 1.0f;
+            if (alpha < 0.2f) alpha = 0.2f;
+          }
+          glColor4f(0.0f, 0.0f, 1.0f, alpha);  // blue with variable alpha
+          glLineWidth(0.25f);
+          glBegin(GL_LINES);
+          glVertex3d(curr_map_vis_data->covisibility[i].x(), curr_map_vis_data->covisibility[i].y(),
+                     curr_map_vis_data->covisibility[i].z());
+          glVertex3d(curr_map_vis_data->covisibility[i + 1].x(), curr_map_vis_data->covisibility[i + 1].y(),
+                     curr_map_vis_data->covisibility[i + 1].z());
+          glEnd();
+        }
+      }
+
+      if (show_high_covisibility) {
+        const int high_covisibility_threshold = config.loop_closing_pgo_min_covisibility_weight;
+        for (size_t i = 0; i + 1 < curr_map_vis_data->covisibility.size(); i += 2) {
+          if (i / 2 < curr_map_vis_data->covisibility_w.size()) {
+            int w = curr_map_vis_data->covisibility_w[i / 2];
+            if (w >= high_covisibility_threshold) {
+              glColor3ubv(vis::BLUE);
+              glLineWidth(1.0f);
+              glBegin(GL_LINES);
+              glVertex3d(curr_map_vis_data->covisibility[i].x(), curr_map_vis_data->covisibility[i].y(),
+                         curr_map_vis_data->covisibility[i].z());
+              glVertex3d(curr_map_vis_data->covisibility[i + 1].x(), curr_map_vis_data->covisibility[i + 1].y(),
+                         curr_map_vis_data->covisibility[i + 1].z());
+              glEnd();
+            }
+          }
+        }
+      }
+
+      if (show_spanning_tree) {
+        glColor3ubv(vis::GREEN);
+        glLineWidth(0.5);
+        pangolin::glDrawLines(curr_map_vis_data->spanning_tree);
+      }
+
+      if (show_loop_closures) {
+        glColor3ubv(vis::GREEN);
+        glLineWidth(0.5);
+        pangolin::glDrawLines(curr_map_vis_data->loop_closures);
       }
     }
+    if (show_similar_keyframes) {
+      LoopClosingVisualizationData::Ptr curr_lc_vis_data = get_curr_lc_vis_data();
+      if (curr_lc_vis_data == nullptr) {
+        return;
+      }
 
-    for (const auto& [ts, p] : curr_vis_data->states)
-      for (size_t i = 0; i < calib.T_i_c.size(); i++) do_render_camera(p * calib.T_i_c[i], i, ts, state_color);
+      if (!curr_lc_vis_data->loop_closure_found) return;
 
-    for (const auto& [ts, p] : curr_vis_data->frames)
-      for (size_t i = 0; i < calib.T_i_c.size(); i++) do_render_camera(p * calib.T_i_c[i], i, ts, pose_color);
+      glLineWidth(0.25);
+      pangolin::glDrawAxis(curr_lc_vis_data->keyframe_pose.matrix(), 0.1);
 
-    for (const auto& [ts, p] : curr_vis_data->ltframes)
-      for (size_t i = 0; i < calib.T_i_c.size(); i++) do_render_camera(p * calib.T_i_c[i], i, ts, vis::BLUE);
+      FrameId candidate_id = curr_lc_vis_data->islands[island_idx][0];
 
-    glColor3ubv(pose_color);
-    if (!filter_highlights) pangolin::glDrawPoints(curr_vis_data->points);
+      for (const auto& kf_id : curr_lc_vis_data->islands[island_idx]) {
+        int kf_idx = timestamp_to_id[kf_id];
+        Sophus::SE3f candidate_pose = vio_T_w_i[kf_idx].cast<float>();
+        pangolin::glDrawAxis(candidate_pose.matrix(), 0.1);
+      }
+
+      FrameId main_candidate_id = curr_lc_vis_data->islands[island_idx][0];
+      FrameId actual_frame_id = curr_lc_vis_data->islands[island_idx][similar_kf_idx];
+      int actual_frame_idx = timestamp_to_id[actual_frame_id];
+      int main_candidate_idx = timestamp_to_id[main_candidate_id];
+
+      Sophus::SE3f main_candidate_pose = vio_T_w_i[main_candidate_idx].cast<float>();
+
+      Sophus::SE3f corrected_pose = curr_lc_vis_data->corrected_pose[candidate_id];
+      if (!config.close_loops) {
+        pangolin::glDrawAxis(corrected_pose.matrix(), 0.1);
+      }
+
+      Eigen::Vector3f t_actual_curr = curr_lc_vis_data->keyframe_pose.translation();
+      Eigen::Vector3f t_corrected_curr = corrected_pose.translation();
+      Eigen::Vector3f t_actual_candidate = vio_T_w_i[actual_frame_idx].cast<float>().translation();
+
+      if (!config.close_loops) {
+        glColor3f(1.0f, 1.0f, 0.0f);
+        glBegin(GL_LINES);
+        glVertex3d(t_actual_curr.x(), t_actual_curr.y(), t_actual_curr.z());
+        glVertex3d(t_corrected_curr.x(), t_corrected_curr.y(), t_corrected_curr.z());
+        glEnd();
+
+        glColor3f(0.0f, 1.0f, 1.0f);
+        glBegin(GL_LINES);
+        glVertex3d(t_corrected_curr.x(), t_corrected_curr.y(), t_corrected_curr.z());
+        glVertex3d(t_actual_candidate.x(), t_actual_candidate.y(), t_actual_candidate.z());
+        glEnd();
+      } else {
+        glColor3f(0.0f, 1.0f, 1.0f);
+        glBegin(GL_LINES);
+        glVertex3d(t_actual_curr.x(), t_actual_curr.y(), t_actual_curr.z());
+        glVertex3d(t_actual_candidate.x(), t_actual_candidate.y(), t_actual_candidate.z());
+        glEnd();
+      }
+
+      MapDatabaseVisualizationData::Ptr curr_map_vis_data = get_curr_map_vis_data();
+      if (curr_map_vis_data != nullptr) {
+        std::vector<int> landmark_ids = curr_map_vis_data->landmarks_ids;
+        Eigen::aligned_vector<Eigen::Vector3d> landmark_positions = curr_map_vis_data->landmarks;
+
+        std::vector<LandmarkId> island_landmark_ids = curr_lc_vis_data->landmark_ids[island_idx];
+        Eigen::aligned_vector<Eigen::Vector3d> curr_island_points;
+
+        for (const auto& lm_id : island_landmark_ids) {
+          auto it = std::find(landmark_ids.begin(), landmark_ids.end(), lm_id);
+          if (it != landmark_ids.end()) {
+            size_t lm_idx = std::distance(landmark_ids.begin(), it);
+            Eigen::Vector3d lm_pos = landmark_positions[lm_idx];
+
+            curr_island_points.push_back(lm_pos);
+          }
+        }
+
+        // show the points without using show_3d_points to avoid filtering by highlights
+        glPointSize(10);
+        glColor3ubv(vis::GREEN);
+        pangolin::glDrawPoints(curr_island_points);
+        glPointSize(3);
+      }
+
+      if (show_gt && !gt_t_ns.empty() && !gt_T_w_i.empty()) {
+        Sophus::SE3d T_gt_start, T_gt_end;
+        associate_loop(candidate_id, curr_lc_vis_data->t_ns, gt_t_ns, gt_T_w_i, T_gt_start, T_gt_end);
+
+        // obtain the transformation from the T_gt_start to candidate_pose
+        Sophus::SE3f T_start_correction =
+            main_candidate_pose * T_gt_start.inverse().cast<float>();  // T_w_cand * T_gt_start^-1 = T_start_correction
+
+        if (loop_closing_show_aligned_gt) {
+          Eigen::aligned_vector<Eigen::Vector3d> gt_aligned_pre_loop;
+          Eigen::aligned_vector<Eigen::Vector3d> gt_aligned_loop;
+          Eigen::aligned_vector<Eigen::Vector3d> gt_aligned_post_loop;
+          for (size_t i = 0; i < gt_t_ns.size(); i++) {
+            if (gt_t_ns[i] < candidate_id) {
+              gt_aligned_pre_loop.push_back(
+                  (T_start_correction * gt_T_w_i[i].cast<float>()).translation().cast<double>());
+            } else if (gt_t_ns[i] >= candidate_id && gt_t_ns[i] <= curr_lc_vis_data->t_ns) {
+              gt_aligned_loop.push_back((T_start_correction * gt_T_w_i[i].cast<float>()).translation().cast<double>());
+            } else {
+              gt_aligned_post_loop.push_back(
+                  (T_start_correction * gt_T_w_i[i].cast<float>()).translation().cast<double>());
+            }
+          }
+
+          glColor4f(0.0f, 1.0f, 0.0f, 0.3f);
+          pangolin::glDrawLineStrip(gt_aligned_pre_loop);
+
+          glColor3ubv(vis::GREEN);
+          pangolin::glDrawLineStrip(gt_aligned_loop);
+
+          glColor4f(0.0f, 1.0f, 0.0f, 0.3f);
+          pangolin::glDrawLineStrip(gt_aligned_post_loop);
+        }
+
+        if (loop_closing_show_gt_poses) {
+          // draw the T_gt_start and T_gt_end poses also aligned
+          glColor3ubv(vis::GREEN);
+          pangolin::glDrawAxis((T_start_correction * T_gt_start.cast<float>()).matrix(), 0.1);
+          pangolin::glDrawAxis((T_start_correction * T_gt_end.cast<float>()).matrix(), 0.1);
+        }
+
+        if (print_loop_detection_error) {
+          Sophus::SE3f T_aligned_gt_end = T_start_correction * T_gt_end.cast<float>();
+          Eigen::Vector3f t_corrected_error = T_aligned_gt_end.translation() - corrected_pose.translation();
+          double corrected_ate = t_corrected_error.norm();
+
+          Eigen::Vector3f t_uncorrected_error = T_aligned_gt_end.translation() - t_actual_curr;
+          double uncorrected_ate = t_uncorrected_error.norm();
+
+          std::cout << "Loop detection ATE (uncorrected / corrected): " << uncorrected_ate << " / " << corrected_ate
+                    << std::endl;
+          print_loop_detection_error = false;
+        }
+      }
+    }
+    if (show_mapper) {
+      NfrMapperVisualizationData::Ptr curr_nfrmapper_vis_data = get_curr_nfrmapper_vis_data();
+      if (curr_nfrmapper_vis_data == nullptr) return;
+
+      glPointSize(3);
+      glEnable(GL_BLEND);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+      // SHOW NFR LANDMARKS
+      show_3d_points(curr_nfrmapper_vis_data->landmarks, curr_nfrmapper_vis_data->landmarks_ids, vis::ORANGE);
+
+      // SHOW NFR KEYFRAMES POSES
+      glLineWidth(0.25);
+      for (const auto& [kf_id, pose] : curr_nfrmapper_vis_data->keyframe_poses) {
+        pangolin::glDrawAxis(pose.matrix(), 0.1);
+        if (show_ids) {
+          glPushMatrix();
+          glMultMatrixd(pose.matrix().data());
+          glColor3ubv(vis::BLUE);
+          // FONT.Text("%d", curr_nfrmapper_vis_data->keyframe_idx[kf_id]).Draw(0, 0, -0.01F);
+          glPopMatrix();
+        }
+      }
+    }
+  }
+
+  void associate_loop(const int64_t& filter_start_ns, const int64_t& filter_end_ns, const std::vector<int64_t>& gt_t_ns,
+                      const Eigen::aligned_vector<Sophus::SE3d>& gt_T_w_i, Sophus::SE3d& T_gt_start,
+                      Sophus::SE3d& T_gt_end) {
+    size_t j = 0;
+
+    while (j < gt_t_ns.size() && gt_t_ns[j] < filter_start_ns) j++;
+    j--;
+
+    double dt_ns = filter_start_ns - gt_t_ns[j];
+    double int_t_ns = gt_t_ns[j + 1] - gt_t_ns[j];
+
+    double ratio = dt_ns / int_t_ns;
+
+    T_gt_start = Sophus::interpolate(gt_T_w_i[j], gt_T_w_i[j + 1], ratio);
+
+    while (j < gt_t_ns.size() && gt_t_ns[j] < filter_end_ns) j++;
+    j--;
+
+    dt_ns = filter_end_ns - gt_t_ns[j];
+    int_t_ns = gt_t_ns[j + 1] - gt_t_ns[j];
+
+    ratio = dt_ns / int_t_ns;
+
+    T_gt_end = Sophus::interpolate(gt_T_w_i[j], gt_T_w_i[j + 1], ratio);
+  }
+
+  void show_3d_points(Eigen::aligned_vector<Eigen::Matrix<double, 3, 1>>& points, std::vector<int>& ids,
+                      const uint8_t color[4]) {
+    glColor3ubv(color);
+    if (!filter_highlights) pangolin::glDrawPoints(points);
 
     Eigen::aligned_vector<Eigen::Vector3d> highlighted_points;
     if (show_highlights || filter_highlights) {
-      for (size_t i = 0; i < curr_vis_data->point_ids.size(); i++) {
-        Vector3d pos = curr_vis_data->points.at(i);
-        int id = curr_vis_data->point_ids.at(i);
+      for (size_t i = 0; i < ids.size(); i++) {
+        Vector3d pos = points.at(i);
+        int id = ids.at(i);
         if (is_highlighted(id)) highlighted_points.push_back(pos);
       }
     }
@@ -844,11 +1448,11 @@ struct basalt_vio_ui : vis::VIOUIBase {
       pangolin::glDrawPoints(highlighted_points);
     }
 
-    glColor3ubv(pose_color);
+    glColor3ubv(color);
     if (show_ids) {
-      for (size_t i = 0; i < curr_vis_data->points.size(); i++) {
-        Vector3d pos = curr_vis_data->points.at(i);
-        int id = curr_vis_data->point_ids.at(i);
+      for (size_t i = 0; i < points.size(); i++) {
+        Vector3d pos = points.at(i);
+        int id = ids.at(i);
 
         bool highlighted = is_highlighted(id);
         if (filter_highlights && !highlighted) continue;
@@ -858,8 +1462,6 @@ struct basalt_vio_ui : vis::VIOUIBase {
         if (show_highlights && highlighted) glColor3ubv(pose_color);
       }
     }
-
-    pangolin::glDrawAxis(Sophus::SE3d().matrix(), 1.0);
   }
 
   void load_data(const std::string& calib_path) {
@@ -874,6 +1476,11 @@ struct basalt_vio_ui : vis::VIOUIBase {
       std::cerr << "could not load camera calibration " << calib_path << std::endl;
       std::abort();
     }
+
+    double baseline = (calib.T_i_c[1].translation() - calib.T_i_c[0].translation()).norm();
+    if (config.vio_min_triangulation_dist < baseline)
+      std::cout << "Warning: vio_min_triangulation_dist (" << config.vio_min_triangulation_dist
+                << ") is smaller than camera baseline (" << baseline << "). Update the config file." << std::endl;
   }
 
   bool next_step(int steps = 1) {
@@ -942,6 +1549,18 @@ struct basalt_vio_ui : vis::VIOUIBase {
   }
 
   void alignButton() { basalt::alignSVD(vio_t_ns, vio_t_w_i, gt_t_ns, gt_t_w_i); }
+
+  void getDistanceTravelled() {
+    // distance is the distance between the first and the last pose
+    if (vio_t_w_i.size() < 2) {
+      std::cout << "Not enough poses to compute distance travelled." << std::endl;
+      return;
+    }
+    Eigen::Vector3d start_pos = vio_t_w_i.front();
+    Eigen::Vector3d end_pos = vio_t_w_i.back();
+    double distance = (end_pos - start_pos).norm();
+    std::cout << "Distance travelled: " << distance << " meters." << std::endl;
+  }
 
   void compute_frames_error() {
     Eigen::Matrix<int64_t, Eigen::Dynamic, 1> est_ts{};
