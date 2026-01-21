@@ -233,6 +233,28 @@ void detectKeypoints(const basalt::Image<const uint16_t>& img_raw, KeypointsData
                            masks);
 }
 
+void detectKeypointsFAST(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd, int threshold,
+                         bool non_max_suppression) {
+  kd.corners.clear();
+
+  cv::Mat subImg(img_raw.h, img_raw.w, CV_8U);
+  for (size_t y = 0; y < img_raw.h; y++) {
+    uchar* sub_ptr = subImg.ptr(y);
+    for (size_t x = 0; x < img_raw.w; x++) {
+      sub_ptr[x] = (img_raw(x, y) >> 8);
+    }
+  }
+
+  std::vector<cv::KeyPoint> points;
+  cv::FAST(subImg, points, threshold, non_max_suppression, cv::FastFeatureDetector::TYPE_9_16);
+
+  for (size_t i = 0; i < points.size(); ++i) {
+    const cv::KeyPoint& point = points[i];
+    kd.corners.emplace_back(point.pt.x, point.pt.y);
+    kd.corner_responses.emplace_back(point.response);
+  }
+}
+
 void computeAngles(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd, bool rotate_features) {
   kd.corner_angles.resize(kd.corners.size());
 

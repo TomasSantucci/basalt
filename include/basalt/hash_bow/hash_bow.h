@@ -9,6 +9,7 @@
 #include <basalt/utils/common_types.h>
 
 #include <tbb/concurrent_unordered_map.h>
+#include <tbb/concurrent_unordered_set.h>
 #include <tbb/concurrent_vector.h>
 
 namespace basalt {
@@ -58,7 +59,10 @@ class HashBow {
       // std::pair<TimeCamId, double> p = std::make_pair(tcid, kv.second);
       inverted_index[kv.first].emplace_back(tcid, kv.second);
     }
+    time_cam_ids.insert(tcid);
   }
+
+  inline bool has_keyframe(const TimeCamId& tcid) const { return time_cam_ids.find(tcid) != time_cam_ids.end(); }
 
   inline void querry_database(const HashBowVector& bow_vector, size_t num_results,
                               std::vector<std::pair<TimeCamId, double>>& results,
@@ -137,6 +141,8 @@ class HashBow {
   tbb::concurrent_unordered_map<FeatureHash, tbb::concurrent_vector<std::pair<TimeCamId, double>>,
                                 std::hash<FeatureHash>>
       inverted_index;
+
+  tbb::concurrent_unordered_set<TimeCamId> time_cam_ids;
 };
 
 }  // namespace basalt

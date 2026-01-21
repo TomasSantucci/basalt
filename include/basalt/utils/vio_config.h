@@ -63,7 +63,7 @@ struct VioConfig {
   int optical_flow_skip_frames;
   MatchingGuessType optical_flow_matching_guess_type;
   float optical_flow_matching_default_depth;
-  float optical_flow_image_safe_radius;                    // Use to mask black corners in cameras
+  float optical_flow_image_safe_radius;  // Use to mask black corners in cameras
   bool optical_flow_predict_with_imu;
   bool optical_flow_recall_enable;                         // Enable feature/landmark recall
   bool optical_flow_recall_all_cams;                       // Recall in all cameras, not just cam0
@@ -111,10 +111,40 @@ struct VioConfig {
   double vio_kf_marg_feature_ratio;
   KeyframeMargCriteria vio_kf_marg_criteria;  // Keyframe removal criteria
   bool vio_triangulate_with_all_cams;
-  int vio_covisibility_query_frequency;       // How often the VIO makes the covisibility query (measured in frames)
+  int vio_covisibility_query_frequency;  // How often the VIO makes the covisibility query (measured in frames)
   MapCovisibilityCriteria map_covisibility_criteria;
   int map_sts_max_size;
   bool map_sts_use_last_frame;
+
+  bool enable_loop_closing;
+  std::vector<int64_t> loop_closing_timestamps;
+  bool loop_closing_skip_covisible;
+  int loop_closing_bow_num_bits;
+  double loop_closing_num_frames_to_match;
+  double loop_closing_frames_to_match_threshold;
+  double loop_closing_max_hamming_distance;
+  double loop_closing_second_best_test_ratio;
+  double loop_closing_min_matches;
+  double loop_closing_pnp_ransac_threshold;
+  int loop_closing_pnp_ransac_iterations;
+  int loop_closing_pnp_min_inliers;
+  bool loop_closing_use_all_recent_keypoints;
+  bool dump_loop_detection_result;
+  int loop_closing_fast_threshold;
+  bool loop_closing_fast_nonmax_suppression;
+  size_t loop_closing_fast_grid_size;
+  double loop_closing_redetect_max_hamming_distance;
+  double loop_closing_redetect_second_best_test_ratio;
+  int loop_closing_num_neighbors;
+  bool always_detect_loop;
+  bool close_loops;
+  bool loop_closing_use_rematches;
+  std::vector<size_t> loop_closing_cameras_to_reproject;
+  int loop_closing_pgo_min_covisibility_weight;
+  int loop_closing_frame_time_margin_s;
+  double loop_closing_min_drift_reduction;
+  bool loop_closing_skip_initial_matching;
+  int loop_closing_min_initial_matches;
 
   double mapper_obs_std_dev;
   double mapper_obs_huber_thresh;

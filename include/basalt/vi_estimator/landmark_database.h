@@ -69,6 +69,8 @@ struct Landmark {
 
   LandmarkId id;
 
+  std::bitset<256> descriptor;
+
   inline void backup() {
     backup_direction = direction;
     backup_inv_dist = inv_dist;
@@ -99,7 +101,9 @@ class LandmarkDatabase {
 
   typedef std::shared_ptr<LandmarkDatabase<Scalar>> Ptr;
 
-  LandmarkDatabase(std::string name = "Landmark Database") : debug_name(name){};
+  LandmarkDatabase(std::string name = "Landmark Database");
+
+  LandmarkDatabase(const LandmarkDatabase&);
 
   // Non-const
   void addLandmark(LandmarkId lm_id, const Landmark<Scalar>& pos);
@@ -110,7 +114,7 @@ class LandmarkDatabase {
     kpts.clear();
     observations.clear();
     keyframe_idx.clear();
-    keyframe_poses.clear();
+    keyframe_poses->clear();
     keyframe_obs.clear();
   }
 
@@ -134,6 +138,18 @@ class LandmarkDatabase {
   void getSubmap(std::set<TimeCamId> tcids, LandmarkDatabase<Scalar>::Ptr submap);
 
   void mergeLMDB(LandmarkDatabase<Scalar>::Ptr lmdb, bool override);
+
+  void mergeObservations(const Landmark<Scalar_>& existing_lm, const Landmark<Scalar_>& incoming_lm);
+
+  void mergeLandmarks(const LandmarkId& from_lm_id, const LandmarkId& to_lm_id);
+
+  void mergeKeyframesPoses(std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3<Scalar_>>> loop_kfs_poses);
+
+  void print_landmark(const Landmark<Scalar>& lm);
+
+  bool debug_check_landmark_consistency(const Landmark<Scalar>& lm);
+
+  bool debug_check_keyframes_consistency(std::string caller);
 
   // Const
   const Landmark<Scalar>& getLandmark(LandmarkId lm_id) const;
@@ -192,7 +208,7 @@ class LandmarkDatabase {
 
   Eigen::aligned_map<FrameId, size_t> keyframe_idx;
 
-  Eigen::aligned_map<FrameId, SE3> keyframe_poses;
+  std::shared_ptr<Eigen::aligned_map<FrameId, SE3>> keyframe_poses;
 
   Eigen::aligned_map<TimeCamId, std::set<LandmarkId>> keyframe_obs;
 

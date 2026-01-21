@@ -1,11 +1,15 @@
 #pragma once
 
+#include <basalt/hash_bow/hash_bow.h>
+#include <basalt/utils/sync_utils.h>
+#include <basalt/vi_estimator/covisibility_graph.h>
 #include <basalt/vi_estimator/landmark_database.h>
+#include <basalt/vi_estimator/map_interface.h>
 #include <basalt/vi_estimator/vio_estimator.h>
 #include <Eigen/Dense>
 #include <memory>
-#include <thread>
 #include <mutex>
+#include <thread>
 
 namespace basalt {
 
@@ -49,6 +53,25 @@ struct SpatialDistributionCube {
   Vec2 Cx, Cy, Cz;
 };
 
+struct MapUpdate {
+  using Ptr = std::shared_ptr<MapUpdate>;
+  Eigen::aligned_map<int64_t, Sophus::SE3f> keyframe_poses;
+};
+
+struct MapResponse {
+  using Ptr = std::shared_ptr<MapResponse>;
+
+  std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>> keyframe_poses;
+  CovisibilityGraph::Ptr covisibility_graph;
+};
+
+struct MapIslandResponse {
+  using Ptr = std::shared_ptr<MapIslandResponse>;
+
+  std::vector<FrameId> island_keyframes;
+  std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Eigen::Matrix<double, 3, 1>>> landmarks_3d_map;
+};
+
 struct MapDatabaseVisualizationData {
   using Ptr = std::shared_ptr<MapDatabaseVisualizationData>;
 
@@ -59,6 +82,9 @@ struct MapDatabaseVisualizationData {
   Eigen::aligned_map<FrameId, size_t> keyframe_idx;
   Eigen::aligned_map<int64_t, Sophus::SE3d> keyframe_poses;
   Eigen::aligned_vector<Eigen::Vector3d> covisibility;
+  std::vector<int> covisibility_w;
+  Eigen::aligned_vector<Eigen::Vector3d> spanning_tree;
+  Eigen::aligned_vector<Eigen::Vector3d> loop_closures;
   std::map<int, Eigen::aligned_vector<Eigen::Vector3d>> observations;
 };
 
@@ -70,15 +96,32 @@ class MapDatabase {
 
   using Vec3d = Eigen::Matrix<double, 3, 1>;
   using Vec4d = Eigen::Matrix<double, 4, 1>;
+  using Vec4f = Eigen::Matrix<float, 4, 1>;
   using Mat4d = Eigen::Matrix<double, 4, 4>;
 
   using Vec3 = Eigen::Matrix<Scalar, 3, 1>;
+  using Vec2 = Eigen::Matrix<Scalar, 2, 1>;
+
+  using SE3 = Sophus::SE3<Scalar>;
 
   MapDatabase(const VioConfig& config, const basalt::Calibration<double>& calib);
 
   ~MapDatabase() { maybe_join(); }
 
   void initialize();
+
+  void write_map_stamp(basalt::MapStamp::Ptr& map_stamp);
+
+  void write_map_update(
+      std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>>& keyframe_poses, FrameId candidate_kf_id,
+      FrameId curr_kf_id, std::unordered_map<LandmarkId, LandmarkId>& lm_fusions,
+      std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Eigen::Matrix<float, 2, 1>>>& curr_lc_obs);
+
+  void read_covisibility_req(std::shared_ptr<std::vector<KeypointId>>& keypoints_ptr);
+
+  void read_3d_points_req(FrameId keyframe, size_t neighbors_num);
+
+  void read_map_req(FrameId frame_id);
 
   void get_map_points(Eigen::aligned_vector<Vec3d>& points, std::vector<int>& ids);
 
@@ -93,6 +136,8 @@ class MapDatabase {
   void computeSTSMap(const std::vector<size_t>& curr_kpts);
 
   const std::map<std::string, double> getStats();
+
+  void updateCovisibilityGraph(const LandmarkDatabase<Scalar>::Ptr& lmdb);
 
   inline void maybe_join() {
     if (reading_thread) {
@@ -109,10 +154,18 @@ class MapDatabase {
 
   basalt::Calibration<double> calib;
 
-  tbb::concurrent_bounded_queue<MapStamp::Ptr> in_map_stamp_queue;
+  tbb::concurrent_bounded_queue<std::shared_ptr<WriteMessage>> write_queue;
+  tbb::concurrent_bounded_queue<std::shared_ptr<ReadMessage>> read_queue;
+
+  tbb::concurrent_bounded_queue<MapUpdate::Ptr>* out_map_update_queue = nullptr;
   tbb::concurrent_bounded_queue<MapDatabaseVisualizationData::Ptr>* out_vis_queue = nullptr;
-  tbb::concurrent_bounded_queue<std::shared_ptr<std::vector<KeypointId>>> in_covi_req_queue;
   tbb::concurrent_bounded_queue<LandmarkDatabase<Scalar>::Ptr>* out_covi_res_queue = nullptr;
+  tbb::concurrent_bounded_queue<MapResponse::Ptr>* out_map_res_queue;
+  tbb::concurrent_bounded_queue<MapIslandResponse::Ptr>* out_3d_points_res_queue = nullptr;
+
+  SyncState* sync_map_stamp = nullptr;
+  SyncState* sync_lc_finished = nullptr;
+  bool deterministic;
 
  private:
   VioConfig config;
@@ -121,6 +174,8 @@ class MapDatabase {
   MapDatabaseVisualizationData::Ptr map_visual_data;
   LandmarkDatabase<Scalar> map;
   std::mutex mutex;
+  FrameId requested_frame_id = -1;
+  CovisibilityGraph::Ptr covisibility_graph;
 
   // Covisibility
   Eigen::aligned_map<TimeCamId, SpatialDistributionCube<double>> keyframes_sdc;

@@ -154,8 +154,32 @@ bool VIOUIBase::toggle_blocks() {
   return show_blocks;
 }
 
+bool VIOUIBase::toggle_similar_keyframes() {
+  show_similar_keyframes = do_toggle_similar_keyframes();
+  return show_similar_keyframes;
+}
+
+void VIOUIBase::next_similar_kf() {
+  if (similar_kf_count) {
+    similar_kf_idx = (similar_kf_idx + 1) % similar_kf_count;
+  }
+}
+
+void VIOUIBase::next_island() {
+  if (islands_count) {
+    island_idx = (island_idx + 1) % islands_count;
+  }
+}
+
+void VIOUIBase::get_loop_detection_error() { print_loop_detection_error = true; }
+
 bool VIOUIBase::take_ltkf() {
   vio->takeLongTermKeyframe();
+  return true;
+}
+
+bool VIOUIBase::trigger_loop_closure() {
+  loop_closing->triggerLoopClosure();
   return true;
 }
 
@@ -709,6 +733,171 @@ void VIOUIBase::draw_blocks_overlay() {
   }
 }
 
+void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
+                                               tbb::concurrent_unordered_map<int64_t, int>& timestamp_to_id) {
+  const LoopClosingVisualizationData::Ptr curr_lc_vis_data = get_curr_lc_vis_data();
+  if (curr_lc_vis_data == nullptr) {
+    return;
+  }
+
+  if (!curr_lc_vis_data->loop_closure_found) return;
+
+  const std::vector<FrameId>& candidate_kfs = curr_lc_vis_data->candidate_kfs;
+  const std::vector<std::vector<FrameId>>& islands = curr_lc_vis_data->islands;
+
+  if (candidate_kfs.empty() || islands.empty()) return;
+
+  int64_t t_ns = curr_lc_vis_data->t_ns;
+
+  if (t_ns != last_kf_with_similars) {
+    last_kf_with_similars = t_ns;
+    island_idx = 0;
+    islands_count = islands.size();
+
+    similar_kf_idx = 0;
+    similar_kf_count = islands[island_idx].size();
+  }
+
+  const std::vector<FrameId>& current_island = islands[island_idx];
+  TimeCamId candidate_tcid = TimeCamId{current_island[similar_kf_idx], candidate_kf_cam_id};
+  basalt::ManagedImage<uint16_t>::Ptr current_img = vio_dataset->get_image_data(t_ns)[recent_kf_cam_id].img;
+  basalt::ManagedImage<uint16_t>::Ptr candidate_img =
+      vio_dataset->get_image_data(candidate_tcid.frame_id)[candidate_tcid.cam_id].img;
+
+  basalt::ManagedImage<uint16_t> combined_imgs(current_img->w + candidate_img->w, current_img->h);
+  for (size_t j = 0; j < current_img->h; ++j) {
+    uint16_t* row = combined_imgs.RowPtr(j);
+    const uint16_t* row1 = current_img->RowPtr(j);
+    const uint16_t* row2 = candidate_img->RowPtr(j);
+
+    std::memcpy(row, row1, current_img->w * sizeof(uint16_t));
+    std::memcpy(row + current_img->w, row2, candidate_img->w * sizeof(uint16_t));
+  }
+
+  Eigen::aligned_vector<std::pair<Eigen::Matrix<float, 2, 1>, Eigen::Matrix<float, 2, 1>>> matches =
+      curr_lc_vis_data->matches[island_idx][recent_kf_cam_id][candidate_tcid];
+
+  glColor3ubv(BLUE);
+  for (const auto& match : matches) {
+    Eigen::Vector2f p1 = match.first;
+    Eigen::Vector2f p2 = match.second;
+    p2[0] += current_img->w;
+
+    glBegin(GL_LINES);
+    glVertex2f(p1[0], p1[1]);
+    glVertex2f(p2[0], p2[1]);
+    glEnd();
+
+    pangolin::glDrawCirclePerimeter(p1.cast<double>(), 3.0f);
+    pangolin::glDrawCirclePerimeter(p2.cast<double>(), 3.0f);
+  }
+
+  if (curr_lc_vis_data->inlier_matches[island_idx].size() > recent_kf_cam_id &&
+      curr_lc_vis_data->inlier_matches[island_idx][recent_kf_cam_id].count(candidate_tcid) != 0) {
+    //  if (curr_lc_vis_data->inlier_matches[recent_kf_cam_id].count(candidate_tcid) != 0) {
+    Eigen::aligned_vector<std::pair<Eigen::Matrix<float, 2, 1>, Eigen::Matrix<float, 2, 1>>> inlier_matches =
+        curr_lc_vis_data->inlier_matches[island_idx][recent_kf_cam_id][candidate_tcid];
+
+    glColor3ubv(GREEN);
+    for (const auto& match : inlier_matches) {
+      Eigen::Vector2f p1 = match.first;
+      Eigen::Vector2f p2 = match.second;
+      p2[0] += current_img->w;
+
+      glBegin(GL_LINES);
+      glVertex2f(p1[0], p1[1]);
+      glVertex2f(p2[0], p2[1]);
+      glEnd();
+
+      pangolin::glDrawCirclePerimeter(p1.cast<double>(), 1.5f);
+      pangolin::glDrawCirclePerimeter(p2.cast<double>(), 1.5f);
+    }
+  }
+
+  if (show_similar_kf_kpts) {
+    Eigen::aligned_vector<Eigen::Matrix<float, 2, 1>>& current_kpts =
+        curr_lc_vis_data->current_keypoints[recent_kf_cam_id];
+    Eigen::aligned_vector<Eigen::Matrix<float, 2, 1>>& candidate_kpts =
+        curr_lc_vis_data->candidate_keypoints[candidate_tcid];
+
+    glColor3ubv(RED);
+    for (const auto& p : current_kpts) {
+      pangolin::glDrawCirclePerimeter(p.cast<double>(), 3.0f);
+    }
+    for (const auto& p : candidate_kpts) {
+      Eigen::Vector2f pp = p;
+      pp[0] += current_img->w;
+      pangolin::glDrawCirclePerimeter(pp.cast<double>(), 3.0f);
+    }
+  }
+
+  if (show_reprojections && similar_kf_idx == 0 && recent_kf_cam_id == candidate_kf_cam_id &&
+      std::find(config.loop_closing_cameras_to_reproject.begin(), config.loop_closing_cameras_to_reproject.end(),
+                recent_kf_cam_id) != config.loop_closing_cameras_to_reproject.end()) {
+    // draw the reprojections
+    // get the index of the recent_kf_cam_id in the vector config.loop_closing_cameras_to_reproject
+    auto it = std::find(config.loop_closing_cameras_to_reproject.begin(),
+                        config.loop_closing_cameras_to_reproject.end(), recent_kf_cam_id);
+
+    size_t index = std::distance(config.loop_closing_cameras_to_reproject.begin(), it);
+
+    Eigen::aligned_unordered_map<KeypointId, Eigen::Matrix<float, 2, 1>> reprojected_keypoints =
+        curr_lc_vis_data->reprojected_keypoints[island_idx][index];
+
+    glColor3ubv(YELLOW);
+    for (const auto& [kpt_id, p] : reprojected_keypoints) {
+      pangolin::glDrawCirclePerimeter(p.cast<double>(), 3.0f);
+
+      // draw a square box around the point
+      float box_size = config.loop_closing_fast_grid_size;
+      glBegin(GL_LINE_LOOP);
+      glVertex2f(p[0] - box_size / 2, p[1] - box_size / 2);
+      glVertex2f(p[0] + box_size / 2, p[1] - box_size / 2);
+      glVertex2f(p[0] + box_size / 2, p[1] + box_size / 2);
+      glVertex2f(p[0] - box_size / 2, p[1] + box_size / 2);
+      glEnd();
+    }
+
+    if (show_redetections) {
+      std::unordered_map<KeypointId, Eigen::aligned_vector<Eigen::Matrix<float, 2, 1>>>& redetected_kpts =
+          curr_lc_vis_data->redetected_keypoints[island_idx][index];
+
+      glColor3ubv(ORANGE);
+      for (const auto& [kpid, kpts] : redetected_kpts) {
+        for (const auto& p : kpts) {
+          pangolin::glDrawCirclePerimeter(p.cast<double>(), 3.0f);
+        }
+      }
+    }
+
+    if (show_rematches) {
+      Eigen::aligned_vector<Eigen::Matrix<float, 2, 1>>& rematched_keypoints =
+          curr_lc_vis_data->rematched_keypoints[island_idx][index];
+      glColor3ubv(BLUE);
+      for (const auto& p : rematched_keypoints) {
+        pangolin::glDrawCirclePerimeter(p.cast<double>(), 3.0f);
+      }
+    }
+  }
+
+  pangolin::GlPixFormat fmt;
+  fmt.glformat = GL_LUMINANCE;
+  fmt.gltype = GL_UNSIGNED_SHORT;
+  fmt.scalable_internal_format = GL_LUMINANCE16;
+  similar_keyframes_view->SetImage(combined_imgs.ptr, combined_imgs.w, combined_imgs.h, combined_imgs.pitch, fmt);
+
+  std::ostringstream ss;
+  ss << (similar_kf_idx + 1) << " of " << similar_kf_count << " - " << (island_idx + 1) << " of " << islands_count
+     << " - " << timestamp_to_id[candidate_tcid.frame_id] << " : " << candidate_tcid.frame_id << " ("
+     << candidate_tcid.cam_id << ")";
+
+  FONT.Text(ss.str()).Draw(5 + current_img->w, 20);
+
+  std::ostringstream ss1;
+  ss1 << timestamp_to_id[t_ns] << " : " << t_ns << " (" << recent_kf_cam_id << ")";
+  FONT.Text(ss1.str()).Draw(5, 20);
+}
+
 void VIOUIBase::draw_jacobian_overlay(const UIJacobians& uij) {
   const VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
   if (curr_vis_data == nullptr) return;
@@ -860,6 +1049,33 @@ bool VIOUIBase::do_toggle_blocks() {
   plot_display->SetBounds(0.0, 0.4, X_ATTACH, 1.0);
 
   return show_blocks;
+}
+
+bool VIOUIBase::do_toggle_similar_keyframes() {
+  similar_keyframes_display->ToggleShow();
+  bool show_similar_keyframes = similar_keyframes_display->IsShown();
+
+  size_t child_count = img_view_display->NumVisibleChildren();
+  if (child_count == 0) return show_similar_keyframes;
+
+  if (!show_similar_keyframes) {
+    plot_display->SetBounds(0.0, 0.4, UI_WIDTH, 1.0);
+    return show_similar_keyframes;
+  }
+
+  View* last_view = &img_view_display->VisibleChild(child_count - 1);
+  auto* last_img_view = dynamic_cast<pangolin::ImageView*>(last_view);
+  pangolin::XYRangef range = last_img_view->GetDefaultView();
+  float xmax = -1;
+  float ymax = -1;
+  last_img_view->ImageToScreen(last_img_view->v, range.x.max, range.y.max, xmax, ymax);
+
+  auto X_ATTACH = pangolin::Attach::Pix(xmax * 2 - UI_WIDTH_PIX);
+  auto Y_ATTACH = pangolin::Attach::Pix(ymax);
+  similar_keyframes_display->SetBounds(0.0, Y_ATTACH, UI_WIDTH, X_ATTACH);
+  plot_display->SetBounds(0.0, 0.4, X_ATTACH, 1.0);
+
+  return show_similar_keyframes;
 }
 
 void VIOUIBase::do_show_blocks() {

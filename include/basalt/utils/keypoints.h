@@ -85,6 +85,9 @@ void detectKeypoints(
     int min_threshold = 5, int max_threshold = 40, float safe_radius = 0.0, const Masks& masks = {},
     const Eigen::aligned_vector<Eigen::Vector2d>& current_points = Eigen::aligned_vector<Eigen::Vector2d>());
 
+void detectKeypointsFAST(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd, int threshold,
+                         bool non_max_suppression);
+
 void detectKeypointsWithCells(const basalt::Image<const uint16_t>& img_raw, KeypointsData& kd,
                               const Eigen::MatrixXi& cells, int PATCH_SIZE = 32, int num_points_cell = 1,
                               int min_threshold = 5, int max_threshold = 40, float safe_radius = 0.0,

@@ -38,11 +38,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <basalt/optical_flow/optical_flow.h>
 #include <basalt/utils/imu_types.h>
+#include <basalt/utils/sync_utils.h>
 #include <basalt/utils/vis_matrices.h>
 #include <basalt/vi_estimator/landmark_database.h>
+#include <basalt/vi_estimator/map_interface.h>
 #include <basalt/linearization/landmark_block.hpp>
 
 namespace basalt {
+
+struct LoopClosingInput {
+  using Ptr = std::shared_ptr<LoopClosingInput>;
+
+  int64_t t_ns;
+  std::vector<Keypoints> keypoints;
+  std::vector<Keypoints> landmarks;
+  OpticalFlowInput::Ptr input_images;
+};
 
 struct VioVisualizationData {
   using Ptr = std::shared_ptr<VioVisualizationData>;
@@ -83,13 +94,6 @@ struct VioVisualizationData {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
-struct MapStamp {
-  typedef std::shared_ptr<MapStamp> Ptr;
-
-  int64_t t_ns;
-  typename LandmarkDatabase<float>::Ptr lmdb;
-};
-
 class VioEstimatorBase {
  public:
   typedef std::shared_ptr<VioEstimatorBase> Ptr;
@@ -117,15 +121,20 @@ class VioEstimatorBase {
 
   tbb::concurrent_bounded_queue<PoseVelBiasState<double>::Ptr>* out_state_queue = nullptr;
   tbb::concurrent_bounded_queue<MargData::Ptr>* out_marg_queue = nullptr;
-  tbb::concurrent_bounded_queue<MapStamp::Ptr>* out_vio_data_queue = nullptr;
-  tbb::concurrent_bounded_queue<std::shared_ptr<std::vector<KeypointId>>>* out_covi_req_queue = nullptr;
+  tbb::concurrent_bounded_queue<WriteMessage::Ptr>* out_vio_data_queue = nullptr;
+  tbb::concurrent_bounded_queue<ReadMessage::Ptr>* out_covi_req_queue = nullptr;
   tbb::concurrent_bounded_queue<LandmarkDatabase<float>::Ptr> in_covi_res_queue;
   tbb::concurrent_bounded_queue<VioVisualizationData::Ptr>* out_vis_queue = nullptr;
 
+  tbb::concurrent_bounded_queue<LoopClosingInput::Ptr>* out_opt_flow_queue_loop_closing = nullptr;
   tbb::concurrent_queue<double>* opt_flow_depth_guess_queue = nullptr;
   tbb::concurrent_queue<PoseVelBiasState<double>::Ptr>* opt_flow_state_queue = nullptr;
   tbb::concurrent_queue<LandmarkBundle::Ptr>* opt_flow_lm_bundle_queue = nullptr;
   tbb::concurrent_queue<Masks>* opt_flow_masks_queue = nullptr;
+
+  SyncState* sync_map_stamp = nullptr;
+  SyncState* sync_lc_finished = nullptr;
+  bool deterministic;
 
   virtual void initialize(int64_t t_ns, const Sophus::SE3d& T_w_i, const Eigen::Vector3d& vel_w_i,
                           const Eigen::Vector3d& bg, const Eigen::Vector3d& ba) = 0;

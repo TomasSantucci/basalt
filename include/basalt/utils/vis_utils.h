@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pangolin/gl/glfont.h>
 
 #include <basalt/utils/vis_matrices.h>
+#include <basalt/vi_estimator/loop_closing.h>
 #include <basalt/vi_estimator/map_database.h>
 #include <basalt/vi_estimator/vio_estimator.h>
 #include <pangolin/plot/datalog.h>
@@ -269,6 +270,16 @@ struct VIOUIBase {
   View* img_view_display;
   View* plot_display;
   View* blocks_display;
+  View* similar_keyframes_display;
+  shared_ptr<ImageView> similar_keyframes_view;
+  int64_t last_kf_with_similars;
+  bool show_similar_keyframes = false;
+  size_t island_idx = 0;
+  size_t islands_count = 0;
+  size_t similar_kf_idx = 0;
+  size_t similar_kf_count = 0;
+  bool print_loop_detection_error = false;
+
   shared_ptr<ImageView> blocks_view;
   vector<shared_ptr<ImageView>> img_view;
   bool show_blocks = false;
@@ -280,6 +291,7 @@ struct VIOUIBase {
   // TODO: Make vis_map into a queue that stores a range of frames, even in realtime mode
   VisWindow vis_window;
   MapDatabase::Ptr map_db;
+  LoopClosing::Ptr loop_closing;
 
   Var<int> show_frame{"ui.show_frame", 0, META_FLAG_READONLY};
 
@@ -346,6 +358,24 @@ struct VIOUIBase {
   Var<bool> show_map{"map_menu.show_map", false, true};
   Var<bool> show_covisibility{"map_menu.show_covisibility", false, true};
   Var<bool> show_observations{"map_menu.show_observations", false, true};
+  Var<bool> show_high_covisibility{"map_menu.show_high_covisibility", false, true};
+  Var<bool> show_spanning_tree{"map_menu.show_spanning_tree", false, true};
+  Var<bool> show_loop_closures{"map_menu.show_loop_closures", false, true};
+  Var<bool> show_keyframe_poses{"map_menu.show_keyframe_poses", true, true};
+  Button trigger_loop_closure_btn{"map_menu.Close Loop", [this]() { trigger_loop_closure(); }};
+  Button toggle_similar_keyframes_btn{"map_menu.toggle_similar_kfs", [this]() { toggle_similar_keyframes(); }};
+  Button next_island_btn{"map_menu.next_island", [this]() { next_island(); }};
+  Button next_similar_keyframe_btn{"map_menu.next_similar_kf", [this]() { next_similar_kf(); }};
+  Var<bool> show_reprojections{"map_menu.show_reprojections", false, true};
+  Var<bool> show_redetections{"map_menu.show_redetections", false, true};
+  Var<bool> show_rematches{"map_menu.show_rematches", false, true};
+  Var<bool> show_similar_kf_kpts{"map_menu.show_similar_kf_kpts", false, true};
+  Var<bool> loop_closing_show_aligned_gt{"map_menu.loop_closing_show_aligned_gt", false, true};
+  Var<bool> loop_closing_show_gt_poses{"map_menu.loop_closing_show_gt_poses", false, true};
+  Button get_loop_detection_error_btn{"map_menu.get_loop_detection_error", [this]() { get_loop_detection_error(); }};
+  Var<int> recent_kf_cam_id{"map_menu.recent_kf_cam_id", 0};
+  Var<int> candidate_kf_cam_id{"map_menu.candidate_kf_cam_id", 0};
+  Button take_map_btn{"map_menu.Get Covisibility Map", [this]() { get_covisibility_map(); }};
 
   Var<bool> follow{"ui.follow", true, true};
   Button reset_state_btn{"ui.Reset State", [this]() { reset_state(); }};
@@ -357,6 +387,7 @@ struct VIOUIBase {
 
   virtual VioVisualizationData::Ptr get_curr_vis_data() = 0;
   virtual MapDatabaseVisualizationData::Ptr get_curr_map_vis_data() = 0;
+  virtual LoopClosingVisualizationData::Ptr get_curr_lc_vis_data() = 0;
 
   KeypointId get_kpid_at(size_t cam_id, int x, int y, float radius = 10);
   bool is_highlighted(size_t lmid) const { return vis::is_selected(highlights, lmid); }
@@ -366,6 +397,7 @@ struct VIOUIBase {
   void clear_highlights();
   bool toggle_blocks();
   bool take_ltkf();
+  bool trigger_loop_closure();
   bool reset_state();
   void do_show_empty_warning(size_t cam_id);
   bool get_covisibility_map();
@@ -391,6 +423,13 @@ struct VIOUIBase {
   void do_show_hessian(UIHessians& uih);
   void do_show_jacobian(UIJacobians& uij);
   bool do_follow_highlight(bool follow, bool smooth_zoom);
+  bool toggle_similar_keyframes();
+  bool do_toggle_similar_keyframes();
+  void draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
+                                      tbb::concurrent_unordered_map<int64_t, int>& timestamp_to_id);
+  void next_similar_kf();
+  void next_island();
+  void get_loop_detection_error();
 
   void do_render_camera(const Sophus::SE3d& T_w_c, size_t i, size_t ts, const uint8_t* color);
 };

@@ -207,11 +207,11 @@ class SqrtKeypointVioEstimator : public VioEstimatorBase, public SqrtBundleAdjus
   int frames_after_kf;
   size_t frame_count = 0;
   std::set<int64_t> kf_ids;
-  std::set<int64_t> ltkfs;  // Long term keyframes
+  std::set<int64_t> ltkfs;     // Long term keyframes
   std::set<int64_t> tmpkfs{};  // Temporal keyframes
-  bool take_ltkf;           // Whether the next keyframe should be made into ltkfs
+  bool take_ltkf;              // Whether the next keyframe should be made into ltkfs
   Eigen::aligned_map<int64_t, size_t> frame_idx;
-  bool get_map=false;
+  bool get_map = false;
   typename LandmarkDatabase<Scalar>::Ptr covisible_submap{};
 
   int64_t last_state_t_ns;

@@ -139,10 +139,11 @@ class vit_tracker_ui : public vis::VIOUIBase {
 
  public:
   tbb::concurrent_bounded_queue<VioVisualizationData::Ptr> out_vis_queue{};
-  tbb::concurrent_queue<double> *opt_flow_depth_queue = nullptr;
+  tbb::concurrent_queue<double>* opt_flow_depth_queue = nullptr;
 
   VioVisualizationData::Ptr get_curr_vis_data() override { return curr_vis_data; }
   MapDatabaseVisualizationData::Ptr get_curr_map_vis_data() override { return curr_map_vis_data; }
+  LoopClosingVisualizationData::Ptr get_curr_lc_vis_data() override { return nullptr; }
 
   void initialize(int ncams) {
     vio_data_log.Clear();
@@ -150,8 +151,8 @@ class vit_tracker_ui : public vis::VIOUIBase {
     num_cams = ncams;
   }
 
-  void start(const Sophus::SE3d &T_w_i_init, const Calibration<double> &calib, const VioConfig &config,
-             const OpticalFlowBase::Ptr &of, const VioEstimatorBase::Ptr &ve) {
+  void start(const Sophus::SE3d& T_w_i_init, const Calibration<double>& calib, const VioConfig& config,
+             const OpticalFlowBase::Ptr& of, const VioEstimatorBase::Ptr& ve) {
     opt_flow_depth_queue = &of->input_depth_queue;
     opt_flow = of;
     vio = ve;
@@ -185,7 +186,7 @@ class vit_tracker_ui : public vis::VIOUIBase {
 
   UIMAT get_mat_to_show() { return show_blocks ? (UIMAT)mat_to_show.Get() : UIMAT::NONE; }
 
-  void log_vio_data(const PoseVelBiasState<double>::Ptr &data) {
+  void log_vio_data(const PoseVelBiasState<double>::Ptr& data) {
     int64_t t_ns = data->t_ns;
     if (start_t_ns < 0) start_t_ns = t_ns;
     float since_start_ns = t_ns - start_t_ns;
@@ -216,11 +217,11 @@ class vit_tracker_ui : public vis::VIOUIBase {
 
   std::shared_ptr<pangolin::Plotter> plotter;
   pangolin::DataLog imu_data_log{};
-  void start_ui(const Sophus::SE3d &T_w_i_init, const Calibration<double> &cal, const VioConfig &conf) {
+  void start_ui(const Sophus::SE3d& T_w_i_init, const Calibration<double>& cal, const VioConfig& conf) {
     ui_runner_thread = thread(&vit_tracker_ui::ui_runner, this, T_w_i_init, cal, conf);
   }
 
-  void ui_runner(const Sophus::SE3d &T_w_i_init, const Calibration<double> &cal, const VioConfig &conf) {
+  void ui_runner(const Sophus::SE3d& T_w_i_init, const Calibration<double>& cal, const VioConfig& conf) {
     calib = cal;
     config = conf;
     string window_name = "Basalt";
@@ -242,7 +243,7 @@ class vit_tracker_ui : public vis::VIOUIBase {
 
     blocks_view = std::make_shared<pangolin::ImageView>();
     blocks_view->UseNN() = true;  // Disable antialiasing, can be toggled with N key
-    blocks_view->extern_draw_function = [this](View & /*v*/) { draw_blocks_overlay(); };
+    blocks_view->extern_draw_function = [this](View& /*v*/) { draw_blocks_overlay(); };
     const int DEFAULT_W = 480;
     blocks_display = &pangolin::CreateDisplay();
     blocks_display->SetBounds(0.0, 0.6, UI_WIDTH, pangolin::Attach::Pix(UI_WIDTH_PIX + DEFAULT_W));
@@ -263,8 +264,8 @@ class vit_tracker_ui : public vis::VIOUIBase {
       img_view.push_back(iv);
 
       img_view_display->AddDisplay(*iv);
-      iv->extern_draw_function = [idx, this](View &v) {
-        draw_image_overlay(dynamic_cast<pangolin::ImageView &>(v), idx);
+      iv->extern_draw_function = [idx, this](View& v) {
+        draw_image_overlay(dynamic_cast<pangolin::ImageView&>(v), idx);
       };
     }
 
@@ -276,7 +277,7 @@ class vit_tracker_ui : public vis::VIOUIBase {
         pangolin::ProjectionMatrix(640, 480, 400, 400, 320, 240, 0.001, 10000),
         pangolin::ModelViewLookAt(cam_p[0], cam_p[1], cam_p[2], 0, 0, 0, pangolin::AxisZ));
 
-    View &display3D = pangolin::CreateDisplay();
+    View& display3D = pangolin::CreateDisplay();
     display3D.SetAspect(-640 / 480.0);
     display3D.SetBounds(0.4, 1.0, 0.4, 1.0);
     display3D.SetHandler(new pangolin::Handler3D(camera));
@@ -340,8 +341,8 @@ class vit_tracker_ui : public vis::VIOUIBase {
         do_follow_highlight(follow_highlight, true);
       }
 
-      Var<bool> *selected_menu = nullptr;
-      for (Var<bool> *menu : menus) {
+      Var<bool>* selected_menu = nullptr;
+      for (Var<bool>* menu : menus) {
         if (menu->GuiChanged()) {
           selected_menu = menu;
           break;
@@ -363,7 +364,7 @@ class vit_tracker_ui : public vis::VIOUIBase {
     cout << "Finished ui_runner\n";
   }
 
-  void draw_image_overlay(pangolin::ImageView &v, size_t cam_id) {
+  void draw_image_overlay(pangolin::ImageView& v, size_t cam_id) {
     UNUSED(v);
     if (curr_vis_data == nullptr) return;
 
@@ -394,24 +395,24 @@ class vit_tracker_ui : public vis::VIOUIBase {
     if (!curr_vis_data) return;
 
     const uint8_t cs[4][3]{{244, 67, 54}, {76, 175, 80}, {33, 150, 243}, {255, 152, 0}};  // r, g, b, orange
-    auto cam_color = [&cs](size_t i) -> const uint8_t * { return cs[i % 4]; };
+    auto cam_color = [&cs](size_t i) -> const uint8_t* { return cs[i % 4]; };
     if (!curr_vis_data->states.empty() || !curr_vis_data->frames.empty()) {
-      const auto &[ts, p] = *curr_vis_data->states.rbegin();
+      const auto& [ts, p] = *curr_vis_data->states.rbegin();
       pangolin::glDrawAxis(p.matrix(), 0.05);
       for (size_t i = 0; i < calib.T_i_c.size(); i++) do_render_camera(p * calib.T_i_c[i], i, ts, cam_color(i));
     } else if (!curr_vis_data->frames.empty()) {
-      const auto &[ts, p] = *curr_vis_data->frames.rbegin();
+      const auto& [ts, p] = *curr_vis_data->frames.rbegin();
       pangolin::glDrawAxis(p.matrix(), 0.05);
       for (size_t i = 0; i < calib.T_i_c.size(); i++) do_render_camera(p * calib.T_i_c[i], i, ts, cam_color(i));
     }
 
-    for (const auto &[ts, p] : curr_vis_data->states)
+    for (const auto& [ts, p] : curr_vis_data->states)
       for (size_t i = 0; i < calib.T_i_c.size(); i++) do_render_camera(p * calib.T_i_c[i], i, ts, state_color);
 
-    for (const auto &[ts, p] : curr_vis_data->frames)
+    for (const auto& [ts, p] : curr_vis_data->frames)
       for (size_t i = 0; i < calib.T_i_c.size(); i++) do_render_camera(p * calib.T_i_c[i], i, ts, pose_color);
 
-    for (const auto &[ts, p] : curr_vis_data->ltframes)
+    for (const auto& [ts, p] : curr_vis_data->ltframes)
       for (size_t i = 0; i < calib.T_i_c.size(); i++) do_render_camera(p * calib.T_i_c[i], i, ts, vis::BLUE);
 
     glColor3ubv(pose_color);
@@ -451,7 +452,7 @@ class vit_tracker_ui : public vis::VIOUIBase {
   }
 
   OpticalFlowInput::Ptr last_img_data{};
-  void update_last_image(OpticalFlowInput::Ptr &data) { last_img_data = data; }
+  void update_last_image(OpticalFlowInput::Ptr& data) { last_img_data = data; }
   void draw_plots() {
     plotter->ClearSeries();
     plotter->ClearMarkers();

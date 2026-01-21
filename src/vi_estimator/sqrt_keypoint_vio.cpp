@@ -33,6 +33,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <basalt/vi_estimator/map_interface.h>
 #include <basalt/vi_estimator/marg_helper.h>
 #include <basalt/vi_estimator/sqrt_keypoint_vio.h>
 
@@ -40,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/optimization/accumulator.h>
 #include <basalt/utils/assert.h>
 #include <basalt/utils/system_utils.h>
+#include <basalt/vi_estimator/loop_closing.h>
 #include <basalt/vi_estimator/sc_ba_base.h>
 #include <basalt/utils/cast_utils.hpp>
 #include <basalt/utils/format.hpp>
@@ -510,7 +512,10 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
         }
       }
 
-      bool send_covisibility_request = out_covi_req_queue && ((config.vio_covisibility_query_frequency != 0 && frame_count % config.vio_covisibility_query_frequency == 0) || get_map);
+      bool send_covisibility_request =
+          out_covi_req_queue && ((config.vio_covisibility_query_frequency != 0 &&
+                                  frame_count % config.vio_covisibility_query_frequency == 0) ||
+                                 get_map);
       if (send_covisibility_request) {
         if (covisible_submap != nullptr) removeCovisibilityMap();
         std::vector<KeypointId> keypoint_ids;
@@ -518,7 +523,9 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
           for (const auto& kv : curr_frame->keypoints[i]) keypoint_ids.emplace_back(kv.first);
         }
         // TODO: doing the request here leaves a frame without any covisibility map
-        out_covi_req_queue->push(std::make_shared<std::vector<KeypointId>>(keypoint_ids));
+        auto msg = std::make_shared<ReadCovisibilityReqMsg>();
+        msg->keypoints = std::make_shared<std::vector<KeypointId>>(keypoint_ids);
+        out_covi_req_queue->push(msg);
         get_map = false;
       }
 
@@ -547,6 +554,7 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
     if (out_vio_data_queue) out_vio_data_queue->push(nullptr);
     if (out_state_queue) out_state_queue->push(nullptr);
     if (out_covi_req_queue) out_covi_req_queue->push(nullptr);
+    if (out_opt_flow_queue_loop_closing) out_opt_flow_queue_loop_closing->push(nullptr);
 
     finished = true;
 
@@ -661,10 +669,10 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
     take_ltkf = false;
   }
 
+  bool sent_keyframe_to_lc = false;
   if (take_kf) {
     // Triangulate new points from one of the observations (with sufficient
     // baseline) and make keyframe
-    take_kf = false;
     frames_after_kf = 0;
     kf_ids.emplace(last_state_t_ns);
     if (visual_data) visual_data->keyframed_idx[last_state_t_ns] = frame_idx.at(last_state_t_ns);
@@ -762,6 +770,56 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
 
   bool success = optimize_and_marg(num_points_connected, lost_landmaks);
   if (!success) return false;
+
+  if (take_kf) {
+    take_kf = false;
+    // Send a map stamp to the Map Database
+    BASALT_ASSERT(lmdb.debug_check_keyframes_consistency("VIO"));
+
+    map_stamp->lmdb = std::make_shared<LandmarkDatabase<Scalar_>>(lmdb);
+
+    BASALT_ASSERT(map_stamp->lmdb->debug_check_keyframes_consistency("VIO.MapStamp"));
+
+    auto msg = std::make_shared<WriteMapStampMsg>();
+    msg->map_stamp = map_stamp;
+    out_vio_data_queue->push(msg);
+
+    if (sync_map_stamp != nullptr) {
+      std::unique_lock<std::mutex> lk(sync_map_stamp->m);
+      sync_map_stamp->cvar.wait(lk, [&] { return sync_map_stamp->ready; });
+      sync_map_stamp->ready = false;
+    }
+
+    if (out_opt_flow_queue_loop_closing) {
+      LoopClosingInput::Ptr loop_closing_input = std::make_shared<LoopClosingInput>();
+      loop_closing_input->input_images = opt_flow_meas->input_images;
+      loop_closing_input->t_ns = opt_flow_meas->t_ns;
+
+      std::vector<Keypoints> landmarks(NUM_CAMS);
+
+      const Eigen::aligned_map<TimeCamId, std::set<LandmarkId>>& obs = lmdb.getKeyframeObs();
+
+      for (int i = 0; i < NUM_CAMS; i++) {
+        TimeCamId tcid(opt_flow_meas->t_ns, i);
+        if (obs.count(tcid) == 0) continue;
+        const std::set<LandmarkId>& lm_ids = obs.at(tcid);
+        for (const LandmarkId& lm_id : lm_ids) {
+          landmarks[i][lm_id] = opt_flow_meas->keypoints[i].at(lm_id);
+        }
+      }
+
+      loop_closing_input->keypoints = opt_flow_meas->keypoints;
+      loop_closing_input->landmarks = landmarks;
+
+      out_opt_flow_queue_loop_closing->push(loop_closing_input);
+      sent_keyframe_to_lc = true;
+    }
+    if (sent_keyframe_to_lc && sync_lc_finished != nullptr) {
+      std::unique_lock<std::mutex> lk(sync_lc_finished->m);
+      sync_lc_finished->cvar.wait(lk, [&] { return sync_lc_finished->ready; });
+      sync_lc_finished->ready = false;
+    }
+  }
 
   size_t num_cams = opt_flow_meas->keypoints.size();
   bool features_ext = opt_flow_meas->input_images->stats.enabled_exts.has_pose_features;
@@ -1173,12 +1231,6 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
 
         out_marg_queue->push(m);
       }
-    }
-
-    // Send a map stamp to the MapDatabase
-    if (out_vio_data_queue && !kfs_to_marg.empty()) {
-      map_stamp->lmdb = std::make_shared<LandmarkDatabase<Scalar_>>(lmdb);
-      out_vio_data_queue->push(map_stamp);
     }
 
     std::set<int> idx_to_keep, idx_to_marg;

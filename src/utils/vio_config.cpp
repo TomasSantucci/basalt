@@ -323,6 +323,36 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.mapper_no_factor_weights));
   ar(CEREAL_NVP(config.mapper_use_factors));
 
+  ar(CEREAL_NVP(config.enable_loop_closing));
+  ar(CEREAL_NVP(config.loop_closing_timestamps));
+  ar(CEREAL_NVP(config.loop_closing_skip_covisible));
+  ar(CEREAL_NVP(config.loop_closing_bow_num_bits));
+  ar(CEREAL_NVP(config.loop_closing_num_frames_to_match));
+  ar(CEREAL_NVP(config.loop_closing_frames_to_match_threshold));
+  ar(CEREAL_NVP(config.loop_closing_max_hamming_distance));
+  ar(CEREAL_NVP(config.loop_closing_second_best_test_ratio));
+  ar(CEREAL_NVP(config.loop_closing_min_matches));
+  ar(CEREAL_NVP(config.loop_closing_pnp_ransac_threshold));
+  ar(CEREAL_NVP(config.loop_closing_pnp_ransac_iterations));
+  ar(CEREAL_NVP(config.loop_closing_pnp_min_inliers));
+  ar(CEREAL_NVP(config.loop_closing_use_all_recent_keypoints));
+  ar(CEREAL_NVP(config.dump_loop_detection_result));
+  ar(CEREAL_NVP(config.loop_closing_fast_threshold));
+  ar(CEREAL_NVP(config.loop_closing_fast_nonmax_suppression));
+  ar(CEREAL_NVP(config.loop_closing_fast_grid_size));
+  ar(CEREAL_NVP(config.loop_closing_redetect_max_hamming_distance));
+  ar(CEREAL_NVP(config.loop_closing_redetect_second_best_test_ratio));
+  ar(CEREAL_NVP(config.loop_closing_num_neighbors));
+  ar(CEREAL_NVP(config.always_detect_loop));
+  ar(CEREAL_NVP(config.close_loops));
+  ar(CEREAL_NVP(config.loop_closing_use_rematches));
+  ar(CEREAL_NVP(config.loop_closing_cameras_to_reproject));
+  ar(CEREAL_NVP(config.loop_closing_pgo_min_covisibility_weight));
+  ar(CEREAL_NVP(config.loop_closing_frame_time_margin_s));
+  ar(CEREAL_NVP(config.loop_closing_min_drift_reduction));
+  ar(CEREAL_NVP(config.loop_closing_skip_initial_matching));
+  ar(CEREAL_NVP(config.loop_closing_min_initial_matches));
+
   ar(CEREAL_NVP(config.mapper_use_lm));
   ar(CEREAL_NVP(config.mapper_lm_lambda_min));
   ar(CEREAL_NVP(config.mapper_lm_lambda_max));
