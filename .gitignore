@@ -13,5 +13,7 @@ CMakeUserPresets.json
 clangd
 datasets
 .ci/cieval.yaml
+x-tools
 cmake_modules/jammy-arm64-sysroot
 cmake_modules/bookworm-arm64-sysroot
+cmake_modules/bullseye-arm64-sysroot

@@ -55,9 +55,7 @@ We need to replicate the Raspberry Pi's sysroot on our Ubuntu host.
 You can download a pre-built sysroot and extract it:
 
 ```bash
-# TODO: Update wget here and in ci file once this gets solved: https://gitlab.freedesktop.org/freedesktop/freedesktop/-/issues/2384
-# wget https://gitlab.freedesktop.org/mateosss/basalt-lfs/-/raw/main/bookworm-arm64-sysroot.tar.xz
-wget https://syncandshare.lrz.de/dl/fi2VEkRPgLW2mb6UHaXJk3/bookworm-arm64-sysroot.tar.xz
+wget https://gitlab.freedesktop.org/mateosss/basalt-lfs/-/raw/main/bookworm-arm64-sysroot.tar.xz
 tar -xvf bookworm-arm64-sysroot.tar.xz # Extracts to: cmake_modules/bookworm-arm64-sysroot
 ```
 

@@ -84,7 +84,7 @@ aarch64-raspberry-bookworm:
   script:
     - echo BUILD_RASPBERRY_BOOKWORM_JOB_ID=$CI_JOB_ID >> release.env
     - apt-get update && apt-get install -y wget
-    - wget --no-verbose https://syncandshare.lrz.de/dl/fi2VEkRPgLW2mb6UHaXJk3/bookworm-arm64-sysroot.tar.xz # TODO: update to use basalt-lfs
+    - wget --no-verbose https://gitlab.freedesktop.org/mateosss/basalt-lfs/-/raw/main/bookworm-arm64-sysroot.tar.xz
     - wget --no-verbose https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
     - tar -xf x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
     - tar -xf bookworm-arm64-sysroot.tar.xz
@@ -116,12 +116,12 @@ aarch64-radxa-jammy:
   script:
     - echo BUILD_RADXA_JAMMY_JOB_ID=$CI_JOB_ID >> release.env
     - apt-get update && apt-get install -y wget
-    - wget --no-verbose https://syncandshare.lrz.de/dl/fiUqksbXqxo49qofyjgwUe/jammy-arm64-sysroot.tar.xz # TODO: update to use basalt-lfs
+    - wget --no-verbose https://gitlab.freedesktop.org/mateosss/basalt-lfs/-/raw/main/jammy-arm64-sysroot.tar.xz
     - wget --no-verbose https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
     - tar -xf x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
     - tar -xf jammy-arm64-sysroot.tar.xz
     - git apply --directory thirdparty/Pangolin/ scripts/aarch64-patches/pangolin.patch
-    - cmake --preset=radxa
+    - cmake --preset=radxa-3w
     - time cmake --build build
     - cd build && cpack
     - mv *.deb ../basalt-monado-radxa-jammy-aarch64.deb
@@ -130,6 +130,32 @@ aarch64-radxa-jammy:
     expose_as: "basalt-monado-radxa-jammy-aarch64"
     paths:
       - "basalt-monado-radxa-jammy-aarch64.deb"
+    reports:
+      dotenv: release.env
+
+aarch64-radxa-bullseye:
+  extends: .ccache
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+  tags: [basalt-docker]
+  stage: build
+  when: manual
+  script:
+    - echo BUILD_RADXA_BULLSEYE_JOB_ID=$CI_JOB_ID >> release.env
+    - apt-get update && apt-get install -y wget
+    - wget --no-verbose https://gitlab.freedesktop.org/mateosss/basalt-lfs/-/raw/main/bullseye-arm64-sysroot.tar.xz
+    - wget --no-verbose https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - tar -xf x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - tar -xf bullseye-arm64-sysroot.tar.xz
+    - git apply --directory thirdparty/Pangolin/ scripts/aarch64-patches/pangolin.patch
+    - cmake --preset=radxa-a7z
+    - time cmake --build build
+    - cd build && cpack
+    - mv *.deb ../basalt-monado-radxa-bullseye-aarch64.deb
+  artifacts:
+    name: basalt-monado-radxa-bullseye
+    expose_as: "basalt-monado-radxa-bullseye-aarch64"
+    paths:
+      - "basalt-monado-radxa-bullseye-aarch64.deb"
     reports:
       dotenv: release.env
 
@@ -162,7 +188,7 @@ release:
     - echo "Releasing artifacts of previous jobs"
     - curl --location --output /usr/local/bin/release-cli "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64"
     - chmod +x /usr/local/bin/release-cli
-  needs: ["gcc-ubuntu-2204", "gcc-ubuntu-2404-wtest", "aarch64-raspberry-bookworm", "aarch64-radxa-jammy"]
+  needs: ["gcc-ubuntu-2204", "gcc-ubuntu-2404-wtest", "aarch64-raspberry-bookworm", "aarch64-radxa-jammy", "aarch64-radxa-bullseye"]
   release:
     name: "Release of $CI_COMMIT_SHORT_SHA"
     tag_name: "release-$CI_COMMIT_SHORT_SHA"
@@ -183,6 +209,9 @@ release:
           link_type: package
         - name: "Radxa Zero 3W: Ubuntu 22.04 .deb (aarch64, -mcpu=cortex-a55)"
           url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_RADXA_JAMMY_JOB_ID}/artifacts/raw/basalt-monado-radxa-jammy-aarch64.deb"
+          link_type: package
+        - name: "Radxa Cubie A7Z: Debian 11 bullseye .deb (aarch64, -mcpu=cortex-a76.cortex-a55)"
+          url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_RADXA_BULLSEYE_JOB_ID}/artifacts/raw/basalt-monado-radxa-bullseye-aarch64.deb"
           link_type: package
 
 create-evaluation:
