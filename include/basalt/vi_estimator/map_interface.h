@@ -12,6 +12,7 @@ struct MapStamp {
 
   int64_t t_ns;
   typename LandmarkDatabase<float>::Ptr lmdb;
+  std::set<FrameId> keyframes_to_marg;
 };
 
 struct WriteMessage {
@@ -32,6 +33,11 @@ struct WriteMapUpdateMsg : WriteMessage {
   FrameId curr_kf_id;
   std::unordered_map<LandmarkId, LandmarkId> lm_fusions;
   std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Eigen::Matrix<float, 2, 1>>> curr_lc_obs;
+  void execute(MapDatabase& db) override;
+};
+
+struct WriteMapMargMsg : WriteMessage {
+  std::set<FrameId> keyframes_to_marg;
   void execute(MapDatabase& db) override;
 };
 

@@ -10,6 +10,8 @@ void WriteMapUpdateMsg::execute(MapDatabase& db) {
   db.write_map_update(keyframe_poses, candidate_kf_id, curr_kf_id, lm_fusions, curr_lc_obs);
 }
 
+void WriteMapMargMsg::execute(MapDatabase& db) { db.write_map_marg(keyframes_to_marg); }
+
 void ReadCovisibilityReqMsg::execute(MapDatabase& db) { db.read_covisibility_req(keypoints); }
 
 void Read3dPointsReqMsg::execute(MapDatabase& db) { db.read_3d_points_req(keyframe, neighbors_num); }

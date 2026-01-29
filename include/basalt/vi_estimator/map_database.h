@@ -63,6 +63,7 @@ struct MapResponse {
 
   std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>> keyframe_poses;
   CovisibilityGraph::Ptr covisibility_graph;
+  std::set<FrameId> not_marg_kfs;
 };
 
 struct MapIslandResponse {
@@ -111,6 +112,8 @@ class MapDatabase {
   void initialize();
 
   void write_map_stamp(basalt::MapStamp::Ptr& map_stamp);
+
+  void write_map_marg(std::set<FrameId>& keyframes_to_marg);
 
   void write_map_update(
       std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>>& keyframe_poses, FrameId candidate_kf_id,
@@ -176,6 +179,8 @@ class MapDatabase {
   std::mutex mutex;
   FrameId requested_frame_id = -1;
   CovisibilityGraph::Ptr covisibility_graph;
+
+  std::set<FrameId> not_marg_kfs;
 
   // Covisibility
   Eigen::aligned_map<TimeCamId, SpatialDistributionCube<double>> keyframes_sdc;

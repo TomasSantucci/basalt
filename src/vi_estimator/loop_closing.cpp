@@ -1054,6 +1054,15 @@ void LoopClosing::buildOptimizationProblem(const VectorOfConstraints& constraint
   CHECK(pose_to_fix != poses->end()) << "There are no poses.";
   problem->SetParameterBlockConstant(pose_to_fix->second.p.data());
   problem->SetParameterBlockConstant(pose_to_fix->second.q.coeffs().data());
+
+  const std::set<FrameId>& not_marg_kfs = map_response->not_marg_kfs;
+  for (const auto& kf_id : not_marg_kfs) {
+    auto pose_iter = poses->find(kf_id);
+    if (pose_iter != poses->end()) {
+      problem->SetParameterBlockConstant(pose_iter->second.p.data());
+      problem->SetParameterBlockConstant(pose_iter->second.q.coeffs().data());
+    }
+  }
 }
 
 bool LoopClosing::solveOptimizationProblem(ceres::Problem* problem) {

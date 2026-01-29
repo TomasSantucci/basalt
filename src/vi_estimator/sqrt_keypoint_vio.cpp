@@ -669,7 +669,6 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
     take_ltkf = false;
   }
 
-  bool sent_keyframe_to_lc = false;
   if (take_kf) {
     // Triangulate new points from one of the observations (with sufficient
     // baseline) and make keyframe
@@ -773,21 +772,24 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
 
   if (take_kf) {
     take_kf = false;
-    // Send a map stamp to the Map Database
-    BASALT_ASSERT(lmdb.debug_check_keyframes_consistency("VIO"));
 
-    map_stamp->lmdb = std::make_shared<LandmarkDatabase<Scalar_>>(lmdb);
+    if (out_vio_data_queue) {
+      // Send a map stamp to the Map Database
+      BASALT_ASSERT(lmdb.debug_check_keyframes_consistency("VIO"));
 
-    BASALT_ASSERT(map_stamp->lmdb->debug_check_keyframes_consistency("VIO.MapStamp"));
+      map_stamp->lmdb = std::make_shared<LandmarkDatabase<Scalar_>>(lmdb);
 
-    auto msg = std::make_shared<WriteMapStampMsg>();
-    msg->map_stamp = map_stamp;
-    out_vio_data_queue->push(msg);
+      BASALT_ASSERT(map_stamp->lmdb->debug_check_keyframes_consistency("VIO.MapStamp"));
 
-    if (sync_map_stamp != nullptr) {
-      std::unique_lock<std::mutex> lk(sync_map_stamp->m);
-      sync_map_stamp->cvar.wait(lk, [&] { return sync_map_stamp->ready; });
-      sync_map_stamp->ready = false;
+      auto msg = std::make_shared<WriteMapStampMsg>();
+      msg->map_stamp = map_stamp;
+      out_vio_data_queue->push(msg);
+
+      if (sync_map_stamp != nullptr) {
+        std::unique_lock<std::mutex> lk(sync_map_stamp->m);
+        sync_map_stamp->cvar.wait(lk, [&] { return sync_map_stamp->ready; });
+        sync_map_stamp->ready = false;
+      }
     }
 
     if (out_opt_flow_queue_loop_closing) {
@@ -812,12 +814,11 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
       loop_closing_input->landmarks = landmarks;
 
       out_opt_flow_queue_loop_closing->push(loop_closing_input);
-      sent_keyframe_to_lc = true;
-    }
-    if (sent_keyframe_to_lc && sync_lc_finished != nullptr) {
-      std::unique_lock<std::mutex> lk(sync_lc_finished->m);
-      sync_lc_finished->cvar.wait(lk, [&] { return sync_lc_finished->ready; });
-      sync_lc_finished->ready = false;
+      if (sync_lc_finished != nullptr) {
+        std::unique_lock<std::mutex> lk(sync_lc_finished->m);
+        sync_lc_finished->cvar.wait(lk, [&] { return sync_lc_finished->ready; });
+        sync_lc_finished->ready = false;
+      }
     }
   }
 
@@ -1231,6 +1232,14 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
 
         out_marg_queue->push(m);
       }
+    }
+
+    if (out_vio_data_queue && !kfs_to_marg.empty()) {
+      auto msg = std::make_shared<WriteMapMargMsg>();
+      msg->keyframes_to_marg = kfs_to_marg;
+      out_vio_data_queue->push(msg);
+
+      // TODO@tsantucci: should sync here
     }
 
     std::set<int> idx_to_keep, idx_to_marg;

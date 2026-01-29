@@ -17,6 +17,13 @@ void MapDatabase::write_map_stamp(basalt::MapStamp::Ptr& map_stamp) {
   BASALT_ASSERT(map_stamp->lmdb->debug_check_keyframes_consistency("MapDatabase.MapStamp"));
 
   std::unique_lock<std::mutex> lock(mutex);
+
+  for (const auto& [kf_id, _] : map_stamp->lmdb->getKeyframes()) {
+    if (!map.keyframeExists(kf_id)) {
+      not_marg_kfs.insert(kf_id);
+    }
+  }
+
   map.mergeLMDB(map_stamp->lmdb, true);
 
   if (config.map_covisibility_criteria == MapCovisibilityCriteria::MAP_COV_STS) {
@@ -42,11 +49,22 @@ void MapDatabase::write_map_stamp(basalt::MapStamp::Ptr& map_stamp) {
   }
 
   if (requested_frame_id != -1 && map.keyframeExists(requested_frame_id)) {
-    requested_frame_id = -1;
-
     auto map_msg = std::make_shared<ReadMapReqMsg>();
     map_msg->frame_id = requested_frame_id;
     read_queue.push(map_msg);
+
+    requested_frame_id = -1;
+  }
+}
+
+void MapDatabase::write_map_marg(std::set<FrameId>& keyframes_to_marg) {
+  if (keyframes_to_marg.empty()) {
+    return;
+  }
+
+  std::unique_lock<std::mutex> lock(mutex);
+  for (const auto& kf_id : keyframes_to_marg) {
+    not_marg_kfs.erase(kf_id);
   }
 }
 
@@ -220,6 +238,7 @@ void MapDatabase::read_map_req(FrameId frame_id) {
   MapResponse::Ptr map_response = std::make_shared<MapResponse>();
   map_response->keyframe_poses = keyframes_poses_copy;
   map_response->covisibility_graph = covisibility_graph_copy;
+  map_response->not_marg_kfs = not_marg_kfs;
 
   if (out_map_res_queue) {
     out_map_res_queue->push(map_response);
