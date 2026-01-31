@@ -206,9 +206,19 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
   if (candidate_kfs.empty()) return false;
 
   bool loop_found = false;
+  // Data needed for visualization after the loop
+  std::unordered_map<FrameId, std::vector<KeyframesMatch>> matches;
+  std::unordered_map<FrameId, std::vector<KeyframesMatch>> inlier_matches;
+  MapIslandResponse::Ptr map_island;
+  std::vector<Eigen::aligned_unordered_map<KeypointId, Vec2>> reprojected_keypoints(
+      config.loop_closing_cameras_to_reproject.size());
+  std::vector<std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>>> redetected_keypoints_map(
+      config.loop_closing_cameras_to_reproject.size());
+  std::vector<Eigen::aligned_vector<Vec2>> rematched_keypoints(config.loop_closing_cameras_to_reproject.size());
+
   for (const auto& candidate_kf : candidate_kfs) {
-    std::unordered_map<FrameId, std::vector<KeyframesMatch>> matches;
-    std::unordered_map<FrameId, std::vector<KeyframesMatch>> inlier_matches;
+    matches.clear();
+    inlier_matches.clear();
     size_t initial_matches, initial_island_matches, initial_inliers, reprojection_inliers;
 
     if (config.loop_closing_skip_covisible && are_covisible(curr_kf_id, candidate_kf)) continue;
@@ -242,7 +252,7 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     msg->neighbors_num = config.loop_closing_num_neighbors;
     out_map_req_queue->push(msg);
 
-    MapIslandResponse::Ptr map_island = std::make_shared<MapIslandResponse>();
+    map_island = std::make_shared<MapIslandResponse>();
     in_map_3d_points_queue.pop(map_island);
     std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>& points_3d = map_island->landmarks_3d_map;
     std::vector<FrameId>& kfs_island = map_island->island_keyframes;
@@ -308,11 +318,6 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     lc_time_stats.addTime(LCTimeStage::GeometricVerification, true);
 
     // reproject the 3d points from the kfs_island[0] to the current keyframe's left cam
-    std::vector<Eigen::aligned_unordered_map<KeypointId, Vec2>> reprojected_keypoints(
-        config.loop_closing_cameras_to_reproject.size());
-    std::vector<std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>>> redetected_keypoints_map(
-        config.loop_closing_cameras_to_reproject.size());
-    std::vector<Eigen::aligned_vector<Vec2>> rematched_keypoints(config.loop_closing_cameras_to_reproject.size());
     for (size_t i = 0; i < config.loop_closing_cameras_to_reproject.size(); i++) {
       size_t cam_id = config.loop_closing_cameras_to_reproject[i];
 
@@ -401,114 +406,6 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
       }
     }
 
-    if (out_lc_vis_queue) {
-      loop_closing_visualization_data->islands.emplace_back(kfs_island);
-      loop_closing_visualization_data->corrected_pose[candidate_kf] = absolute_pose.cast<float>();
-      loop_closing_visualization_data->candidate_kfs.emplace_back(candidate_kf);
-      loop_closing_visualization_data->reprojected_keypoints.emplace_back(reprojected_keypoints);
-      loop_closing_visualization_data->redetected_keypoints.emplace_back(redetected_keypoints_map);
-      loop_closing_visualization_data->rematched_keypoints.emplace_back(rematched_keypoints);
-
-      // set the current keypoints
-      loop_closing_visualization_data->current_keypoints.resize(calib.intrinsics.size());
-      for (size_t i = 0; i < calib.intrinsics.size(); i++) {
-        for (const auto& kpt : curr_kf_kpts[i]) {
-          loop_closing_visualization_data->current_keypoints[i].emplace_back(kpt.second.translation().cast<float>());
-        }
-      }
-
-      std::vector<Eigen::aligned_unordered_map<TimeCamId, Eigen::aligned_vector<std::pair<Vec2, Vec2>>>>
-          curr_island_matches(calib.intrinsics.size());
-
-      std::vector<Eigen::aligned_unordered_map<TimeCamId, Eigen::aligned_vector<std::pair<Vec2, Vec2>>>>
-          curr_island_inliers(calib.intrinsics.size());
-      Eigen::aligned_vector<Eigen::Vector3d> curr_island_landmarks;
-      std::vector<LandmarkId> curr_island_landmark_ids;
-
-      for (const auto& kf_id : kfs_island) {
-        // first, set the keypoints for each camera
-        for (size_t i = 0; i < calib.intrinsics.size(); i++) {
-          TimeCamId kf_tcid = TimeCamId{kf_id, i};
-
-          loop_closing_visualization_data->candidate_keypoints[kf_tcid] = Eigen::aligned_vector<Vec2>();
-
-          if (points_3d.find(kf_tcid) == points_3d.end()) {
-            continue;
-          }
-          for (const auto& lms : points_3d.at(kf_tcid)) {
-            auto& positions = kpts_positions[kf_tcid];
-            if (positions.find(lms.first) == positions.end()) {
-              // TODO@tsantucci: what to do in this case?
-              continue;
-            }
-            loop_closing_visualization_data->candidate_keypoints[kf_tcid].emplace_back(
-                positions[lms.first].cast<float>());
-          }
-        }
-
-        // set the matches of the kf_id
-        for (const auto& match : matches[kf_id]) {
-          Vec2 p1 = curr_kf_kpts[match.source_cam][match.source_kpt_id].translation().cast<float>();
-          Vec2 p2 = kpts_positions[TimeCamId{kf_id, match.target_cam}][match.target_kpt_id].cast<float>();
-          curr_island_matches[match.source_cam][TimeCamId{kf_id, match.target_cam}].emplace_back(p1, p2);
-        }
-
-        // set the inlier matches of the kf_id
-        for (const auto& match : inlier_matches[kf_id]) {
-          Vec2 p1 = curr_kf_kpts[match.source_cam][match.source_kpt_id].translation().cast<float>();
-          Vec2 p2 = kpts_positions[TimeCamId{kf_id, match.target_cam}][match.target_kpt_id].cast<float>();
-          curr_island_inliers[match.source_cam][TimeCamId{kf_id, match.target_cam}].emplace_back(p1, p2);
-        }
-
-        for (const auto& match : inlier_matches[kf_id]) {
-          const auto& target_tcid = TimeCamId{kf_id, match.target_cam};
-          const auto& world_pt = points_3d.at(target_tcid).at(match.target_kpt_id);
-
-          curr_island_landmarks.emplace_back(world_pt);
-          curr_island_landmark_ids.emplace_back(match.target_kpt_id);
-        }
-      }
-      loop_closing_visualization_data->landmarks.emplace_back(curr_island_landmarks);
-      loop_closing_visualization_data->landmark_ids.emplace_back(curr_island_landmark_ids);
-      loop_closing_visualization_data->matches.emplace_back(curr_island_matches);
-      loop_closing_visualization_data->inlier_matches.emplace_back(curr_island_inliers);
-    }
-
-    if (config.dump_loop_detection_result) {
-      Sophus::SE3d corrected_pose = absolute_pose;
-      Sophus::SE3f curr_pose = map->getKeyframePose(curr_kf_id);
-      Sophus::SE3f candidate_pose = map->getKeyframePose(candidate_kf);
-      Eigen::Quaternionf curr_quat(curr_pose.unit_quaternion());
-      Eigen::Quaternionf candidate_quat(candidate_pose.unit_quaternion());
-      Eigen::Quaternionf corrected_quat(corrected_pose.unit_quaternion());
-
-      size_t num_matches = 0;
-      size_t num_inliers = 0;
-      for (const auto& kf_id : kfs_island) {
-        num_matches += matches[kf_id].size();
-        num_inliers += inlier_matches[kf_id].size();
-      }
-
-      std::ofstream dump_loop_detection_result_file("loop_detection_results.csv", std::ios::app);
-      if (dump_loop_detection_result_file.is_open()) {
-        dump_loop_detection_result_file << curr_kf_id << "," << candidate_kf << "," << num_matches << "," << num_inliers
-                                        << "," << curr_pose.translation().x() << "," << curr_pose.translation().y()
-                                        << "," << curr_pose.translation().z() << "," << curr_quat.x() << ","
-                                        << curr_quat.y() << "," << curr_quat.z() << "," << curr_quat.w() << ","
-                                        << candidate_pose.translation().x() << "," << candidate_pose.translation().y()
-                                        << "," << candidate_pose.translation().z() << "," << candidate_quat.x() << ","
-                                        << candidate_quat.y() << "," << candidate_quat.z() << "," << candidate_quat.w()
-                                        << "," << corrected_pose.translation().x() << ","
-                                        << corrected_pose.translation().y() << "," << corrected_pose.translation().z()
-                                        << "," << corrected_quat.x() << "," << corrected_quat.y() << ","
-                                        << corrected_quat.z() << "," << corrected_quat.w() << std::endl;
-
-        dump_loop_detection_result_file.close();
-      } else {
-        std::cerr << "Failed to open loop_detection_results.csv for writing." << std::endl;
-      }
-    }
-
     best_candidate_tcid = TimeCamId{candidate_kf, 0};
     best_corrected_pose = absolute_pose.cast<float>();
     best_island = kfs_island;
@@ -516,7 +413,108 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     break;
   }
 
+  if (loop_found) {
+    populateVisualizationData(curr_kf_id, best_island, map_island->landmarks_3d_map, matches, inlier_matches,
+                              curr_kf_kpts, reprojected_keypoints, redetected_keypoints_map, rematched_keypoints,
+                              best_corrected_pose, best_candidate_tcid);
+  }
+
   return loop_found;
+}
+
+void LoopClosing::populateVisualizationData(
+    FrameId curr_kf_id, const std::vector<FrameId>& kfs_island,
+    const std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>& points_3d,
+    const std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches,
+    const std::unordered_map<FrameId, std::vector<KeyframesMatch>>& inlier_matches,
+    const std::vector<Eigen::aligned_unordered_map<KeypointId, Keypoint>>& curr_kf_kpts,
+    const std::vector<Eigen::aligned_unordered_map<KeypointId, Vec2>>& reprojected_keypoints,
+    const std::vector<std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>>>& redetected_keypoints_map,
+    const std::vector<Eigen::aligned_vector<Vec2>>& rematched_keypoints, const Sophus::SE3f& best_corrected_pose,
+    const TimeCamId& best_candidate_tcid) {
+  if (!out_lc_vis_queue) return;
+
+  FrameId candidate_kf = best_candidate_tcid.frame_id;
+
+  loop_closing_visualization_data->islands.emplace_back(kfs_island);
+  loop_closing_visualization_data->corrected_pose[candidate_kf] = best_corrected_pose;
+  loop_closing_visualization_data->candidate_kfs.emplace_back(candidate_kf);
+  loop_closing_visualization_data->reprojected_keypoints.emplace_back(reprojected_keypoints);
+  loop_closing_visualization_data->redetected_keypoints.emplace_back(redetected_keypoints_map);
+  loop_closing_visualization_data->rematched_keypoints.emplace_back(rematched_keypoints);
+
+  // set the current keypoints
+  loop_closing_visualization_data->current_keypoints.resize(calib.intrinsics.size());
+  for (size_t i = 0; i < calib.intrinsics.size(); i++) {
+    loop_closing_visualization_data->current_keypoints[i].clear();
+    for (const auto& kpt : curr_kf_kpts[i]) {
+      loop_closing_visualization_data->current_keypoints[i].emplace_back(kpt.second.translation().cast<float>());
+    }
+  }
+
+  std::vector<Eigen::aligned_unordered_map<TimeCamId, Eigen::aligned_vector<std::pair<Vec2, Vec2>>>>
+      curr_island_matches(calib.intrinsics.size());
+
+  std::vector<Eigen::aligned_unordered_map<TimeCamId, Eigen::aligned_vector<std::pair<Vec2, Vec2>>>>
+      curr_island_inliers(calib.intrinsics.size());
+  Eigen::aligned_vector<Eigen::Vector3d> curr_island_landmarks;
+  std::vector<LandmarkId> curr_island_landmark_ids;
+
+  for (const auto& kf_id : kfs_island) {
+    // first, set the keypoints for each camera
+    for (size_t i = 0; i < calib.intrinsics.size(); i++) {
+      TimeCamId kf_tcid = TimeCamId{kf_id, i};
+
+      loop_closing_visualization_data->candidate_keypoints[kf_tcid] = Eigen::aligned_vector<Vec2>();
+
+      if (points_3d.find(kf_tcid) == points_3d.end()) {
+        continue;
+      }
+      for (const auto& lms : points_3d.at(kf_tcid)) {
+        auto& positions = kpts_positions[kf_tcid];
+        if (positions.find(lms.first) == positions.end()) {
+          // TODO@tsantucci: what to do in this case?
+          continue;
+        }
+        loop_closing_visualization_data->candidate_keypoints[kf_tcid].emplace_back(positions[lms.first].cast<float>());
+      }
+    }
+
+    // set the matches of the kf_id
+    auto it_matches = matches.find(kf_id);
+    if (it_matches != matches.end()) {
+      for (const auto& match : it_matches->second) {
+        const auto& keypoint = curr_kf_kpts[match.source_cam].at(match.source_kpt_id);
+        Vec2 p1 = keypoint.translation().cast<float>();
+        Vec2 p2 = kpts_positions[TimeCamId{kf_id, match.target_cam}][match.target_kpt_id].cast<float>();
+        curr_island_matches[match.source_cam][TimeCamId{kf_id, match.target_cam}].emplace_back(p1, p2);
+      }
+    }
+
+    // set the inlier matches of the kf_id
+    auto it_inliers = inlier_matches.find(kf_id);
+    if (it_inliers != inlier_matches.end()) {
+      for (const auto& match : it_inliers->second) {
+        const auto& keypoint = curr_kf_kpts[match.source_cam].at(match.source_kpt_id);
+        Vec2 p1 = keypoint.translation().cast<float>();
+        Vec2 p2 = kpts_positions[TimeCamId{kf_id, match.target_cam}][match.target_kpt_id].cast<float>();
+        curr_island_inliers[match.source_cam][TimeCamId{kf_id, match.target_cam}].emplace_back(p1, p2);
+      }
+
+      for (const auto& match : it_inliers->second) {
+        const auto& target_tcid = TimeCamId{kf_id, match.target_cam};
+        const auto& world_pt = points_3d.at(target_tcid).at(match.target_kpt_id);
+
+        curr_island_landmarks.emplace_back(world_pt);
+        curr_island_landmark_ids.emplace_back(match.target_kpt_id);
+      }
+    }
+  }
+
+  loop_closing_visualization_data->landmarks.emplace_back(curr_island_landmarks);
+  loop_closing_visualization_data->landmark_ids.emplace_back(curr_island_landmark_ids);
+  loop_closing_visualization_data->matches.emplace_back(curr_island_matches);
+  loop_closing_visualization_data->inlier_matches.emplace_back(curr_island_inliers);
 }
 
 void LoopClosing::query_hashbow_database(FrameId curr_kf_id, const HashBowVector& bow_vector,

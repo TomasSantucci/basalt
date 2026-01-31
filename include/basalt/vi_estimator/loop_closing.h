@@ -260,6 +260,17 @@ class LoopClosing {
                            Eigen::aligned_unordered_map<KeypointId, Vec2>& reprojected_keypoints, size_t cam_id,
                            const Eigen::aligned_map<LandmarkId, Vec3d>& points_3d);
 
+  void populateVisualizationData(
+      FrameId curr_kf_id, const std::vector<FrameId>& kfs_island,
+      const std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>& points_3d,
+      const std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches,
+      const std::unordered_map<FrameId, std::vector<KeyframesMatch>>& inlier_matches,
+      const std::vector<Eigen::aligned_unordered_map<KeypointId, Keypoint>>& curr_kf_kpts,
+      const std::vector<Eigen::aligned_unordered_map<KeypointId, Vec2>>& reprojected_keypoints,
+      const std::vector<std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>>>& redetected_keypoints_map,
+      const std::vector<Eigen::aligned_vector<Vec2>>& rematched_keypoints, const Sophus::SE3f& best_corrected_pose,
+      const TimeCamId& best_candidate_tcid);
+
   bool are_covisible(const FrameId& kf1_id, const FrameId& kf2_id);
 
   void match_keyframe(const FrameId& curr_kf_id,

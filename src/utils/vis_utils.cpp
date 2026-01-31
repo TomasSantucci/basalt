@@ -740,8 +740,6 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
     return;
   }
 
-  if (!curr_lc_vis_data->loop_closure_found) return;
-
   const std::vector<FrameId>& candidate_kfs = curr_lc_vis_data->candidate_kfs;
   const std::vector<std::vector<FrameId>>& islands = curr_lc_vis_data->islands;
 
