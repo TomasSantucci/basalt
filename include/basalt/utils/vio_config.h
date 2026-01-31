@@ -146,6 +146,8 @@ struct VioConfig {
   bool loop_closing_skip_initial_matching;
   int loop_closing_min_initial_matches;
 
+  bool causal_evaluation;
+
   double mapper_obs_std_dev;
   double mapper_obs_huber_thresh;
   int mapper_detection_num_points;

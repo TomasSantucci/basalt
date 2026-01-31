@@ -149,7 +149,7 @@ void MapDatabase::write_map_update(
     map.mergeLandmarks(host_lm_id, curr_lm_id);
   }
 
-  if (out_map_update_queue) {
+  if (out_map_update_queue && !config.causal_evaluation) {
     MapUpdate::Ptr map_update_msg = std::make_shared<basalt::MapUpdate>();
     map_update_msg->keyframe_poses = map.getKeyframes();
     out_map_update_queue->push(map_update_msg);
