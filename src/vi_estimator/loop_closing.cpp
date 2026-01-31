@@ -23,6 +23,8 @@
 
 namespace basalt {
 
+const int EDGE_THRESHOLD = 19;
+
 LoopClosing::LoopClosing(const VioConfig& config, const Calibration<double>& calib) {
   this->config = config;
   this->calib = calib;
@@ -598,6 +600,15 @@ bool LoopClosing::redetect_kpts(const Vec2& center_kpt, std::bitset<256>& center
     kd.corners[i] += Eigen::Vector2d(center_kpt.x() - (config.loop_closing_fast_grid_size / 2.0),
                                      center_kpt.y() - (config.loop_closing_fast_grid_size / 2.0));
   }
+
+  KeypointsData kd_filtered;
+  for (size_t i = 0; i < kd.corners.size(); i++) {
+    if (img_raw.InBounds(kd.corners[i].x(), kd.corners[i].y(), EDGE_THRESHOLD)) {
+      kd_filtered.corners.emplace_back(kd.corners[i]);
+      kd_filtered.corner_responses.emplace_back(kd.corner_responses[i]);
+    }
+  }
+  kd = kd_filtered;
 
   for (const auto& kpt : kd.corners) {
     redetected_kpts.emplace_back(kpt.cast<float>());
