@@ -491,7 +491,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
             out_lc_vis_queue.pop(data);
 
             if (data.get()) {
-              if (data->loop_closure_found) { loop_closing_vis_map[data->t_ns] = data; }
+              loop_closing_vis_map[data->t_ns] = data;
             } else {
               break;
             }
@@ -1332,8 +1332,6 @@ struct basalt_vio_ui : vis::VIOUIBase {
     if (show_similar_keyframes) {
       LoopClosingVisualizationData::Ptr curr_lc_vis_data = get_curr_lc_vis_data();
       if (curr_lc_vis_data == nullptr) { return; }
-
-      if (!curr_lc_vis_data->loop_closure_found) return;
 
       glLineWidth(0.25);
       pangolin::glDrawAxis(curr_lc_vis_data->keyframe_pose.matrix(), 0.1);

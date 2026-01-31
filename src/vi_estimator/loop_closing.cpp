@@ -38,11 +38,13 @@ void LoopClosing::initialize() {
     bool notify_lc_finished = false;
     std::ofstream dump_loop_detection_result_file("loop_detection_times.csv", std::ios::out);
 
-    lc_time_stats.dumpHeader(dump_loop_detection_result_file);
-    lc_time_stats.resetStats();
+    if (config.loop_closing_dump_times) {
+      lc_time_stats.dumpHeader(dump_loop_detection_result_file);
+      lc_time_stats.resetStats();
+    }
 
     while (true) {
-      if (lc_time_stats.current_kf_ts != -1) {
+      if (config.loop_closing_dump_times && lc_time_stats.current_kf_ts != -1) {
         dump_loop_detection_result_file << lc_time_stats;
         lc_time_stats.resetStats();
       }
@@ -60,23 +62,14 @@ void LoopClosing::initialize() {
         break;
       }
 
-      lc_time_stats.addTime(LCTimeStage::Start, true);
-      lc_time_stats.current_kf_ts = loop_closing_input->t_ns;
+      if (config.loop_closing_dump_times) {
+        lc_time_stats.addTime(LCTimeStage::Start, true);
+        lc_time_stats.current_kf_ts = loop_closing_input->t_ns;
+      }
 
       updateHashBowDatabase(loop_closing_input);
-      lc_time_stats.addTime(LCTimeStage::HashBowIndex, true);
 
-      if (config.loop_closing_timestamps.size() > 0) {
-        if (config.loop_closing_timestamps.front() < loop_closing_input->t_ns) {
-          close_loop = true;
-          config.loop_closing_timestamps.erase(config.loop_closing_timestamps.begin());
-        }
-      }
-
-      if (!close_loop && !config.always_detect_loop) {
-        notify_lc_finished = true;
-        continue;
-      }
+      if (config.loop_closing_dump_times) lc_time_stats.addTime(LCTimeStage::HashBowIndex, true);
 
       TimeCamId best_candidate_tcid;
       Sophus::SE3f best_corrected_pose;
@@ -87,19 +80,16 @@ void LoopClosing::initialize() {
                                     lm_fusions, curr_lc_obs);
 
       if (!success) {
-        lc_time_stats.loop_closed = false;
+        if (config.loop_closing_dump_times) lc_time_stats.loop_closed = false;
         notify_lc_finished = true;
-        if (out_lc_vis_queue) {
-          loop_closing_visualization_data->loop_closure_found = false;
-          out_lc_vis_queue->push(loop_closing_visualization_data);
-        }
         continue;
       }
 
-      lc_time_stats.loop_closed = true;
+      if (config.loop_closing_dump_times) lc_time_stats.loop_closed = true;
 
       auto map_msg = std::make_shared<ReadMapReqMsg>();
       map_msg->frame_id = loop_closing_input->t_ns;
+      // TODO@tsantucci: make MDB decide if the loop should be closed
       out_map_req_queue->push(map_msg);
       in_map_res_queue.pop(map_response);
 
@@ -108,10 +98,6 @@ void LoopClosing::initialize() {
       float drift_reduced = (current_pose.translation() - best_corrected_pose.translation()).norm();
       if (drift_reduced < config.loop_closing_min_drift_reduction) {
         notify_lc_finished = true;
-        if (out_lc_vis_queue) {
-          loop_closing_visualization_data->loop_closure_found = false;
-          out_lc_vis_queue->push(loop_closing_visualization_data);
-        }
         continue;
       }
 
@@ -126,26 +112,13 @@ void LoopClosing::initialize() {
 
       if (config.close_loops) {
         success = closeLoop(loop_closing_input->t_ns, best_island, best_corrected_pose, lm_fusions, curr_lc_obs);
-        lc_time_stats.addTime(LCTimeStage::LoopClosure, true);
-
-        if (out_lc_vis_queue) {
-          loop_closing_visualization_data->loop_closure_found = success;
-          out_lc_vis_queue->push(loop_closing_visualization_data);
-        }
-
-        if (success) {
-          close_loop = false;
-        }
+        if (config.loop_closing_dump_times) lc_time_stats.addTime(LCTimeStage::LoopClosure, true);
+        notify_lc_finished = !success;
       } else {
-        if (out_lc_vis_queue) {
-          loop_closing_visualization_data->loop_closure_found = success;
-          out_lc_vis_queue->push(loop_closing_visualization_data);
-        }
-
         notify_lc_finished = true;
       }
 
-      if (!success) notify_lc_finished = true;
+      if (out_lc_vis_queue) out_lc_vis_queue->push(loop_closing_visualization_data);
     }
   };
 

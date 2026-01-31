@@ -145,6 +145,7 @@ struct VioConfig {
   double loop_closing_min_drift_reduction;
   bool loop_closing_skip_initial_matching;
   int loop_closing_min_initial_matches;
+  bool loop_closing_dump_times;
 
   bool causal_evaluation;
 
