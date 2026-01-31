@@ -67,7 +67,8 @@ void LoopClosing::initialize() {
         lc_time_stats.current_kf_ts = loop_closing_input->t_ns;
       }
 
-      updateHashBowDatabase(loop_closing_input);
+      HashBowVector bow_vector;
+      updateHashBowDatabase(loop_closing_input, bow_vector);
 
       if (config.loop_closing_dump_times) lc_time_stats.addTime(LCTimeStage::HashBowIndex, true);
 
@@ -76,8 +77,8 @@ void LoopClosing::initialize() {
       std::vector<FrameId> best_island;
       std::unordered_map<LandmarkId, LandmarkId> lm_fusions;
       std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>> curr_lc_obs;
-      bool success = runLoopClosure(loop_closing_input, best_candidate_tcid, best_corrected_pose, best_island,
-                                    lm_fusions, curr_lc_obs);
+      bool success = runLoopClosure(loop_closing_input, bow_vector, best_candidate_tcid, best_corrected_pose,
+                                    best_island, lm_fusions, curr_lc_obs);
 
       if (!success) {
         if (config.loop_closing_dump_times) lc_time_stats.loop_closed = false;
@@ -168,8 +169,9 @@ bool LoopClosing::closeLoop(const FrameId curr_kf_id, const std::vector<FrameId>
   return true;
 }
 
-bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input, TimeCamId& best_candidate_tcid,
-                                 Sophus::SE3f& best_corrected_pose, std::vector<FrameId>& best_island,
+bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input, const HashBowVector& bow_vector,
+                                 TimeCamId& best_candidate_tcid, Sophus::SE3f& best_corrected_pose,
+                                 std::vector<FrameId>& best_island,
                                  std::unordered_map<LandmarkId, LandmarkId>& lm_fusions,
                                  std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>>& curr_lc_obs) {
   FrameId curr_kf_id = loop_closing_input->t_ns;
@@ -182,30 +184,19 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
   std::vector<Eigen::aligned_unordered_map<KeypointId, Keypoint>> curr_kf_kpts(
       calib.intrinsics.size());  // cambiar el tipo de esto. Keypoint no hace falta
 
-  std::vector<std::bitset<256>> descriptors;
-
   if (config.loop_closing_use_all_recent_keypoints) {
     for (size_t i = 0; i < calib.intrinsics.size(); i++) {
       for (const auto& kpt : loop_closing_input->keypoints[i]) {
         curr_kf_kpts[i][kpt.first] = kpt.second;
-        descriptors.emplace_back(kpt_descriptors[TimeCamId{curr_kf_id, i}][kpt.first]);
       }
     }
   } else {
     for (size_t i = 0; i < calib.intrinsics.size(); i++) {
       for (const auto& kpt : loop_closing_input->landmarks[i]) {
         curr_kf_kpts[i][kpt.first] = kpt.second;
-        descriptors.emplace_back(kpt_descriptors[TimeCamId{curr_kf_id, i}][kpt.first]);
       }
     }
   }
-
-  if (descriptors.empty()) return false;
-
-  HashBowVector bow_vector;
-  std::vector<FeatureHash> hashes;
-  // TODO@tsantucci: reuse the bow that was computed in updateHashBowDatabase
-  hash_bow_database->compute_bow(descriptors, hashes, bow_vector);
 
   std::vector<FrameId> candidate_kfs;
   std::vector<double> candidate_scores;
@@ -213,11 +204,6 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
   lc_time_stats.addTime(LCTimeStage::HashBowSearch, true);
 
   if (candidate_kfs.empty()) return false;
-
-  if (out_lc_vis_queue) {
-    loop_closing_visualization_data->hashbow_results = candidate_kfs;
-    loop_closing_visualization_data->hashbow_scores = candidate_scores;
-  }
 
   bool loop_found = false;
   for (const auto& candidate_kf : candidate_kfs) {
@@ -533,8 +519,8 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
   return loop_found;
 }
 
-void LoopClosing::query_hashbow_database(FrameId curr_kf_id, HashBowVector& bow_vector, std::vector<FrameId>& results,
-                                         std::vector<double>& scores) {
+void LoopClosing::query_hashbow_database(FrameId curr_kf_id, const HashBowVector& bow_vector,
+                                         std::vector<FrameId>& results, std::vector<double>& scores) {
   results.clear();
 
   std::vector<std::pair<TimeCamId, double>> query_results;
@@ -824,7 +810,7 @@ void LoopClosing::restorePosesFromCeres(const MapOfPoses& map_of_poses) {
 
 void LoopClosing::triggerLoopClosure() { close_loop = true; }
 
-void LoopClosing::updateHashBowDatabase(const LoopClosingInput::Ptr& optical_flow_res) {
+void LoopClosing::updateHashBowDatabase(const LoopClosingInput::Ptr& optical_flow_res, HashBowVector& bow_vector) {
   if (optical_flow_res == nullptr) return;
 
   int64_t t_ns = optical_flow_res->t_ns;
@@ -855,11 +841,15 @@ void LoopClosing::updateHashBowDatabase(const LoopClosingInput::Ptr& optical_flo
     computeAngles(img_raw1, kd, true);
     computeDescriptors(img_raw1, kd);
 
-    HashBowVector bow_vector;
+    HashBowVector curr_bow_vector;
     std::vector<FeatureHash> hashes;
-    hash_bow_database->compute_bow(kd.corner_descriptors, hashes, bow_vector);
+    hash_bow_database->compute_bow(kd.corner_descriptors, hashes, curr_bow_vector);
 
-    hash_bow_database->add_to_database(tcid, bow_vector);
+    hash_bow_database->add_to_database(tcid, curr_bow_vector);
+
+    if (cam_id == 0) {
+      bow_vector = curr_bow_vector;  // use the left camera's bow vector for querying
+    }
 
     for (size_t i = 0; i < kd.corners.size(); i++) {
       std::bitset<256> descriptor = kd.corner_descriptors[i];

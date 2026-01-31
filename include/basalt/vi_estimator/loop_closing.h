@@ -238,18 +238,18 @@ class LoopClosing {
   bool deterministic;
 
  private:
-  void updateHashBowDatabase(const LoopClosingInput::Ptr& optical_flow_res);
+  void updateHashBowDatabase(const LoopClosingInput::Ptr& optical_flow_res, HashBowVector& bow_vector);
 
-  bool runLoopClosure(const LoopClosingInput::Ptr& optical_flow_res, TimeCamId& best_candidate_tcid,
-                      Sophus::SE3f& best_corrected_pose, std::vector<FrameId>& best_island,
-                      std::unordered_map<LandmarkId, LandmarkId>& lm_fusions,
+  bool runLoopClosure(const LoopClosingInput::Ptr& optical_flow_res, const HashBowVector& bow_vector,
+                      TimeCamId& best_candidate_tcid, Sophus::SE3f& best_corrected_pose,
+                      std::vector<FrameId>& best_island, std::unordered_map<LandmarkId, LandmarkId>& lm_fusions,
                       std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>>& curr_lc_obs);
 
   bool closeLoop(const FrameId curr_kf_id, const std::vector<FrameId>& best_island,
                  const Sophus::SE3f& best_corrected_pose, const std::unordered_map<LandmarkId, LandmarkId>& lm_fusions,
                  const std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>>& curr_lc_obs);
 
-  void query_hashbow_database(FrameId curr_kf_id, HashBowVector& bow_vector, std::vector<FrameId>& results,
+  void query_hashbow_database(FrameId curr_kf_id, const HashBowVector& bow_vector, std::vector<FrameId>& results,
                               std::vector<double>& scores);
 
   bool redetect_kpts(const Vec2& center_kpt, std::bitset<256>& center_kpt_descriptor,
