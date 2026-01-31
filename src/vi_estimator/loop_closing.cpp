@@ -231,7 +231,7 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
 
   HashBowVector bow_vector;
   std::vector<FeatureHash> hashes;
-  // TODO: maybe i can reuse the bow that was previously computed and indexed
+  // TODO@tsantucci: reuse the bow that was computed in updateHashBowDatabase
   hash_bow_database->compute_bow(descriptors, hashes, bow_vector);
 
   std::vector<FrameId> candidate_kfs;
@@ -285,20 +285,16 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
 
     MapIslandResponse::Ptr map_island = std::make_shared<MapIslandResponse>();
     in_map_3d_points_queue.pop(map_island);
-    std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>> points_3d = map_island->landmarks_3d_map;
-
-    std::vector<FrameId> kfs_island;
-    std::vector<FrameId> neighboring_kfs = map_island->island_keyframes;
-    kfs_island.insert(kfs_island.end(), neighboring_kfs.begin(), neighboring_kfs.end());
+    std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>& points_3d = map_island->landmarks_3d_map;
+    std::vector<FrameId>& kfs_island = map_island->island_keyframes;
 
     lc_time_stats.addTime(LCTimeStage::LandmarksRequest, true);
 
     candidate_kf_kpts.resize(calib.intrinsics.size());
     for (size_t i = 0; i < calib.intrinsics.size(); i++) {
       TimeCamId candidate_tcid{candidate_kf, i};
-      if (points_3d.find(candidate_tcid) == points_3d.end()) {
-        continue;
-      }
+      if (points_3d.find(candidate_tcid) == points_3d.end()) continue;
+
       for (const auto& point_3d : points_3d.at(candidate_tcid)) {
         candidate_kf_kpts[i].emplace_back(point_3d.first);
       }
@@ -312,7 +308,7 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
 
     initial_matches = matches[candidate_kf].size();
 
-    for (const auto& neighbor_kf : neighboring_kfs) {
+    for (const auto& neighbor_kf : kfs_island) {
       std::vector<std::vector<KeypointId>> candidate_kf_kpts(calib.intrinsics.size());
       for (size_t i = 0; i < calib.intrinsics.size(); i++) {
         TimeCamId candidate_tcid{neighbor_kf, i};
@@ -323,12 +319,14 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
           candidate_kf_kpts[i].emplace_back(point_3d.first);
         }
       }
-      // TODO: here, skip the source kpts that were already matched previously
+      // TODO@tsantucci: here, skip the source kpts that were already matched previously.
+      // Also, don't match if neighbor_kf == candidate_kf
+      // Or even better, do all the matching in the loop
       match_keyframe(curr_kf_id, curr_kf_kpts, candidate_kf_kpts, neighbor_kf, matches[neighbor_kf]);
     }
 
     initial_island_matches = 0;
-    for (const auto& kf_id : neighboring_kfs) {
+    for (const auto& kf_id : kfs_island) {
       initial_island_matches += matches[kf_id].size();
     }
 
@@ -868,7 +866,7 @@ void LoopClosing::updateHashBowDatabase(const LoopClosingInput::Ptr& optical_flo
     KeypointsData kd;
     std::vector<KeypointId> keypoint_ids;
 
-    // TODO: optimize this
+    // TODO@tsantucci: optimize this
     const basalt::ManagedImage<uint16_t>& man_img_raw = *optical_flow_res->input_images->img_data[cam_id].img;
     const basalt::Image<const uint16_t>& img_raw1 = man_img_raw.SubImage(0, 0, man_img_raw.w, man_img_raw.h);
 
@@ -894,15 +892,9 @@ void LoopClosing::updateHashBowDatabase(const LoopClosingInput::Ptr& optical_flo
       std::bitset<256> descriptor = kd.corner_descriptors[i];
       KeypointId keypoint_id = keypoint_ids[i];
 
-      // if descriptor is all zeros print it
-      if (descriptor.none()) {
-        std::cout << "Warning: descriptor is all zeros for keypoint id " << keypoint_id << " in tcid " << tcid
-                  << std::endl;
-      }
-
       kpt_descriptors[tcid][keypoint_id] = descriptor;
 
-      kpts_positions[tcid][keypoint_id] = kd.corners[i].cast<float>();
+      if (out_lc_vis_queue) kpts_positions[tcid][keypoint_id] = kd.corners[i].cast<float>();
     }
   }
 }
