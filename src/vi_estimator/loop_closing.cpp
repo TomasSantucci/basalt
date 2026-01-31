@@ -868,15 +868,18 @@ void LoopClosing::updateHashBowDatabase(const LoopClosingInput::Ptr& optical_flo
     KeypointsData kd;
     std::vector<KeypointId> keypoint_ids;
 
-    // can optimize here by only computing descriptors for the new kpts
-    for (const auto& [kp_id, pos] : optical_flow_res->keypoints[cam_id]) {
-      kd.corners.emplace_back(pos.translation().cast<double>());
-      keypoint_ids.emplace_back(kp_id);
-    }
-
     // TODO: optimize this
     const basalt::ManagedImage<uint16_t>& man_img_raw = *optical_flow_res->input_images->img_data[cam_id].img;
     const basalt::Image<const uint16_t>& img_raw1 = man_img_raw.SubImage(0, 0, man_img_raw.w, man_img_raw.h);
+
+    // can optimize here by only computing descriptors for the new kpts
+    for (const auto& [kp_id, pos] : optical_flow_res->keypoints[cam_id]) {
+      if (!img_raw1.InBounds(pos.translation().x(), pos.translation().y(), EDGE_THRESHOLD)) {
+        continue;
+      }
+      kd.corners.emplace_back(pos.translation().cast<double>());
+      keypoint_ids.emplace_back(kp_id);
+    }
 
     computeAngles(img_raw1, kd, true);
     computeDescriptors(img_raw1, kd);
