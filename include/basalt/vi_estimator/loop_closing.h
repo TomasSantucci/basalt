@@ -103,10 +103,6 @@ struct LoopClosingVisualizationData {
 
   int64_t t_ns;
 
-  bool loop_closure_found = false;
-  std::vector<FrameId> hashbow_results;
-  std::vector<double> hashbow_scores;
-
   std::vector<FrameId> candidate_kfs;
 
   // A vector of points for each camera
