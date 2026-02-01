@@ -102,11 +102,10 @@ struct MatchSource {
 };
 
 struct KeyframesMatch {
-  // Should rename to candidate instead of target and current instead of source
-  CamId source_cam;
-  CamId target_cam;
-  KeypointId source_kpt_id;
-  KeypointId target_kpt_id;
+  CamId current_kf_cam;
+  CamId candidate_kf_cam;
+  KeypointId current_kf_kpt_id;
+  KeypointId candidate_kf_kpt_id;
 };
 
 struct LoopClosingVisualizationData {

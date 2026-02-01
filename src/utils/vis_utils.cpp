@@ -775,12 +775,12 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
 
   glColor3ubv(BLUE);
   for (const auto& match : matches) {
-    if (match.source_cam != recent_kf_cam_id || match.target_cam != candidate_kf_cam_id) {
+    if (match.current_kf_cam != recent_kf_cam_id || match.candidate_kf_cam != candidate_kf_cam_id) {
       continue;
     }
 
-    Eigen::Vector2f p1 = current_keypoints[match.source_kpt_id].translation();
-    Eigen::Vector2f p2 = candidate_keypoints[match.target_kpt_id].translation();
+    Eigen::Vector2f p1 = current_keypoints[match.current_kf_kpt_id].translation();
+    Eigen::Vector2f p2 = candidate_keypoints[match.candidate_kf_kpt_id].translation();
     p2[0] += current_img->w;
 
     glBegin(GL_LINES);
@@ -796,12 +796,12 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
 
   glColor3ubv(GREEN);
   for (const auto& match : inlier_matches) {
-    if (match.source_cam != recent_kf_cam_id || match.target_cam != candidate_kf_cam_id) {
+    if (match.current_kf_cam != recent_kf_cam_id || match.candidate_kf_cam != candidate_kf_cam_id) {
       continue;
     }
 
-    Eigen::Vector2f p1 = current_keypoints[match.source_kpt_id].translation();
-    Eigen::Vector2f p2 = candidate_keypoints[match.target_kpt_id].translation();
+    Eigen::Vector2f p1 = current_keypoints[match.current_kf_kpt_id].translation();
+    Eigen::Vector2f p2 = candidate_keypoints[match.candidate_kf_kpt_id].translation();
     p2[0] += current_img->w;
 
     glBegin(GL_LINES);

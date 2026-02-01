@@ -294,7 +294,7 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     std::vector<std::unordered_set<LandmarkId>> matched_landmarks(calib.intrinsics.size());
     for (const auto& [kf, kf_matches] : matches) {
       for (const auto& match : kf_matches) {
-        matched_landmarks[match.source_cam].insert(match.target_kpt_id);
+        matched_landmarks[match.current_kf_cam].insert(match.candidate_kf_kpt_id);
       }
     }
 
@@ -342,8 +342,8 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
 
       for (const auto& [kf_id, inlier_matches_vec] : inlier_matches) {
         for (const auto& match : inlier_matches_vec) {
-          landmarks_matched.insert(match.target_kpt_id);
-          landmarks_matched_per_cam[match.source_cam].insert(match.target_kpt_id);
+          landmarks_matched.insert(match.candidate_kf_kpt_id);
+          landmarks_matched_per_cam[match.current_kf_cam].insert(match.candidate_kf_kpt_id);
         }
       }
 
@@ -368,15 +368,15 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     // Fuse the landmarks
     for (const auto& [kf_id, inlier_matches_vec] : inlier_matches) {
       for (const auto& match : inlier_matches_vec) {
-        LandmarkId candidate_lm_id = match.target_kpt_id;
-        LandmarkId curr_lm_id = match.source_kpt_id;
+        LandmarkId candidate_lm_id = match.candidate_kf_kpt_id;
+        LandmarkId curr_lm_id = match.current_kf_kpt_id;
 
         if (lm_fusions.find(candidate_lm_id) == lm_fusions.end()) {
           lm_fusions[curr_lm_id] = candidate_lm_id;
         }
 
-        TimeCamId curr_tcid{curr_kf_id, match.source_cam};
-        curr_lc_obs[curr_tcid][curr_lm_id] = curr_kf_kpts[match.source_cam][curr_lm_id].translation().cast<float>();
+        TimeCamId curr_tcid{curr_kf_id, match.current_kf_cam};
+        curr_lc_obs[curr_tcid][curr_lm_id] = curr_kf_kpts[match.current_kf_cam][curr_lm_id].translation().cast<float>();
       }
     }
 
@@ -422,11 +422,11 @@ void LoopClosing::populateVisualizationData(
 
   for (const auto& [kf_id, kf_matches] : inlier_matches) {
     for (const auto& match : kf_matches) {
-      LandmarkId candidate_lm_id = match.target_kpt_id;
+      LandmarkId candidate_lm_id = match.candidate_kf_kpt_id;
 
       if (landmarks_3d.find(candidate_lm_id) != landmarks_3d.end()) continue;
 
-      TimeCamId candidate_tcid{kf_id, match.target_cam};
+      TimeCamId candidate_tcid{kf_id, match.candidate_kf_cam};
       if (points_3d.find(candidate_tcid) == points_3d.end()) continue;
       if (points_3d.at(candidate_tcid).find(candidate_lm_id) == points_3d.at(candidate_tcid).end()) continue;
 
@@ -462,10 +462,10 @@ void LoopClosing::filter_redundant_matches(std::unordered_map<FrameId, std::vect
 
   for (auto& [frame_id, matches_vec] : matches) {
     for (const auto& match : matches_vec) {
-      if (source_kpt_ids_per_cam[match.source_cam].find(match.source_kpt_id) ==
-          source_kpt_ids_per_cam[match.source_cam].end()) {
+      if (source_kpt_ids_per_cam[match.current_kf_cam].find(match.current_kf_kpt_id) ==
+          source_kpt_ids_per_cam[match.current_kf_cam].end()) {
         filtered_matches.emplace_back(match);
-        source_kpt_ids_per_cam[match.source_cam].insert(match.source_kpt_id);
+        source_kpt_ids_per_cam[match.current_kf_cam].insert(match.current_kf_kpt_id);
       }
     }
     matches_vec = std::move(filtered_matches);
@@ -864,19 +864,20 @@ size_t LoopClosing::computeAbsolutePoseMultiCam(
     for (size_t i = 0; i < matches.at(candidate_kf).size(); i++) {
       const auto& match = matches.at(candidate_kf).at(i);
 
-      if (used_kpt_ids[match.source_cam].find(match.source_kpt_id) != used_kpt_ids[match.source_cam].end()) {
+      if (used_kpt_ids[match.current_kf_cam].find(match.current_kf_kpt_id) !=
+          used_kpt_ids[match.current_kf_cam].end()) {
         continue;  // skip duplicate keypoints
       }
 
-      if (points_3d.at(TimeCamId{candidate_kf, match.target_cam}).find(match.target_kpt_id) ==
-          points_3d.at(TimeCamId{candidate_kf, match.target_cam}).end()) {
+      if (points_3d.at(TimeCamId{candidate_kf, match.candidate_kf_cam}).find(match.candidate_kf_kpt_id) ==
+          points_3d.at(TimeCamId{candidate_kf, match.candidate_kf_cam}).end()) {
         continue;  // skip if no 3D point found
       }
 
-      TimeCamId tcid_last{last_kf_id, match.source_cam};
+      TimeCamId tcid_last{last_kf_id, match.current_kf_cam};
       Eigen::Vector4d tmp;
-      bool ok = calib.intrinsics[match.source_cam].unproject(  // pixel or normalized observation
-          last_kf_kpts[match.source_cam].at(match.source_kpt_id).translation().cast<double>(), tmp);
+      bool ok = calib.intrinsics[match.current_kf_cam].unproject(  // pixel or normalized observation
+          last_kf_kpts[match.current_kf_cam].at(match.current_kf_kpt_id).translation().cast<double>(), tmp);
       if (!ok) {
         continue;  // skip if unproject fails
       }
@@ -884,12 +885,13 @@ size_t LoopClosing::computeAbsolutePoseMultiCam(
       bearing.normalize();
 
       bearingVectors.push_back(bearing);
-      camCorrespondences.push_back(match.source_cam);  // which camera this bearing belongs to
+      camCorrespondences.push_back(match.current_kf_cam);  // which camera this bearing belongs to
 
-      Eigen::Vector3d world_pt = points_3d.at(TimeCamId{candidate_kf, match.target_cam}).at(match.target_kpt_id);
+      Eigen::Vector3d world_pt =
+          points_3d.at(TimeCamId{candidate_kf, match.candidate_kf_cam}).at(match.candidate_kf_kpt_id);
       points.push_back(world_pt);
 
-      used_kpt_ids[match.source_cam].insert(match.source_kpt_id);
+      used_kpt_ids[match.current_kf_cam].insert(match.current_kf_kpt_id);
       match_sources.push_back(MatchSource{candidate_kf, i});
     }
   }
