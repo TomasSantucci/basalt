@@ -1334,27 +1334,27 @@ struct basalt_vio_ui : vis::VIOUIBase {
       if (curr_lc_vis_data == nullptr) { return; }
 
       glLineWidth(0.25);
-      pangolin::glDrawAxis(curr_lc_vis_data->keyframe_pose.matrix(), 0.1);
+      pangolin::glDrawAxis(curr_lc_vis_data->current_keyframe_pose.matrix(), 0.1);
 
-      FrameId candidate_id = curr_lc_vis_data->islands[island_idx][0];
+      FrameId candidate_id = curr_lc_vis_data->island[0];
 
-      for (const auto& kf_id : curr_lc_vis_data->islands[island_idx]) {
+      for (const auto& kf_id : curr_lc_vis_data->island) {
         int kf_idx = timestamp_to_id[kf_id];
         Sophus::SE3f candidate_pose = vio_T_w_i[kf_idx].cast<float>();
         pangolin::glDrawAxis(candidate_pose.matrix(), 0.1);
       }
 
-      FrameId main_candidate_id = curr_lc_vis_data->islands[island_idx][0];
-      FrameId actual_frame_id = curr_lc_vis_data->islands[island_idx][similar_kf_idx];
+      FrameId main_candidate_id = curr_lc_vis_data->island[0];
+      FrameId actual_frame_id = curr_lc_vis_data->island[similar_kf_idx];
       int actual_frame_idx = timestamp_to_id[actual_frame_id];
       int main_candidate_idx = timestamp_to_id[main_candidate_id];
 
       Sophus::SE3f main_candidate_pose = vio_T_w_i[main_candidate_idx].cast<float>();
 
-      Sophus::SE3f corrected_pose = curr_lc_vis_data->corrected_pose[candidate_id];
+      Sophus::SE3f corrected_pose = curr_lc_vis_data->candidate_corrected_pose;
       if (!config.close_loops) { pangolin::glDrawAxis(corrected_pose.matrix(), 0.1); }
 
-      Eigen::Vector3f t_actual_curr = curr_lc_vis_data->keyframe_pose.translation();
+      Eigen::Vector3f t_actual_curr = curr_lc_vis_data->current_keyframe_pose.translation();
       Eigen::Vector3f t_corrected_curr = corrected_pose.translation();
       Eigen::Vector3f t_actual_candidate = vio_T_w_i[actual_frame_idx].cast<float>().translation();
 
@@ -1378,30 +1378,12 @@ struct basalt_vio_ui : vis::VIOUIBase {
         glEnd();
       }
 
-      MapDatabaseVisualizationData::Ptr curr_map_vis_data = get_curr_map_vis_data();
-      if (curr_map_vis_data != nullptr) {
-        std::vector<int> landmark_ids = curr_map_vis_data->landmarks_ids;
-        Eigen::aligned_vector<Eigen::Vector3d> landmark_positions = curr_map_vis_data->landmarks;
+      Eigen::aligned_vector<Eigen::Vector3f> curr_island_points = curr_lc_vis_data->landmarks_3d;
 
-        std::vector<LandmarkId> island_landmark_ids = curr_lc_vis_data->landmark_ids[island_idx];
-        Eigen::aligned_vector<Eigen::Vector3d> curr_island_points;
-
-        for (const auto& lm_id : island_landmark_ids) {
-          auto it = std::find(landmark_ids.begin(), landmark_ids.end(), lm_id);
-          if (it != landmark_ids.end()) {
-            size_t lm_idx = std::distance(landmark_ids.begin(), it);
-            Eigen::Vector3d lm_pos = landmark_positions[lm_idx];
-
-            curr_island_points.push_back(lm_pos);
-          }
-        }
-
-        // show the points without using show_3d_points to avoid filtering by highlights
-        glPointSize(10);
-        glColor3ubv(vis::GREEN);
-        pangolin::glDrawPoints(curr_island_points);
-        glPointSize(3);
-      }
+      glPointSize(10);
+      glColor3ubv(vis::GREEN);
+      pangolin::glDrawPoints(curr_island_points);
+      glPointSize(3);
 
       if (show_gt && !gt_t_ns.empty() && !gt_T_w_i.empty()) {
         Sophus::SE3d T_gt_start, T_gt_end;

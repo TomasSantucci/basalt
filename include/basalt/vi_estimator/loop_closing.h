@@ -96,6 +96,19 @@ using MapOfPoses =
     std::map<FrameId, Pose3d, std::less<FrameId>, Eigen::aligned_allocator<std::pair<const FrameId, Pose3d>>>;
 using VectorOfConstraints = std::vector<Constraint3d, Eigen::aligned_allocator<Constraint3d>>;
 
+struct MatchSource {
+  FrameId candidate_kf;
+  size_t pair_idx;
+};
+
+struct KeyframesMatch {
+  // Should rename to candidate instead of target and current instead of source
+  CamId source_cam;
+  CamId target_cam;
+  KeypointId source_kpt_id;
+  KeypointId target_kpt_id;
+};
+
 struct LoopClosingVisualizationData {
   using Ptr = std::shared_ptr<LoopClosingVisualizationData>;
   using Vec2 = Eigen::Matrix<float, 2, 1>;
@@ -103,36 +116,28 @@ struct LoopClosingVisualizationData {
 
   int64_t t_ns;
 
-  std::vector<FrameId> candidate_kfs;
+  // Keypoints
+  std::vector<Keypoints> current_keypoints;
+  std::unordered_map<TimeCamId, Keypoints> candidate_keypoints;
 
-  // A vector of points for each camera
-  std::vector<Eigen::aligned_vector<Vec2>> current_keypoints;
-  // A map where the key is the tcid of the candidate keyframe and the value is the vector of points
-  std::unordered_map<TimeCamId, Eigen::aligned_vector<Vec2>> candidate_keypoints;
+  // Matches
+  std::unordered_map<FrameId, std::vector<KeyframesMatch>> matches;
+  std::unordered_map<FrameId, std::vector<KeyframesMatch>> inlier_matches;
 
-  // A map where the key is the tcid of the candidate keyframe and the value is the vector of matches
-  std::vector<std::vector<Eigen::aligned_unordered_map<TimeCamId, Eigen::aligned_vector<std::pair<Vec2, Vec2>>>>>
-      matches;
-  std::vector<std::vector<Eigen::aligned_unordered_map<TimeCamId, Eigen::aligned_vector<std::pair<Vec2, Vec2>>>>>
-      inlier_matches;
+  // The island
+  std::vector<FrameId> island;
 
-  // A vector of islands, where each island is a vector of keyframe ids
-  std::vector<std::vector<FrameId>> islands;
+  // Reprojection data
+  std::vector<Keypoints> reprojected_keypoints;
+  std::vector<std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>>> redetected_keypoints;
+  std::vector<Eigen::aligned_vector<Vec2>> rematched_keypoints;
 
-  std::vector<std::vector<Eigen::aligned_unordered_map<KeypointId, Vec2>>> reprojected_keypoints;
-  std::vector<std::vector<std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>>>> redetected_keypoints;
+  // 3d landmarks
+  Eigen::aligned_vector<Eigen::Vector3f> landmarks_3d;
 
-  std::vector<std::vector<Eigen::aligned_vector<Vec2>>> rematched_keypoints;
-
-  // For each island, the landmarks used for gP3P
-  std::vector<Eigen::aligned_vector<Eigen::Vector3d>> landmarks;
-  std::vector<std::vector<LandmarkId>> landmark_ids;
-
-  SE3 keyframe_pose;
-  std::unordered_map<FrameId, SE3> corrected_pose;
-  std::unordered_map<FrameId, SE3> candidate_pose;
-
-  std::vector<SE3> corrected_loop_poses;
+  // Poses
+  SE3 current_keyframe_pose;
+  SE3 candidate_corrected_pose;
 };
 
 class PoseGraph3dErrorTerm {
@@ -184,18 +189,6 @@ class PoseGraph3dErrorTerm {
   const Pose3d t_ab_measured_;
   // The square root of the measurement information matrix.
   const Eigen::Matrix<double, 6, 6> sqrt_information_;
-};
-
-struct MatchSource {
-  FrameId candidate_kf;
-  size_t pair_idx;
-};
-
-struct KeyframesMatch {
-  CamId source_cam;
-  CamId target_cam;
-  KeypointId source_kpt_id;
-  KeypointId target_kpt_id;
 };
 
 class LoopClosing {
@@ -252,37 +245,36 @@ class LoopClosing {
   void query_hashbow_database(FrameId curr_kf_id, const HashBowVector& bow_vector, std::vector<FrameId>& results,
                               std::vector<double>& scores);
 
-  bool redetect_kpts(const Vec2& center_kpt, std::bitset<256>& center_kpt_descriptor,
+  bool redetect_kpts(const Keypoint& center_kpt, std::bitset<256>& center_kpt_descriptor,
                      Eigen::aligned_vector<Vec2>& redetected_kpts, const basalt::ManagedImage<uint16_t>& img,
                      Vec2& best_keypoint_pos);
 
-  void reproject_landmarks(const Sophus::SE3d& absolute_pose,
-                           Eigen::aligned_unordered_map<KeypointId, Vec2>& reprojected_keypoints, size_t cam_id,
-                           const Eigen::aligned_map<LandmarkId, Vec3d>& points_3d);
+  void reproject_landmarks(const Sophus::SE3d& absolute_pose, Keypoints& reprojected_keypoints, size_t cam_id,
+                           const Eigen::aligned_map<LandmarkId, Vec3d>& points_3d,
+                           const std::unordered_set<LandmarkId>& landmarks_to_skip);
 
   void populateVisualizationData(
       FrameId curr_kf_id, const std::vector<FrameId>& kfs_island,
       const std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>& points_3d,
       const std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches,
       const std::unordered_map<FrameId, std::vector<KeyframesMatch>>& inlier_matches,
-      const std::vector<Eigen::aligned_unordered_map<KeypointId, Keypoint>>& curr_kf_kpts,
-      const std::vector<Eigen::aligned_unordered_map<KeypointId, Vec2>>& reprojected_keypoints,
+      const std::vector<Keypoints>& curr_kf_kpts, const std::vector<Keypoints>& reprojected_keypoints,
       const std::vector<std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>>>& redetected_keypoints_map,
       const std::vector<Eigen::aligned_vector<Vec2>>& rematched_keypoints, const Sophus::SE3f& best_corrected_pose,
       const TimeCamId& best_candidate_tcid);
 
   bool are_covisible(const FrameId& kf1_id, const FrameId& kf2_id);
 
-  void match_keyframe(const FrameId& curr_kf_id,
-                      const std::vector<Eigen::aligned_unordered_map<KeypointId, Keypoint>>& curr_kf_kpts,
+  void filter_redundant_matches(std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches);
+
+  void match_keyframe(const FrameId& curr_kf_id, const std::vector<Keypoints>& curr_kf_kpts,
                       const std::vector<std::vector<KeypointId>>& candidate_kf_kpts, const FrameId& candidate_kf_id,
                       std::vector<KeyframesMatch>& matches);
 
   size_t computeAbsolutePoseMultiCam(
       const FrameId& last_kf_id,                     // id of the viewpoint we're solving for
       const std::vector<FrameId>& candidate_kf_ids,  // ids of the candidate keyframes
-      const std::vector<Eigen::aligned_unordered_map<KeypointId, Keypoint>>&
-          last_kf_kpts,  // keypoints of the last kf, per camera
+      const std::vector<Keypoints>& last_kf_kpts,    // keypoints of the last kf, per camera
       const std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>& points_3d,
       const std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches,
       std::unordered_map<FrameId, std::vector<KeyframesMatch>>& inlier_matches, Sophus::SE3d& absolute_pose);

@@ -740,23 +740,20 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
     return;
   }
 
-  const std::vector<FrameId>& candidate_kfs = curr_lc_vis_data->candidate_kfs;
-  const std::vector<std::vector<FrameId>>& islands = curr_lc_vis_data->islands;
+  const std::vector<FrameId>& candidate_kfs = curr_lc_vis_data->island;
 
-  if (candidate_kfs.empty() || islands.empty()) return;
+  if (candidate_kfs.empty()) return;
 
   int64_t t_ns = curr_lc_vis_data->t_ns;
 
   if (t_ns != last_kf_with_similars) {
     last_kf_with_similars = t_ns;
-    island_idx = 0;
-    islands_count = islands.size();
 
     similar_kf_idx = 0;
-    similar_kf_count = islands[island_idx].size();
+    similar_kf_count = candidate_kfs.size();
   }
 
-  const std::vector<FrameId>& current_island = islands[island_idx];
+  const std::vector<FrameId>& current_island = candidate_kfs;
   TimeCamId candidate_tcid = TimeCamId{current_island[similar_kf_idx], candidate_kf_cam_id};
   basalt::ManagedImage<uint16_t>::Ptr current_img = vio_dataset->get_image_data(t_ns)[recent_kf_cam_id].img;
   basalt::ManagedImage<uint16_t>::Ptr candidate_img =
@@ -772,13 +769,18 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
     std::memcpy(row + current_img->w, row2, candidate_img->w * sizeof(uint16_t));
   }
 
-  Eigen::aligned_vector<std::pair<Eigen::Matrix<float, 2, 1>, Eigen::Matrix<float, 2, 1>>> matches =
-      curr_lc_vis_data->matches[island_idx][recent_kf_cam_id][candidate_tcid];
+  std::vector<KeyframesMatch>& matches = curr_lc_vis_data->matches[candidate_tcid.frame_id];
+  Keypoints& current_keypoints = curr_lc_vis_data->current_keypoints[recent_kf_cam_id];
+  Keypoints& candidate_keypoints = curr_lc_vis_data->candidate_keypoints[candidate_tcid];
 
   glColor3ubv(BLUE);
   for (const auto& match : matches) {
-    Eigen::Vector2f p1 = match.first;
-    Eigen::Vector2f p2 = match.second;
+    if (match.source_cam != recent_kf_cam_id || match.target_cam != candidate_kf_cam_id) {
+      continue;
+    }
+
+    Eigen::Vector2f p1 = current_keypoints[match.source_kpt_id].translation();
+    Eigen::Vector2f p2 = candidate_keypoints[match.target_kpt_id].translation();
     p2[0] += current_img->w;
 
     glBegin(GL_LINES);
@@ -790,40 +792,34 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
     pangolin::glDrawCirclePerimeter(p2.cast<double>(), 3.0f);
   }
 
-  if (curr_lc_vis_data->inlier_matches[island_idx].size() > recent_kf_cam_id &&
-      curr_lc_vis_data->inlier_matches[island_idx][recent_kf_cam_id].count(candidate_tcid) != 0) {
-    //  if (curr_lc_vis_data->inlier_matches[recent_kf_cam_id].count(candidate_tcid) != 0) {
-    Eigen::aligned_vector<std::pair<Eigen::Matrix<float, 2, 1>, Eigen::Matrix<float, 2, 1>>> inlier_matches =
-        curr_lc_vis_data->inlier_matches[island_idx][recent_kf_cam_id][candidate_tcid];
+  std::vector<KeyframesMatch>& inlier_matches = curr_lc_vis_data->inlier_matches[candidate_tcid.frame_id];
 
-    glColor3ubv(GREEN);
-    for (const auto& match : inlier_matches) {
-      Eigen::Vector2f p1 = match.first;
-      Eigen::Vector2f p2 = match.second;
-      p2[0] += current_img->w;
-
-      glBegin(GL_LINES);
-      glVertex2f(p1[0], p1[1]);
-      glVertex2f(p2[0], p2[1]);
-      glEnd();
-
-      pangolin::glDrawCirclePerimeter(p1.cast<double>(), 1.5f);
-      pangolin::glDrawCirclePerimeter(p2.cast<double>(), 1.5f);
+  glColor3ubv(GREEN);
+  for (const auto& match : inlier_matches) {
+    if (match.source_cam != recent_kf_cam_id || match.target_cam != candidate_kf_cam_id) {
+      continue;
     }
+
+    Eigen::Vector2f p1 = current_keypoints[match.source_kpt_id].translation();
+    Eigen::Vector2f p2 = candidate_keypoints[match.target_kpt_id].translation();
+    p2[0] += current_img->w;
+
+    glBegin(GL_LINES);
+    glVertex2f(p1[0], p1[1]);
+    glVertex2f(p2[0], p2[1]);
+    glEnd();
+
+    pangolin::glDrawCirclePerimeter(p1.cast<double>(), 1.5f);
+    pangolin::glDrawCirclePerimeter(p2.cast<double>(), 1.5f);
   }
 
   if (show_similar_kf_kpts) {
-    Eigen::aligned_vector<Eigen::Matrix<float, 2, 1>>& current_kpts =
-        curr_lc_vis_data->current_keypoints[recent_kf_cam_id];
-    Eigen::aligned_vector<Eigen::Matrix<float, 2, 1>>& candidate_kpts =
-        curr_lc_vis_data->candidate_keypoints[candidate_tcid];
-
     glColor3ubv(RED);
-    for (const auto& p : current_kpts) {
-      pangolin::glDrawCirclePerimeter(p.cast<double>(), 3.0f);
+    for (const auto& [_id, p] : current_keypoints) {
+      pangolin::glDrawCirclePerimeter(p.translation().cast<double>(), 3.0f);
     }
-    for (const auto& p : candidate_kpts) {
-      Eigen::Vector2f pp = p;
+    for (const auto& [_id, p] : candidate_keypoints) {
+      Eigen::Vector2f pp = p.translation();
       pp[0] += current_img->w;
       pangolin::glDrawCirclePerimeter(pp.cast<double>(), 3.0f);
     }
@@ -839,26 +835,25 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
 
     size_t index = std::distance(config.loop_closing_cameras_to_reproject.begin(), it);
 
-    Eigen::aligned_unordered_map<KeypointId, Eigen::Matrix<float, 2, 1>> reprojected_keypoints =
-        curr_lc_vis_data->reprojected_keypoints[island_idx][index];
+    Keypoints& reprojected_keypoints = curr_lc_vis_data->reprojected_keypoints[recent_kf_cam_id];
 
     glColor3ubv(YELLOW);
     for (const auto& [kpt_id, p] : reprojected_keypoints) {
-      pangolin::glDrawCirclePerimeter(p.cast<double>(), 3.0f);
+      pangolin::glDrawCirclePerimeter(p.translation().cast<double>(), 3.0f);
 
       // draw a square box around the point
       float box_size = config.loop_closing_fast_grid_size;
       glBegin(GL_LINE_LOOP);
-      glVertex2f(p[0] - box_size / 2, p[1] - box_size / 2);
-      glVertex2f(p[0] + box_size / 2, p[1] - box_size / 2);
-      glVertex2f(p[0] + box_size / 2, p[1] + box_size / 2);
-      glVertex2f(p[0] - box_size / 2, p[1] + box_size / 2);
+      glVertex2f(p.translation()[0] - box_size / 2, p.translation()[1] - box_size / 2);
+      glVertex2f(p.translation()[0] + box_size / 2, p.translation()[1] - box_size / 2);
+      glVertex2f(p.translation()[0] + box_size / 2, p.translation()[1] + box_size / 2);
+      glVertex2f(p.translation()[0] - box_size / 2, p.translation()[1] + box_size / 2);
       glEnd();
     }
 
     if (show_redetections) {
       std::unordered_map<KeypointId, Eigen::aligned_vector<Eigen::Matrix<float, 2, 1>>>& redetected_kpts =
-          curr_lc_vis_data->redetected_keypoints[island_idx][index];
+          curr_lc_vis_data->redetected_keypoints[recent_kf_cam_id];
 
       glColor3ubv(ORANGE);
       for (const auto& [kpid, kpts] : redetected_kpts) {
@@ -870,7 +865,7 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
 
     if (show_rematches) {
       Eigen::aligned_vector<Eigen::Matrix<float, 2, 1>>& rematched_keypoints =
-          curr_lc_vis_data->rematched_keypoints[island_idx][index];
+          curr_lc_vis_data->rematched_keypoints[recent_kf_cam_id];
       glColor3ubv(BLUE);
       for (const auto& p : rematched_keypoints) {
         pangolin::glDrawCirclePerimeter(p.cast<double>(), 3.0f);

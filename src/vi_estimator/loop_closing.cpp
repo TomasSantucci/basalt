@@ -103,12 +103,8 @@ void LoopClosing::initialize() {
       }
 
       if (out_lc_vis_queue) {
-        loop_closing_visualization_data->keyframe_pose =
+        loop_closing_visualization_data->current_keyframe_pose =
             map_response->keyframe_poses->at(loop_closing_input->t_ns).cast<float>();
-        for (const auto& kf_id : best_island) {
-          loop_closing_visualization_data->candidate_pose[kf_id] =
-              map_response->keyframe_poses->at(kf_id).cast<float>();
-        }
       }
 
       if (config.close_loops) {
@@ -181,21 +177,12 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     loop_closing_visualization_data->t_ns = curr_kf_id;
   }
 
-  std::vector<Eigen::aligned_unordered_map<KeypointId, Keypoint>> curr_kf_kpts(
-      calib.intrinsics.size());  // cambiar el tipo de esto. Keypoint no hace falta
+  std::vector<Keypoints> curr_kf_kpts(calib.intrinsics.size());
 
   if (config.loop_closing_use_all_recent_keypoints) {
-    for (size_t i = 0; i < calib.intrinsics.size(); i++) {
-      for (const auto& kpt : loop_closing_input->keypoints[i]) {
-        curr_kf_kpts[i][kpt.first] = kpt.second;
-      }
-    }
+    curr_kf_kpts = loop_closing_input->keypoints;
   } else {
-    for (size_t i = 0; i < calib.intrinsics.size(); i++) {
-      for (const auto& kpt : loop_closing_input->landmarks[i]) {
-        curr_kf_kpts[i][kpt.first] = kpt.second;
-      }
-    }
+    curr_kf_kpts = loop_closing_input->landmarks;
   }
 
   std::vector<FrameId> candidate_kfs;
@@ -210,8 +197,7 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
   std::unordered_map<FrameId, std::vector<KeyframesMatch>> matches;
   std::unordered_map<FrameId, std::vector<KeyframesMatch>> inlier_matches;
   MapIslandResponse::Ptr map_island;
-  std::vector<Eigen::aligned_unordered_map<KeypointId, Vec2>> reprojected_keypoints(
-      config.loop_closing_cameras_to_reproject.size());
+  std::vector<Keypoints> reprojected_keypoints(config.loop_closing_cameras_to_reproject.size());
   std::vector<std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>>> redetected_keypoints_map(
       config.loop_closing_cameras_to_reproject.size());
   std::vector<Eigen::aligned_vector<Vec2>> rematched_keypoints(config.loop_closing_cameras_to_reproject.size());
@@ -233,7 +219,10 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
       }
       match_keyframe(curr_kf_id, curr_kf_kpts, candidate_kf_kpts, candidate_kf, matches[candidate_kf]);
 
-      if (matches[candidate_kf].size() < config.loop_closing_min_initial_matches) {
+      filter_redundant_matches(matches);
+
+      initial_matches = matches[candidate_kf].size();
+      if (initial_matches < config.loop_closing_min_initial_matches) {
         candidate_kf_kpts.clear();
         matches[candidate_kf].clear();
 
@@ -259,24 +248,6 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
 
     lc_time_stats.addTime(LCTimeStage::LandmarksRequest, true);
 
-    candidate_kf_kpts.resize(calib.intrinsics.size());
-    for (size_t i = 0; i < calib.intrinsics.size(); i++) {
-      TimeCamId candidate_tcid{candidate_kf, i};
-      if (points_3d.find(candidate_tcid) == points_3d.end()) continue;
-
-      for (const auto& point_3d : points_3d.at(candidate_tcid)) {
-        candidate_kf_kpts[i].emplace_back(point_3d.first);
-      }
-    }
-    match_keyframe(curr_kf_id, curr_kf_kpts, candidate_kf_kpts, candidate_kf, matches[candidate_kf]);
-
-    if (matches[candidate_kf].size() < static_cast<size_t>(config.loop_closing_min_matches)) {
-      lc_time_stats.addTime(LCTimeStage::IslandMatch, false);
-      continue;
-    }
-
-    initial_matches = matches[candidate_kf].size();
-
     for (const auto& neighbor_kf : kfs_island) {
       std::vector<std::vector<KeypointId>> candidate_kf_kpts(calib.intrinsics.size());
       for (size_t i = 0; i < calib.intrinsics.size(); i++) {
@@ -288,15 +259,18 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
           candidate_kf_kpts[i].emplace_back(point_3d.first);
         }
       }
-      // TODO@tsantucci: here, skip the source kpts that were already matched previously.
-      // Also, don't match if neighbor_kf == candidate_kf
-      // Or even better, do all the matching in the loop
       match_keyframe(curr_kf_id, curr_kf_kpts, candidate_kf_kpts, neighbor_kf, matches[neighbor_kf]);
     }
+    filter_redundant_matches(matches);
 
     initial_island_matches = 0;
     for (const auto& kf_id : kfs_island) {
       initial_island_matches += matches[kf_id].size();
+    }
+
+    if (initial_island_matches < static_cast<size_t>(config.loop_closing_min_matches)) {
+      lc_time_stats.addTime(LCTimeStage::IslandMatch, false);
+      continue;
     }
 
     lc_time_stats.addTime(LCTimeStage::IslandMatch, true);
@@ -317,7 +291,13 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     }
     lc_time_stats.addTime(LCTimeStage::GeometricVerification, true);
 
-    // reproject the 3d points from the kfs_island[0] to the current keyframe's left cam
+    std::vector<std::unordered_set<LandmarkId>> matched_landmarks(calib.intrinsics.size());
+    for (const auto& [kf, kf_matches] : matches) {
+      for (const auto& match : kf_matches) {
+        matched_landmarks[match.source_cam].insert(match.target_kpt_id);
+      }
+    }
+
     for (size_t i = 0; i < config.loop_closing_cameras_to_reproject.size(); i++) {
       size_t cam_id = config.loop_closing_cameras_to_reproject[i];
 
@@ -325,8 +305,7 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
         continue;
       }
       reproject_landmarks(absolute_pose, reprojected_keypoints[i], cam_id,
-                          points_3d.at(TimeCamId{candidate_kf, cam_id}));
-      std::vector<KeyframesMatch> new_matched_keypoints;
+                          points_3d.at(TimeCamId{candidate_kf, cam_id}), matched_landmarks[cam_id]);
       for (const auto& kp : reprojected_keypoints[i]) {
         Eigen::aligned_vector<Vec2>& redetected_kpts = redetected_keypoints_map[i][kp.first];
 
@@ -339,38 +318,19 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
         if (match_found) {
           rematched_keypoints[i].emplace_back(best_keypoint_pos);
           if (config.loop_closing_use_rematches) {
-            new_matched_keypoints.emplace_back(KeyframesMatch{
-                cam_id, cam_id, kp.first, kp.first});  // source_cam, source_kpt_id, target_cam, target_kpt_id
             curr_kf_kpts[cam_id][kp.first] = Eigen::Translation2f(best_keypoint_pos);
+            matches[candidate_kf].emplace_back(KeyframesMatch{cam_id, cam_id, kp.first, kp.first});
           }
         }
-      }
-
-      // filter the new matches, discarding those that contain an existing taget_kpt_id
-      if (config.loop_closing_use_rematches) {
-        std::set<KeypointId> existing_target_kpt_ids;
-        for (const auto& keyframe_match : matches) {
-          for (const auto& match : keyframe_match.second) {
-            if (match.source_cam != cam_id) continue;  // only consider matches from the current camera
-            existing_target_kpt_ids.insert(match.target_kpt_id);
-          }
-        }
-
-        std::vector<KeyframesMatch> filtered_new_matched_keypoints;
-        for (const auto& match : new_matched_keypoints) {
-          if (existing_target_kpt_ids.find(match.target_kpt_id) == existing_target_kpt_ids.end()) {
-            filtered_new_matched_keypoints.emplace_back(match);
-          }
-        }
-
-        // add the new matches to the matches
-        matches[candidate_kf].insert(matches[candidate_kf].end(), filtered_new_matched_keypoints.begin(),
-                                     filtered_new_matched_keypoints.end());
       }
     }
     lc_time_stats.addTime(LCTimeStage::Reprojection, true);
 
+    std::set<LandmarkId> landmarks_matched;
+    std::vector<std::set<LandmarkId>> landmarks_matched_per_cam(calib.intrinsics.size());
+
     if (config.loop_closing_use_rematches) {
+      // TODO@tsantucci: this step should be based on the previous inliers, not on all matches
       // recompute the absolute pose with the new matches
       inlier_matches.clear();
       size_t new_num_inliers = computeAbsolutePoseMultiCam(curr_kf_id, kfs_island, curr_kf_kpts, points_3d, matches,
@@ -380,9 +340,23 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
 
       reprojection_inliers = new_num_inliers;
 
+      for (const auto& [kf_id, inlier_matches_vec] : inlier_matches) {
+        for (const auto& match : inlier_matches_vec) {
+          landmarks_matched.insert(match.target_kpt_id);
+          landmarks_matched_per_cam[match.source_cam].insert(match.target_kpt_id);
+        }
+      }
+
       std::cout << curr_kf_id << " -> " << candidate_kf << ": initial matches = " << initial_matches
                 << ", island matches = " << initial_island_matches << ", initial inliers = " << initial_inliers
                 << ", reprojection inliers = " << reprojection_inliers << std::endl;
+
+      std::cout << "Landmarks matched: " << landmarks_matched.size() << std::endl;
+      std::cout << "Landmarks matched per cam: ";
+      for (size_t i = 0; i < calib.intrinsics.size(); i++) {
+        std::cout << "Cam " << i << ": " << landmarks_matched_per_cam[i].size() << " ";
+      }
+      std::cout << std::endl;
     } else {
       reprojection_inliers = num_inliers;
 
@@ -427,8 +401,7 @@ void LoopClosing::populateVisualizationData(
     const std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>& points_3d,
     const std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches,
     const std::unordered_map<FrameId, std::vector<KeyframesMatch>>& inlier_matches,
-    const std::vector<Eigen::aligned_unordered_map<KeypointId, Keypoint>>& curr_kf_kpts,
-    const std::vector<Eigen::aligned_unordered_map<KeypointId, Vec2>>& reprojected_keypoints,
+    const std::vector<Keypoints>& curr_kf_kpts, const std::vector<Keypoints>& reprojected_keypoints,
     const std::vector<std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>>>& redetected_keypoints_map,
     const std::vector<Eigen::aligned_vector<Vec2>>& rematched_keypoints, const Sophus::SE3f& best_corrected_pose,
     const TimeCamId& best_candidate_tcid) {
@@ -436,85 +409,68 @@ void LoopClosing::populateVisualizationData(
 
   FrameId candidate_kf = best_candidate_tcid.frame_id;
 
-  loop_closing_visualization_data->islands.emplace_back(kfs_island);
-  loop_closing_visualization_data->corrected_pose[candidate_kf] = best_corrected_pose;
-  loop_closing_visualization_data->candidate_kfs.emplace_back(candidate_kf);
-  loop_closing_visualization_data->reprojected_keypoints.emplace_back(reprojected_keypoints);
-  loop_closing_visualization_data->redetected_keypoints.emplace_back(redetected_keypoints_map);
-  loop_closing_visualization_data->rematched_keypoints.emplace_back(rematched_keypoints);
+  loop_closing_visualization_data->island = kfs_island;
+  loop_closing_visualization_data->candidate_corrected_pose = best_corrected_pose;
+  loop_closing_visualization_data->reprojected_keypoints = reprojected_keypoints;
+  loop_closing_visualization_data->redetected_keypoints = redetected_keypoints_map;
+  loop_closing_visualization_data->rematched_keypoints = rematched_keypoints;
+  loop_closing_visualization_data->current_keypoints = curr_kf_kpts;
+  loop_closing_visualization_data->matches = matches;
+  loop_closing_visualization_data->inlier_matches = inlier_matches;
 
-  // set the current keypoints
-  loop_closing_visualization_data->current_keypoints.resize(calib.intrinsics.size());
-  for (size_t i = 0; i < calib.intrinsics.size(); i++) {
-    loop_closing_visualization_data->current_keypoints[i].clear();
-    for (const auto& kpt : curr_kf_kpts[i]) {
-      loop_closing_visualization_data->current_keypoints[i].emplace_back(kpt.second.translation().cast<float>());
+  Eigen::aligned_map<LandmarkId, Eigen::Vector3f> landmarks_3d;
+
+  for (const auto& [kf_id, kf_matches] : inlier_matches) {
+    for (const auto& match : kf_matches) {
+      LandmarkId candidate_lm_id = match.target_kpt_id;
+
+      if (landmarks_3d.find(candidate_lm_id) != landmarks_3d.end()) continue;
+
+      TimeCamId candidate_tcid{kf_id, match.target_cam};
+      if (points_3d.find(candidate_tcid) == points_3d.end()) continue;
+      if (points_3d.at(candidate_tcid).find(candidate_lm_id) == points_3d.at(candidate_tcid).end()) continue;
+
+      landmarks_3d[candidate_lm_id] = points_3d.at(candidate_tcid).at(candidate_lm_id).cast<float>();
     }
   }
 
-  std::vector<Eigen::aligned_unordered_map<TimeCamId, Eigen::aligned_vector<std::pair<Vec2, Vec2>>>>
-      curr_island_matches(calib.intrinsics.size());
-
-  std::vector<Eigen::aligned_unordered_map<TimeCamId, Eigen::aligned_vector<std::pair<Vec2, Vec2>>>>
-      curr_island_inliers(calib.intrinsics.size());
-  Eigen::aligned_vector<Eigen::Vector3d> curr_island_landmarks;
-  std::vector<LandmarkId> curr_island_landmark_ids;
+  for (const auto& [lm_id, pos] : landmarks_3d) {
+    loop_closing_visualization_data->landmarks_3d.push_back(pos);
+  }
 
   for (const auto& kf_id : kfs_island) {
-    // first, set the keypoints for each camera
     for (size_t i = 0; i < calib.intrinsics.size(); i++) {
       TimeCamId kf_tcid = TimeCamId{kf_id, i};
 
-      loop_closing_visualization_data->candidate_keypoints[kf_tcid] = Eigen::aligned_vector<Vec2>();
+      if (points_3d.find(kf_tcid) == points_3d.end()) continue;
 
-      if (points_3d.find(kf_tcid) == points_3d.end()) {
-        continue;
-      }
-      for (const auto& lms : points_3d.at(kf_tcid)) {
+      for (const auto& [lm_id, pos] : points_3d.at(kf_tcid)) {
         auto& positions = kpts_positions[kf_tcid];
-        if (positions.find(lms.first) == positions.end()) {
-          // TODO@tsantucci: what to do in this case?
-          continue;
-        }
-        loop_closing_visualization_data->candidate_keypoints[kf_tcid].emplace_back(positions[lms.first].cast<float>());
-      }
-    }
+        if (positions.find(lm_id) == positions.end()) continue;
 
-    // set the matches of the kf_id
-    auto it_matches = matches.find(kf_id);
-    if (it_matches != matches.end()) {
-      for (const auto& match : it_matches->second) {
-        const auto& keypoint = curr_kf_kpts[match.source_cam].at(match.source_kpt_id);
-        Vec2 p1 = keypoint.translation().cast<float>();
-        Vec2 p2 = kpts_positions[TimeCamId{kf_id, match.target_cam}][match.target_kpt_id].cast<float>();
-        curr_island_matches[match.source_cam][TimeCamId{kf_id, match.target_cam}].emplace_back(p1, p2);
-      }
-    }
-
-    // set the inlier matches of the kf_id
-    auto it_inliers = inlier_matches.find(kf_id);
-    if (it_inliers != inlier_matches.end()) {
-      for (const auto& match : it_inliers->second) {
-        const auto& keypoint = curr_kf_kpts[match.source_cam].at(match.source_kpt_id);
-        Vec2 p1 = keypoint.translation().cast<float>();
-        Vec2 p2 = kpts_positions[TimeCamId{kf_id, match.target_cam}][match.target_kpt_id].cast<float>();
-        curr_island_inliers[match.source_cam][TimeCamId{kf_id, match.target_cam}].emplace_back(p1, p2);
-      }
-
-      for (const auto& match : it_inliers->second) {
-        const auto& target_tcid = TimeCamId{kf_id, match.target_cam};
-        const auto& world_pt = points_3d.at(target_tcid).at(match.target_kpt_id);
-
-        curr_island_landmarks.emplace_back(world_pt);
-        curr_island_landmark_ids.emplace_back(match.target_kpt_id);
+        loop_closing_visualization_data->candidate_keypoints[kf_tcid][lm_id] =
+            Eigen::Translation2f(positions[lm_id].cast<float>());
       }
     }
   }
+}
 
-  loop_closing_visualization_data->landmarks.emplace_back(curr_island_landmarks);
-  loop_closing_visualization_data->landmark_ids.emplace_back(curr_island_landmark_ids);
-  loop_closing_visualization_data->matches.emplace_back(curr_island_matches);
-  loop_closing_visualization_data->inlier_matches.emplace_back(curr_island_inliers);
+void LoopClosing::filter_redundant_matches(std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches) {
+  // TODO@tsantucci: it's better to not need to do this
+  std::vector<std::set<KeypointId>> source_kpt_ids_per_cam(calib.intrinsics.size());
+  std::vector<KeyframesMatch> filtered_matches;
+
+  for (auto& [frame_id, matches_vec] : matches) {
+    for (const auto& match : matches_vec) {
+      if (source_kpt_ids_per_cam[match.source_cam].find(match.source_kpt_id) ==
+          source_kpt_ids_per_cam[match.source_cam].end()) {
+        filtered_matches.emplace_back(match);
+        source_kpt_ids_per_cam[match.source_cam].insert(match.source_kpt_id);
+      }
+    }
+    matches_vec = std::move(filtered_matches);
+    filtered_matches.clear();
+  }
 }
 
 void LoopClosing::query_hashbow_database(FrameId curr_kf_id, const HashBowVector& bow_vector,
@@ -536,15 +492,17 @@ void LoopClosing::query_hashbow_database(FrameId curr_kf_id, const HashBowVector
   }
 }
 
-bool LoopClosing::redetect_kpts(const Vec2& center_kpt, std::bitset<256>& center_kpt_descriptor,
+bool LoopClosing::redetect_kpts(const Keypoint& center_kpt, std::bitset<256>& center_kpt_descriptor,
                                 Eigen::aligned_vector<Vec2>& redetected_kpts, const basalt::ManagedImage<uint16_t>& img,
                                 Vec2& best_keypoint_pos) {
-  if (!img.InBounds(center_kpt.x(), center_kpt.y(), config.loop_closing_fast_grid_size / 2.0)) return false;
+  if (!img.InBounds(center_kpt.translation().x(), center_kpt.translation().y(),
+                    config.loop_closing_fast_grid_size / 2.0))
+    return false;
 
   const basalt::Image<const uint16_t>& sub_img_raw =
-      img.SubImage(center_kpt.x() - (config.loop_closing_fast_grid_size / 2.0),
-                   center_kpt.y() - (config.loop_closing_fast_grid_size / 2.0), config.loop_closing_fast_grid_size,
-                   config.loop_closing_fast_grid_size);
+      img.SubImage(center_kpt.translation().x() - (config.loop_closing_fast_grid_size / 2.0),
+                   center_kpt.translation().y() - (config.loop_closing_fast_grid_size / 2.0),
+                   config.loop_closing_fast_grid_size, config.loop_closing_fast_grid_size);
 
   const basalt::Image<const uint16_t>& img_raw = img.SubImage(0, 0, img.w, img.h);
 
@@ -552,8 +510,8 @@ bool LoopClosing::redetect_kpts(const Vec2& center_kpt, std::bitset<256>& center
   detectKeypointsFAST(sub_img_raw, kd, config.loop_closing_fast_threshold, config.loop_closing_fast_nonmax_suppression);
 
   for (size_t i = 0; i < kd.corners.size(); i++) {
-    kd.corners[i] += Eigen::Vector2d(center_kpt.x() - (config.loop_closing_fast_grid_size / 2.0),
-                                     center_kpt.y() - (config.loop_closing_fast_grid_size / 2.0));
+    kd.corners[i] += Eigen::Vector2d(center_kpt.translation().x() - (config.loop_closing_fast_grid_size / 2.0),
+                                     center_kpt.translation().y() - (config.loop_closing_fast_grid_size / 2.0));
   }
 
   KeypointsData kd_filtered;
@@ -587,13 +545,14 @@ bool LoopClosing::redetect_kpts(const Vec2& center_kpt, std::bitset<256>& center
   return false;
 }
 
-void LoopClosing::reproject_landmarks(const Sophus::SE3d& absolute_pose,
-                                      Eigen::aligned_unordered_map<KeypointId, Vec2>& reprojected_keypoints,
-                                      size_t cam_id, const Eigen::aligned_map<LandmarkId, Vec3d>& points_3d) {
+void LoopClosing::reproject_landmarks(const Sophus::SE3d& absolute_pose, Keypoints& reprojected_keypoints,
+                                      size_t cam_id, const Eigen::aligned_map<LandmarkId, Vec3d>& points_3d,
+                                      const std::unordered_set<LandmarkId>& landmarks_to_skip) {
   // get the landmarks observed in candidate_kf's left cam
   std::set<LandmarkId> candidate_kf_landmarks;
 
   for (const auto& point : points_3d) {
+    if (landmarks_to_skip.find(point.first) != landmarks_to_skip.end()) continue;
     candidate_kf_landmarks.emplace(point.first);
   }
 
@@ -624,7 +583,7 @@ void LoopClosing::reproject_landmarks(const Sophus::SE3d& absolute_pose,
       continue;
     }
 
-    reprojected_keypoints[lm_id] = uv.cast<float>();
+    reprojected_keypoints[lm_id] = Eigen::Translation2f(uv.cast<float>());
   }
 }
 
@@ -651,8 +610,7 @@ bool LoopClosing::are_covisible(const FrameId& kf1_id, const FrameId& kf2_id) {
   return false;
 }
 
-void LoopClosing::match_keyframe(const FrameId& curr_kf_id,
-                                 const std::vector<Eigen::aligned_unordered_map<KeypointId, Keypoint>>& curr_kf_kpts,
+void LoopClosing::match_keyframe(const FrameId& curr_kf_id, const std::vector<Keypoints>& curr_kf_kpts,
                                  const std::vector<std::vector<KeypointId>>& candidate_kf_kpts,
                                  const FrameId& candidate_kf_id, std::vector<KeyframesMatch>& matches) {
   matches.clear();
@@ -861,11 +819,11 @@ void LoopClosing::updateHashBowDatabase(const LoopClosingInput::Ptr& optical_flo
 }
 
 size_t LoopClosing::computeAbsolutePoseMultiCam(
-    const FrameId& last_kf_id, const std::vector<FrameId>& candidate_kf_ids,
-    const std::vector<Eigen::aligned_unordered_map<KeypointId, Keypoint>>& last_kf_kpts,
+    const FrameId& last_kf_id, const std::vector<FrameId>& candidate_kf_ids, const std::vector<Keypoints>& last_kf_kpts,
     const std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>& points_3d,
     const std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches,
     std::unordered_map<FrameId, std::vector<KeyframesMatch>>& inlier_matches, Sophus::SE3d& absolute_pose) {
+  // points_3d should just be like a map of LandmarkId -> Vec3d. no need for TimeCamId
   // OpenGV types
   opengv::bearingVectors_t bearingVectors;
   opengv::points_t points;
@@ -899,6 +857,7 @@ size_t LoopClosing::computeAbsolutePoseMultiCam(
   points.reserve(num_matches);
   std::vector<MatchSource> match_sources;
   match_sources.reserve(num_matches);
+  // TODO@tsantucci: no need to keep used_kpt_ids, they are unique
   std::vector<std::set<KeypointId>> used_kpt_ids(calib.intrinsics.size());
 
   for (const auto& candidate_kf : candidate_kf_ids) {
@@ -911,7 +870,6 @@ size_t LoopClosing::computeAbsolutePoseMultiCam(
 
       if (points_3d.at(TimeCamId{candidate_kf, match.target_cam}).find(match.target_kpt_id) ==
           points_3d.at(TimeCamId{candidate_kf, match.target_cam}).end()) {
-        std::cout << "Lost match because of abscence of 3D point: " << match.target_kpt_id << std::endl;
         continue;  // skip if no 3D point found
       }
 
@@ -1036,6 +994,7 @@ bool LoopClosing::solveOptimizationProblem(ceres::Problem* problem) {
   CHECK(problem != nullptr);
 
   ceres::Solver::Options options;
+  // TODO@tsantucci: lower this ASAP!
   options.max_num_iterations = 200;
   options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
 
