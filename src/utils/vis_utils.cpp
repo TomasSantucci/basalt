@@ -835,7 +835,7 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
 
     size_t index = std::distance(config.loop_closing_cameras_to_reproject.begin(), it);
 
-    Keypoints& reprojected_keypoints = curr_lc_vis_data->reprojected_keypoints[recent_kf_cam_id];
+    Keypoints& reprojected_keypoints = curr_lc_vis_data->reprojected_keypoints[index];
 
     glColor3ubv(YELLOW);
     for (const auto& [kpt_id, p] : reprojected_keypoints) {
@@ -853,7 +853,7 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
 
     if (show_redetections) {
       std::unordered_map<KeypointId, Eigen::aligned_vector<Eigen::Matrix<float, 2, 1>>>& redetected_kpts =
-          curr_lc_vis_data->redetected_keypoints[recent_kf_cam_id];
+          curr_lc_vis_data->redetected_keypoints[index];
 
       glColor3ubv(ORANGE);
       for (const auto& [kpid, kpts] : redetected_kpts) {
@@ -865,7 +865,7 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
 
     if (show_rematches) {
       Eigen::aligned_vector<Eigen::Matrix<float, 2, 1>>& rematched_keypoints =
-          curr_lc_vis_data->rematched_keypoints[recent_kf_cam_id];
+          curr_lc_vis_data->rematched_keypoints[index];
       glColor3ubv(BLUE);
       for (const auto& p : rematched_keypoints) {
         pangolin::glDrawCirclePerimeter(p.cast<double>(), 3.0f);
