@@ -331,10 +331,8 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.loop_closing_frames_to_match_threshold));
   ar(CEREAL_NVP(config.loop_closing_max_hamming_distance));
   ar(CEREAL_NVP(config.loop_closing_second_best_test_ratio));
-  ar(CEREAL_NVP(config.loop_closing_min_matches));
   ar(CEREAL_NVP(config.loop_closing_pnp_ransac_threshold));
   ar(CEREAL_NVP(config.loop_closing_pnp_ransac_iterations));
-  ar(CEREAL_NVP(config.loop_closing_pnp_min_inliers));
   ar(CEREAL_NVP(config.loop_closing_use_all_recent_keypoints));
   ar(CEREAL_NVP(config.dump_loop_detection_result));
   ar(CEREAL_NVP(config.loop_closing_fast_threshold));
@@ -351,8 +349,12 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.loop_closing_frame_time_margin_s));
   ar(CEREAL_NVP(config.loop_closing_min_drift_reduction));
   ar(CEREAL_NVP(config.loop_closing_skip_initial_matching));
-  ar(CEREAL_NVP(config.loop_closing_min_initial_matches));
   ar(CEREAL_NVP(config.loop_closing_dump_times));
+  ar(CEREAL_NVP(config.loop_closing_min_initial_matches));
+  ar(CEREAL_NVP(config.loop_closing_min_island_matches));
+  ar(CEREAL_NVP(config.loop_closing_pnp_min_inliers));
+  ar(CEREAL_NVP(config.loop_closing_reprojected_pnp_min_inliers));
+  ar(CEREAL_NVP(config.loop_closing_pnp_inliers_ratio));
 
   ar(CEREAL_NVP(config.causal_evaluation));
 

@@ -124,10 +124,8 @@ struct VioConfig {
   double loop_closing_frames_to_match_threshold;
   double loop_closing_max_hamming_distance;
   double loop_closing_second_best_test_ratio;
-  double loop_closing_min_matches;
   double loop_closing_pnp_ransac_threshold;
   int loop_closing_pnp_ransac_iterations;
-  int loop_closing_pnp_min_inliers;
   bool loop_closing_use_all_recent_keypoints;
   bool dump_loop_detection_result;
   int loop_closing_fast_threshold;
@@ -144,8 +142,12 @@ struct VioConfig {
   int loop_closing_frame_time_margin_s;
   double loop_closing_min_drift_reduction;
   bool loop_closing_skip_initial_matching;
-  int loop_closing_min_initial_matches;
   bool loop_closing_dump_times;
+  int loop_closing_min_initial_matches;
+  int loop_closing_min_island_matches;
+  int loop_closing_pnp_min_inliers;
+  int loop_closing_reprojected_pnp_min_inliers;
+  double loop_closing_pnp_inliers_ratio;
 
   bool causal_evaluation;
 
