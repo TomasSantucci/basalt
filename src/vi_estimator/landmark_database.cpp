@@ -140,9 +140,13 @@ template <class Scalar_>
 std::vector<std::pair<LandmarkId, const Landmark<Scalar_>*>> LandmarkDatabase<Scalar_>::getLandmarksForHostWithIds(
     const TimeCamId& tcid) const {
   std::vector<std::pair<LandmarkId, const Landmark<Scalar_>*>> res;
+  std::unordered_set<LandmarkId> lm_ids;
 
   for (const auto& [k, obs] : observations.at(tcid))
-    for (const auto& v : obs) res.emplace_back(v, &kpts.at(v));
+    for (const auto& v : obs) lm_ids.insert(v);
+
+  res.reserve(lm_ids.size());
+  for (const auto& lm_id : lm_ids) res.emplace_back(lm_id, &kpts.at(lm_id));
 
   return res;
 }
