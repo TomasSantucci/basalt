@@ -131,9 +131,6 @@ struct LoopClosingVisualizationData {
   std::vector<std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>>> redetected_keypoints;
   std::vector<Eigen::aligned_vector<Vec2>> rematched_keypoints;
 
-  // 3d landmarks
-  Eigen::aligned_vector<Eigen::Vector3f> landmarks_3d;
-
   // Poses
   SE3 current_keyframe_pose;
   SE3 candidate_corrected_pose;

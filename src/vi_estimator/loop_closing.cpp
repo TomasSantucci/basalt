@@ -416,26 +416,6 @@ void LoopClosing::populateVisualizationData(
   loop_closing_visualization_data->matches = matches;
   loop_closing_visualization_data->inlier_matches = inlier_matches;
 
-  Eigen::aligned_map<LandmarkId, Eigen::Vector3f> landmarks_3d;
-
-  for (const auto& [kf_id, kf_matches] : inlier_matches) {
-    for (const auto& match : kf_matches) {
-      LandmarkId candidate_lm_id = match.candidate_kf_kpt_id;
-
-      if (landmarks_3d.find(candidate_lm_id) != landmarks_3d.end()) continue;
-
-      TimeCamId candidate_tcid{kf_id, match.candidate_kf_cam};
-      if (points_3d.find(candidate_tcid) == points_3d.end()) continue;
-      if (points_3d.at(candidate_tcid).find(candidate_lm_id) == points_3d.at(candidate_tcid).end()) continue;
-
-      landmarks_3d[candidate_lm_id] = points_3d.at(candidate_tcid).at(candidate_lm_id).cast<float>();
-    }
-  }
-
-  for (const auto& [lm_id, pos] : landmarks_3d) {
-    loop_closing_visualization_data->landmarks_3d.push_back(pos);
-  }
-
   for (const auto& kf_id : kfs_island) {
     for (size_t i = 0; i < calib.intrinsics.size(); i++) {
       TimeCamId kf_tcid = TimeCamId{kf_id, i};

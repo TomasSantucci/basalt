@@ -1378,12 +1378,33 @@ struct basalt_vio_ui : vis::VIOUIBase {
         glEnd();
       }
 
-      Eigen::aligned_vector<Eigen::Vector3f> curr_island_points = curr_lc_vis_data->landmarks_3d;
+      if (show_map) {
+        MapDatabaseVisualizationData::Ptr curr_map_vis_data = get_curr_map_vis_data();
+        if (curr_map_vis_data == nullptr) return;
+        Eigen::aligned_vector<Eigen::Vector3f> curr_island_points;
+        std::unordered_set<LandmarkId> island_lm_ids;
 
-      glPointSize(10);
-      glColor3ubv(vis::GREEN);
-      pangolin::glDrawPoints(curr_island_points);
-      glPointSize(3);
+        for (const auto& [kf_id, matches] : curr_lc_vis_data->inlier_matches) {
+          for (const auto& match : matches) {
+            island_lm_ids.insert(match.candidate_kf_kpt_id);
+            island_lm_ids.insert(match.current_kf_kpt_id);
+          }
+        }
+
+        Eigen::aligned_vector<Eigen::Matrix<double, 3, 1>>& points = curr_map_vis_data->landmarks;
+        std::vector<int>& ids = curr_map_vis_data->landmarks_ids;
+
+        for (size_t i = 0; i < ids.size(); i++) {
+          if (island_lm_ids.count(ids[i]) > 0) {
+            curr_island_points.push_back(points[i].cast<float>());
+          }
+        }
+
+        glPointSize(10);
+        glColor3ubv(vis::GREEN);
+        pangolin::glDrawPoints(curr_island_points);
+        glPointSize(3);
+      }
 
       if (show_gt && !gt_t_ns.empty() && !gt_T_w_i.empty()) {
         Sophus::SE3d T_gt_start, T_gt_end;
