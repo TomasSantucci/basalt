@@ -5,163 +5,107 @@ SPDX-License-Identifier: BSD-3-Clause
 Author: Mateo de Mayo <mateo.demayo@tum.de>
 -->
 
-# CI Runner Configuration
+# CI (Single Docker Runner) Setup
 
-There are three types of runner tags:
+This repository’s CI is designed to run **builds, evaluations, timing evaluations, and report generation** on a **single GitLab runner** using the **Docker executor**.
 
-- `basalt-docker`
-- `basalt-evaluation`
-- `basalt-timing-evaluation`
+The main motivation is to allow running experiments on a workstation that already has ~1TB of SLAM datasets pre-downloaded, while avoiding giving users arbitrary shell access to the host.
 
-We describe the CI setup by explaining each tag.
+## Overview
 
-## Runner Tags
+The CI has two layers:
 
-### Tag `basalt-docker`
+1. **Main pipeline** (`.gitlab-ci.yml`) builds packages and can trigger an evaluation pipeline.
+2. **Generated evaluation pipeline** (`.ci/cieval.yaml`) is produced by `.ci/cievalgen.py` from `.ci/cieval.template.yaml` + `.ci/evaluation.json`.
 
-- Runner used for crosscompiling jobs to non-x86 platforms (e.g.,
-  `aarch64-raspberry-bookworm`, `aarch64-radxa-jammy`).
-- These are usually based on compilations guides like <docs/Raspberry.md> or
-  <docs/RadxaZero.md>.
-- They require a docker executor since a replicable build environment is
-  important.
+The evaluation pipeline:
+- Builds `build/basalt_vio`
+- Runs datasets (many jobs in parallel)
+- Produces `results.zip` and `timing-results.zip`
 
-### Tag `basalt-evaluation`
+The main pipeline:
+- Has a `create-evaluation` job that generates `.ci/cieval.yaml`
+- Has `do-evaluation` which triggers the downstream evaluation pipeline
+- Has `get-results` and `report` which fetch results from the downstream pipeline and render a report
 
-- Runner used for getting accuracy (and other) metrics by running the system on
-  different datasets.
-- These runners hould have all datasets pre-downloaded and accessible.
-- Furthermore these runners run a series of commands that you will need to be
-  available, a non-extensive list is: xrtslam-metrics (with complete target
-  directory), python3, xrtmet, jq, curl, unzip, tree, head, zip, fish, 7z,
-  pandoc.
-- We assume the runner runs on a fast disk (e.g., an SSD), and the datasets can
-  live on the same disk or on a different disk (e.g., an HDD). If a different
-  disk, we assume it is a slower disk and thus we copy them before running, so
-  enough space for the biggest datasets should be available for all jobs to
-  succeed.
-- The dataset location should be set in `.gitlab-runner/config.toml`. See below.
+## What you need on the host
 
-### Tag `basalt-timing-evaluation`
+### 1) Install and register a GitLab runner
 
-- Runner used to measure timing performance in isolation.
-- Similar requirements to the `basalt-evaluation` tag.
-- However, a single concurrent job should be allowed to avoid contention between
-  jobs.
+- Install `gitlab-runner` on the workstation.
+- Ensure Docker works for the user that runs `gitlab-runner` (or use root-owned runner with a root-owned Docker daemon).
+- Register **one runner** with **executor = docker** and add a single tag: `basalt-evaluation-box`
 
-## Runner Configuration
+*NOTE: the `basalt-evaluation-box` tag is used by jobs that expect a custom runner with
+local tools and datasets set up as described below.*
 
-### Docker executor (`basalt-docker`)
+### 2) Put datasets somewhere stable
 
-- Configure a new runner
-- Set it to docker executor
-- Set the `basalt-docker` tag in the [web
-  ui](https://gitlab.freedesktop.org/mateosss/basalt/-/settings/ci_cd#js-runners-settings)
+The runner will bind-mount datasets into the container. You must have:
+- EuRoC dataset directory
+- TUMVI dataset directory
+- Monado SLAM datasets directory (with subfolders for devices like Odyssey+, Valve Index, Reverb G2)
 
-### Shell executor (`basalt-evaluation`)
+### 3) Have xrtslam-metrics available as a mounted directory
 
-- Configure a new runner
-- Set it to shell executor
-- For the `report job`, add the `xrtmet` envvar pointing to your installation of
-  [xrtslam-metrics](https://gitlab.freedesktop.org/mateosss/xrtslam-metrics),
-  with a complete `$xrtmet/test/data/targets` and a `$xrtmet/.venv` virtualenv
-  set up.
-- Add envvars for the dataset locations (i.e., use the `gitlab-runner register
---env` option or add it to `.gitlab-runner.config.toml` manually):
-  ```toml
-  [[runners]]
-  concurrent=1
-  ...
-  executor = "shell"
-  environment = [
-    "xrtmet=/path/to/xrtslam-metrics",
-    "msdmo=/path/to/monado-slam-datasets/M_monado_datasets/MO_odyssey_plus",
-    "msdmi=/path/to/monado-slam-datasets/M_monado_datasets/MI_valve_index",
-    "msdmg=/path/to/monado-slam-datasets/M_monado_datasets/MG_reverb_g2",
-    "euroc=/path/to/euroc",
-    "tumvi=/path/to/tumvi",
-  ]
-  ```
-- You should specify envvars for all `device`s specified in
-  <.ci/evaluation.json> `sequences` field.
-- If you are not interested in `basalt-timing-evaluation`, you can set
-  `concurrent=3` instead.
-- Set the `basalt-evaluation` tag in the [web
-  ui](https://gitlab.freedesktop.org/mateosss/basalt/-/settings/ci_cd#js-runners-settings)
-- Provide a `READ_PROJECT_TOKEN`. The token is set up once per repo. In case you
-  need to setup a new repository, you need to create a project access token with
-  `read_api` (you can use any role, I used `reporter`). Then you go to CI/CD ->
-  Variables and set a hidden/masked variable with that token called:
-  `READ_PROJECT_TOKEN`
+Report generation calls scripts from `xrtslam-metrics` via `/xrtmet/...` and expects targets under `/xrtmet/test/data/targets`.
 
-### Shell executor (`basalt-timing-evaluation`)
+You should mount the `xrtslam-metrics` repo into containers and run it from there (recommended), rather than installing it globally on the host.
 
-- Same as `basalt-evaluation` setup but requires `concurrent=1`
-- Set oldest_first for `gate` resource_group. This will gate pipelines to run
-  sequentially while still allowing parallel intra-pipeline jobs. You will need
-  an [access
-  token](https://gitlab.freedesktop.org/mateosss/basalt/-/settings/access_tokens).
+Furthermore you need to craft a `xrtslam-metrics/.venv-docker` virtual environment that can be sourced by the CI:
 
 ```bash
-  curl --request PUT \
-    --header "PRIVATE-TOKEN: <private_token>" \
-    --data "process_mode=oldest_first" \
-    --url "https://gitlab.freedesktop.org/api/v4/projects/mateosss%2Fbasalt/resource_groups/gate"
+docker run -v /your/host/path/to/xrtslam-metrics/:/xrtmet:rw --rm -it registry.freedesktop.org/mateosss/basalt:ubuntu2404 bash
+cd /xrtmet/
+python3.12 -m venv .venv-docker
+source .venv-docker/bin/activate
+pip install poetry
+poetry update
 ```
 
-### Running all runners in same computer
+## Runner `config.toml` (single runner)
 
-- This is possible, you will need to register the two runners (one shell, one
-  docker) on the same computer.
-- You will need to give two tags to the shell runner (`basalt-evaluation` and
-  `basalt-timing-evaluation`)
-- You will be limited to using `concurrent=1` if you want to do timing
-  evaluation.
+Edit `.gitlab-runner/config.toml` and configure a single Docker runner.
 
-## Running Jobs
+Example (adapt paths to your machine):
 
-Most jobs are meant to be manually triggered for now to reduce wasted
-computation.
+```toml
+concurrent = 5
+check_interval = 0
 
-### Triggering builds and static analysis
+[[runners]]
+  name = "basalt-single-docker-runner"
+  url = "https://gitlab.freedesktop.org"
+  token = "REDACTED"
+  executor = "docker"
 
-- You can trigger any build manually
-- You can also trigger `clang-format` and `clangd-tidy` jobs
+  [runners.docker]
+    image = "registry.freedesktop.org/mateosss/basalt:ubuntu2404"
+    privileged = false
+    disable_cache = false
+    shm_size = 0
 
-### Triggering an evaluation
+    # Bind mounts: datasets (read-only), xrtmet repo (read-only),
+    # and writable locations for cache/ccache.
+    volumes = [
+      # GitLab cache volume (used with "cache" yaml keyword)
+      # NOTE: Currently unused to avoid possible cache compression delays.
+      "/storage/local/ssd/<user>/docker-cache:/cache",
 
-For triggering an evaluation you can click into the `create-evaluation` job and
-press play.
+      # We store ccache cache here
+      "/storage/local/ssd/<user>/ccache:/ccache",
 
-Furthermore you can configure the evaluation with the following
-variables in the web UI before launching it:
+      # We use set a scratchdir from the host filesystem (in a fast disk)
+      # because extracting big files into the docker filesystem is much slower.
+      "/storage/local/ssd/<user>/scratch:/scratch:rw",
 
-- `EVALSETS`: A comma separated list of evalsets from <.ci/evaluations.json>.
-  E.g. to run all datasets,
-  `"msdmg,msdmio,msdmipb,msdmipp,msdmipt,msdmo,euroc-v1,euroc-v2,euroc-mh,tumvi-room"`.
-  (default `"quickset1"`)
-- `DETERMINISTIC`: Whether to run the deterministic/reproducible pipeline or the
-  faster non-deterministic one. (default `"1"`)
-- `NUM_THREADS`: Maximum number of threads to use for the run. Useful to queue
-  many runs simultaneously. (default `"0"`)
-- `TIMING_EVALSETS`: Same as `EVALSETS` but for timing jobs. (default
-  `"EMH02,TR2,MOO02,MIO02,MGO02"`)
-- `TIMING_DETERMINISTIC`: Same as `DETERMINISTIC` but for timing jobs (default
-  `"1"`)
-- `TIMING_REPETITIONS`: Timing jobs are repeated more than one time to
-  understand inter-run variability (default `"3"`)
-- `TIMING_NUM_THREADS`: Same as `NUM_THREADS` but for timing jobs (default
-  `"0"`)
+      # xrtslam-metrics repo (read-only)
+      "/storage/local/ssd/<user>/xrtslam-metrics:/xrtmet:ro",
 
-## Evaluating
-
-Just create a branch for each experiment you want to perform and run the CI.
-You can then see the generated html page and download all the generated files.
-
-## Remaining TODOs
-
-- [ ] Make this work with any runner, not just a custom "shell" one. Consider:
-  - while having a single runner use a single build job first instead of parallelizing
-    We don't use a build artifact because we don't want to share the build among runners for now (due to -march=native, maybe using march=x86-64-v3 would be reasonable?)
-    the basalt_vio binary is relatively small, so we could download in each parallel job in the future
-- [ ] Report metrics per evalset and not just all together
+      # Datasets (read-only)
+      "/storage/local/ssd/<user>/euroc:/euroc:ro",
+      "/storage/local/ssd/<user>/tumvi:/tumvi:ro",
+      "/storage/local/hdd/monado-slam-datasets/M_monado_datasets/MO_odyssey_plus:/msdmo:ro",
+      "/storage/local/hdd/monado-slam-datasets/M_monado_datasets/MI_valve_index:/msdmi:ro",
+      "/storage/local/hdd/monado-slam-datasets/M_monado_datasets/MG_reverb_g2:/msdmg:ro"
+    ]

@@ -160,7 +160,7 @@ def main():
             deterministic=deterministic,
             num_threads=num_threads,
             repetitions=1,
-            tags="basalt-evaluation",
+            tags="basalt-evaluation-box",
             results_dir="results",
         )
         jobs.append(job)
@@ -175,7 +175,7 @@ def main():
             deterministic=timing_deterministic,
             num_threads=timing_num_threads,
             repetitions=timing_repetitions,
-            tags="basalt-timing-evaluation",
+            tags="basalt-evaluation-box",
             results_dir="timing-results",
         )
         tjobs.append(job)

@@ -1161,7 +1161,14 @@ void VIOUIBase::do_render_camera(const Sophus::SE3d& T_w_c, size_t i, size_t ts,
   VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
   if (curr_vis_data == nullptr) return;
   auto [fid, fid_color] = get_frame_id_and_color(curr_vis_data, ts);
-  render_camera(T_w_c.matrix(), 2.0F, color, 0.1F, show_ids && i == 0, fid, fid_color);
+
+  auto size = calib.resolution[i].cast<float>();
+  auto intr_tmp = calib.intrinsics[i].getParam();
+  auto intr = intr_tmp.cast<float>();
+  BASALT_ASSERT(intr.size() >= 4);
+
+  std::array<float, 6> intrinsics{size[0], size[1], intr[0], intr[1], intr[2], intr[3]};
+  render_camera(T_w_c.matrix(), 2.0F, color, 0.1F, show_ids && i == 0, fid, fid_color, false, intrinsics);
 }
 
 VIOImageView::VIOImageView(VIOUIBase& ui) : ImageView(), ui(ui) {}

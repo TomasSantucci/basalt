@@ -5,9 +5,12 @@
 #
 # For documentation on this file and the CI process, see .ci/README.md
 
+default:
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+
 variables:
   GIT_SUBMODULE_STRATEGY: recursive
-  GET_DATASET_LOCKFILE: "/tmp/uncompression.lock"
+  GET_DATASET_LOCKFILE: "/scratch/uncompression.lock"
 
 stages:
   - prepare
@@ -15,24 +18,19 @@ stages:
   - timing
   - results
 
-cache:
-  paths:
-    - ccache
-
 .ccache:
   before_script:
     - export CCACHE_BASEDIR="$PWD"
-    - export CCACHE_DIR="$PWD/ccache"
+    - export CCACHE_DIR="/ccache"
     - export CCACHE_COMPILERCHECK=content
     - ccache --zero-stats || true
     - ccache --show-stats || true
   after_script:
-    - export CCACHE_DIR="$PWD/ccache"
+    - export CCACHE_DIR="/ccache"
     - ccache --show-stats -v
 
 build:
   stage: prepare
-  tags: [basalt-evaluation]
   extends: .ccache
   script:
     - time cmake --preset=release
@@ -55,22 +53,16 @@ build:
   script:
     - echo "Running dataset $DATASET"
     - echo $DETERMINISTIC, $NUM_THREADS, $REPETITIONS, $RESULTS_DIR
-    - export DS_DEV=$(jq -r ".sequences."$DATASET.device .ci/evaluation.json)
-    - export DS_REL_PATH=$(jq -r ".sequences."$DATASET.path .ci/evaluation.json)
+    - export DS_DEV=$(jq -r .sequences.$DATASET.device .ci/evaluation.json)
+    - export DS_REL_PATH=$(jq -r .sequences.$DATASET.path .ci/evaluation.json)
     - export DS_NAME=$(basename $DS_REL_PATH)
-    - export DS_PATH=${{!DS_DEV}}/$DS_REL_PATH
-    - export DS_CONFIG=$(jq -r ".configs."$DS_DEV .ci/evaluation.json)
-    - export DS_CALIB=$(jq -r ".calibs."$DS_DEV .ci/evaluation.json)
+    - export DS_PATH=/$DS_DEV/$DS_REL_PATH
+    - export DS_CONFIG=$(jq -r .configs.$DS_DEV .ci/evaluation.json)
+    - export DS_CALIB=$(jq -r .calibs.$DS_DEV .ci/evaluation.json)
     - echo $DATASET, $DS_DEV, $DS_REL_PATH, $DS_NAME, $DS_PATH, $DS_CONFIG, $DS_CALIB
-    - echo Runner variables $GET_DATASET_LOCKFILE, $msdmo, $msdmi, $msdmg, $euroc, $tumvi
-    - |
-      set -euo pipefail
-      for v in msdmo msdmg msdmi euroc tumvi; do
-        val="${{!v:-}}"
-        [[ -n "$val" ]] || {{ echo "ERROR: \$$v is unset/empty"; exit 1; }}
-        [[ -d "$val" ]] || {{ echo "ERROR: \$$v='$val' is not a directory"; exit 1; }}
-      done
-    - .ci/get_dataset.py $DS_PATH . --lock_file $GET_DATASET_LOCKFILE | tee get_dataset.log
+    - echo Runner variables $GET_DATASET_LOCKFILE
+    - ls /msdmo /msdmi /msdmg /euroc /tumvi
+    - .ci/get_dataset.py $DS_PATH /scratch --lock_file $GET_DATASET_LOCKFILE | tee get_dataset.log
     - export FINAL_DS_PATH=$(cat get_dataset.log | tail -n 1)
     - echo $FINAL_DS_PATH
     - ls
@@ -104,7 +96,7 @@ build:
 
 zip:
   stage: results
-  tags: [basalt-evaluation]
+  tags: [basalt-evaluation-box]
   script:
     - |
       echo "# Results"

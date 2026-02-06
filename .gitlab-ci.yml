@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: CC0-1.0
 # SPDX-FileCopyrightText: 2023 Collabora, Ltd.
 
+default:
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+
 variables:
   GIT_SUBMODULE_STRATEGY: recursive
 
@@ -10,19 +13,15 @@ stages:
   - release
   - evaluate
 
-cache:
-  paths:
-    - ccache
-
 .ccache:
   before_script:
     - export CCACHE_BASEDIR="$PWD"
-    - export CCACHE_DIR="$PWD/ccache"
+    - export CCACHE_DIR="/ccache"
     - export CCACHE_COMPILERCHECK=content
     - ccache --zero-stats || true
     - ccache --show-stats || true
   after_script:
-    - export CCACHE_DIR="$PWD/ccache"
+    - export CCACHE_DIR="/ccache"
     - ccache --show-stats -v
 
 gcc-ubuntu-2204:
@@ -78,14 +77,12 @@ clang19-ubuntu-2404:
 aarch64-raspberry-bookworm:
   extends: .ccache
   image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
-  tags: [basalt-docker]
   stage: build
   when: manual
   script:
     - echo BUILD_RASPBERRY_BOOKWORM_JOB_ID=$CI_JOB_ID >> release.env
-    - apt-get update && apt-get install -y wget
-    - wget --no-verbose https://gitlab.freedesktop.org/mateosss/basalt-lfs/-/raw/main/bookworm-arm64-sysroot.tar.xz
-    - wget --no-verbose https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - curl -fL -sS -O https://gitlab.freedesktop.org/mateosss/basalt-lfs/-/raw/main/bookworm-arm64-sysroot.tar.xz
+    - curl -fL -sS -O https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
     - tar -xf x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
     - tar -xf bookworm-arm64-sysroot.tar.xz
     - git apply --directory thirdparty/Pangolin/ scripts/aarch64-patches/pangolin.patch
@@ -110,14 +107,12 @@ aarch64-raspberry-bookworm:
 aarch64-radxa-jammy:
   extends: .ccache
   image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
-  tags: [basalt-docker]
   stage: build
   when: manual
   script:
     - echo BUILD_RADXA_JAMMY_JOB_ID=$CI_JOB_ID >> release.env
-    - apt-get update && apt-get install -y wget
-    - wget --no-verbose https://gitlab.freedesktop.org/mateosss/basalt-lfs/-/raw/main/jammy-arm64-sysroot.tar.xz
-    - wget --no-verbose https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - curl -fL -sS -O https://gitlab.freedesktop.org/mateosss/basalt-lfs/-/raw/main/jammy-arm64-sysroot.tar.xz
+    - curl -fL -sS -O https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
     - tar -xf x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
     - tar -xf jammy-arm64-sysroot.tar.xz
     - git apply --directory thirdparty/Pangolin/ scripts/aarch64-patches/pangolin.patch
@@ -136,14 +131,12 @@ aarch64-radxa-jammy:
 aarch64-radxa-bullseye:
   extends: .ccache
   image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
-  tags: [basalt-docker]
   stage: build
   when: manual
   script:
     - echo BUILD_RADXA_BULLSEYE_JOB_ID=$CI_JOB_ID >> release.env
-    - apt-get update && apt-get install -y wget
-    - wget --no-verbose https://gitlab.freedesktop.org/mateosss/basalt-lfs/-/raw/main/bullseye-arm64-sysroot.tar.xz
-    - wget --no-verbose https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+    - curl -fL -sS -O https://gitlab.freedesktop.org/mateosss/basalt-lfs/-/raw/main/bullseye-arm64-sysroot.tar.xz
+    - curl -fL -sS -O https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
     - tar -xf x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
     - tar -xf bullseye-arm64-sysroot.tar.xz
     - git apply --directory thirdparty/Pangolin/ scripts/aarch64-patches/pangolin.patch
@@ -161,7 +154,7 @@ aarch64-radxa-bullseye:
 
 clangd-tidy-delta:
   stage: analyze
-  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404 # required for /venv
   when: manual
   script:
     - git fetch origin $CI_DEFAULT_BRANCH
@@ -174,7 +167,6 @@ clangd-tidy-delta:
 
 format:
   stage: analyze
-  image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
   when: manual
   script:
     - ./scripts/format.sh
@@ -182,7 +174,6 @@ format:
 
 release:
   stage: release
-  image: registry.freedesktop.org/mateosss/basalt:ubuntu2204
   when: manual
   script:
     - echo "Releasing artifacts of previous jobs"
@@ -217,9 +208,9 @@ release:
 create-evaluation:
   stage: evaluate
   when: manual
-  tags: [basalt-evaluation]
   variables:
     EVALSETS: "quickset1"
+    # EVALSETS: "msdmg,msdmio,msdmipb,msdmipp,msdmipt,msdmo,euroc-v1,euroc-v2,euroc-mh,tumvi-room"
     DETERMINISTIC: "1"
     NUM_THREADS: "4"
     TIMING_EVALSETS: "EMH02,TR2,MOO02,MIO02,MGO02"
@@ -247,7 +238,6 @@ do-evaluation:
 
 get-results:
   stage: evaluate
-  tags: [basalt-evaluation]
   needs: ["do-evaluation"]
   script:
     - >
@@ -274,15 +264,11 @@ get-results:
 
 report:
   stage: evaluate
-  tags: [basalt-evaluation]
+  tags: [basalt-evaluation-box]
   needs: [get-results]
   script:
-    - echo $xrtmet
-    - |
-      if ! [[ -n "${MYDIR:-}" && -d "${MYDIR}" ]]; then
-        echo "xrtmet is not set or not a directory, see .ci/README.md"
-      fi
-    - source $xrtmet/.venv/bin/activate
+    - apt-get update && apt-get install -y pandoc
+    - source /xrtmet/.venv-docker/bin/activate # if field doesnt exist, read .ci/README.md
     - unzip -o results.zip
     - echo "# Evaluation" > report.md
     - echo "" >> report.md
@@ -290,7 +276,7 @@ report:
     - echo "" >> report.md
     - echo "## Tables" >> report.md
     - echo "" >> report.md
-    - $xrtmet/batch.py results $xrtmet/test/data/targets --metrics atec rtec timing memory --highlights bold --save_file batch.json >> report.md
+    - /xrtmet/batch.py results /xrtmet/test/data/targets --metrics atec rtec timing memory --highlights bold --save_file batch.json >> report.md
     - mv batch.json results/
     - echo "" >> report.md
     - unzip -o timing-results.zip
@@ -299,7 +285,7 @@ report:
     - cat timing-results/README.md >> report.md
     - echo "" >> report.md
     - echo "## Tables" >> report.md
-    - $xrtmet/batch.py timing-results $xrtmet/test/data/targets --metrics timing memory --highlights bold --save_file timing-batch.json >> report.md
+    - /xrtmet/batch.py timing-results /xrtmet/test/data/targets --metrics timing memory --highlights bold --save_file timing-batch.json >> report.md
     - mv timing-batch.json timing-results/
     - echo "" >> report.md
     - echo "## Stats" >> report.md
@@ -308,7 +294,7 @@ report:
       find timing-results -type f -name 'timing.csv' -print0 | while IFS= read -r -d '' csv; do
         rel_dir="$(realpath --relative-to="$(pwd)" "$(dirname "$csv")")"
         png="$rel_dir/$(basename "$csv" .csv).png"
-        $xrtmet/timing.py -p -fc 4 -lc -2 "$csv" --save_plot $png >> report.md
+        /xrtmet/timing.py -p -fc 4 -lc -2 "$csv" --save_plot $png >> report.md
       done
     - echo '```' >> report.md
     - echo "" >> report.md

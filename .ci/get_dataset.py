@@ -30,6 +30,7 @@ import json
 import time
 import math
 import argparse
+import shutil
 
 from subprocess import run, PIPE
 from pathlib import Path
@@ -53,7 +54,9 @@ def get_mount_point(path):
     path = os.path.abspath(path)
     stdout, _ = shout(f"findmnt -T {path} --json")
     data = json.loads(stdout)
-    return data["filesystems"][0]["source"]
+    # On docker executor CI you can get e.g., "/dev/sda1[/hdd/monado-slam-datasets/M_monado_datasets/MG_reverb_g2]"
+    # While on shell executor CI you get just "/dev/sda1", the following split() works for both
+    return data["filesystems"][0]["source"].split("[")[0]
 
 
 def get_file_size_kb(path):
@@ -63,29 +66,28 @@ def get_file_size_kb(path):
     return size_kb
 
 
-def get_available_kb(mount_point):
-    """Return available space (in KB) on the given mount point."""
-    stdout, _ = shout(f"df {mount_point}")
-    lines = stdout.splitlines()
-    return int(lines[1].split()[3])
+def get_available_kb(path):
+    """Return available space (in KB) on the given path."""
+    usage = shutil.disk_usage(path)
+    return usage.free // 1024
 
 
-def wait_space_for_file(file_path, working_mount_point, padding_kb=PADDING_KB):
-    "Wait until enough space on the mount point for the file to be uncompressed"
+def wait_space_for_file(file_path, working_dir, padding_kb=PADDING_KB):
+    "Wait until enough space on the working directory for the file to be uncompressed"
     required_kb = get_file_size_kb(file_path) + padding_kb
     prev_avail_gb = 0
     while True:
-        available_kb = get_available_kb(working_mount_point)
+        available_kb = get_available_kb(working_dir)
+        avail = available_kb / 2**20  # Convert to GB
         if available_kb < required_kb:
             perc = 100 * available_kb / required_kb
-            avail = available_kb / 2**20  # Convert to GB
             req = required_kb / 2**20  # Convert to GB
-            if avail - prev_avail_gb > 1: # Print each GB of progress
+            if avail - prev_avail_gb > 1:  # Print each GB of progress
                 print(f"[{perc:.2f}%] Waiting for {req:.2f} GB, but {avail:.2f} GB avail")
                 prev_avail_gb = avail
             time.sleep(WHILE_SPACE_WAIT_SECONDS)
         else:
-            print("Sufficient space available, continuing...")
+            print(f"Sufficient space available ({avail:.2f} GB), continuing...")
             break
 
 
@@ -145,9 +147,7 @@ def main():
         with lock_file.open(encoding="utf-8") as f:
             lock_contents = f.read().strip()
         if lock_contents != prev_lock_contents:
-            print(
-                f"Waiting for lockfile to be removed... {lock_file} = {lock_contents}"
-            )
+            print(f"Waiting for lockfile to be removed... {lock_file} = {lock_contents}")
             prev_lock_contents = lock_contents
         time.sleep(WHILE_LOCK_SLEEP_SECONDS)
 
@@ -156,7 +156,7 @@ def main():
         f.write(f"{zip_path} ")
 
     try:
-        wait_space_for_file(zip_path, working_mount_point)
+        wait_space_for_file(zip_path, working_dir)
         shout(f"7z x -y {zip_path} -o{working_dir}")
         print("New dataset path name is:")
         print(f"{working_dir / dataset_path.name}")

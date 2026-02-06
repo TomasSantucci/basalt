@@ -67,9 +67,9 @@ const float HIGHLIGHT_RADIUS = 20;  // Radius of the circle around the highlight
 
 inline void render_camera(const Eigen::Matrix4d& T_w_c, float lineWidth, const uint8_t* color, float sizeFactor,
                           bool show_ids = false, size_t frame_idx = 0, const uint8_t* idx_color = nullptr,
-                          bool show_fwd = false) {
+                          bool show_fwd = false, std::array<float, 6> intrinsics = {640, 480, 500, 500, 320, 240}) {
   const float sz = sizeFactor;
-  const float width = 640, height = 480, fx = 500, fy = 500, cx = 320, cy = 240;
+  const auto [width, height, fx, fy, cx, cy] = intrinsics;
 
   Eigen::aligned_vector<Eigen::Vector3f> lines = {{0, 0, 0},
                                                   {sz * (0 - cx) / fx, sz * (0 - cy) / fy, sz},

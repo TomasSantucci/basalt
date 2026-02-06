@@ -36,6 +36,10 @@ RUN apt update && \
     libfmt-dev \
     ninja-build \
     libepoxy-dev \
+    jq \
+    tree \
+    zip \
+    7zip \
     curl && \
   export CLANGD_URL=$(curl -s https://api.github.com/repos/clangd/clangd/releases/latest | grep -oP "\"browser_download_url.*clangd-linux-(\d|\.)+\.zip\"" | cut -d ":" -f 2,3 | tr -d \") && \
     echo "Setting up clangd-tidy" && \

@@ -147,7 +147,7 @@ void detectKeypointsWithCells(const basalt::Image<const uint16_t>& img_raw, Keyp
 
   for (size_t x = x_start; x <= x_stop; x += PATCH_SIZE) {
     for (size_t y = y_start; y <= y_stop; y += PATCH_SIZE) {
-      if (cells((y - y_start) / PATCH_SIZE, (x - x_start) / PATCH_SIZE) > 0) continue;
+      if (cells((y - y_start) / PATCH_SIZE, (x - x_start) / PATCH_SIZE) >= num_points_cell) continue;
 
       const basalt::Image<const uint16_t> sub_img_raw = img_raw.SubImage(x, y, PATCH_SIZE, PATCH_SIZE);
 

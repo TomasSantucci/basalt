@@ -891,14 +891,16 @@ struct basalt_vio_ui : vis::VIOUIBase {
     VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
     if (curr_vis_data == nullptr) return;
 
-    for (size_t i = 0; i < calib.T_i_c.size(); i++) {
-      if (!curr_vis_data->states.empty()) {
-        const auto& [ts, p] = *curr_vis_data->states.rbegin();
-        do_render_camera(p * calib.T_i_c[i], i, ts, cam_color);
-      } else if (!curr_vis_data->frames.empty()) {
-        const auto& [ts, p] = *curr_vis_data->frames.rbegin();
-        do_render_camera(p * calib.T_i_c[i], i, ts, cam_color);
-      }
+    const uint8_t cs[4][3]{{244, 67, 54}, {76, 175, 80}, {33, 150, 243}, {255, 152, 0}};  // r, g, b, orange
+    auto cam_color = [&cs](size_t i) -> const uint8_t* { return cs[i % 4]; };
+    if (!curr_vis_data->states.empty() || !curr_vis_data->frames.empty()) {
+      const auto& [ts, p] = *curr_vis_data->states.rbegin();
+      pangolin::glDrawAxis(p.matrix(), 0.05);
+      for (size_t i = 0; i < calib.T_i_c.size(); i++) do_render_camera(p * calib.T_i_c[i], i, ts, cam_color(i));
+    } else if (!curr_vis_data->frames.empty()) {
+      const auto& [ts, p] = *curr_vis_data->frames.rbegin();
+      pangolin::glDrawAxis(p.matrix(), 0.05);
+      for (size_t i = 0; i < calib.T_i_c.size(); i++) do_render_camera(p * calib.T_i_c[i], i, ts, cam_color(i));
     }
 
     for (const auto& [ts, p] : curr_vis_data->states)
