@@ -142,6 +142,8 @@ class MapDatabase {
 
   void updateCovisibilityGraph(const LandmarkDatabase<Scalar>::Ptr& lmdb);
 
+  void saveColmap(const std::string& path);
+
   inline void maybe_join() {
     if (reading_thread) {
       reading_thread->join();
@@ -169,6 +171,7 @@ class MapDatabase {
   SyncState* sync_map_stamp = nullptr;
   SyncState* sync_lc_finished = nullptr;
   bool deterministic;
+  std::string colmap_export_path;
 
  private:
   VioConfig config;

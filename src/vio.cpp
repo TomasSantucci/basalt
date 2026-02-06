@@ -202,6 +202,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   std::chrono::high_resolution_clock::time_point time_start;
   bool aborted = false;
   bool initially_aligned = false;
+  std::string colmap_export_path;
 
   thread feed_images_thread;
   thread feed_imu_thread;
@@ -297,6 +298,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     app.add_option("--deterministic", deterministic, "Make the pipeline output reproducible (some performance impact)");
     app.add_option("--max-frames", max_frames, "Limit number of frames to process from dataset (0 means unlimited)");
     app.add_option("--max-gui-frames", max_gui_frames, "Limit UI frames in memory (unlimited: 0, default: 10000)");
+    app.add_option("--export-colmap-path", colmap_export_path, "Path to export COLMAP files.");
 
     try {
       app.parse(argc, argv);
@@ -387,6 +389,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     {
       map_db = std::make_shared<basalt::MapDatabase>(config, calib);
       map_db->initialize();
+      if (!colmap_export_path.empty()) map_db->colmap_export_path = colmap_export_path;
       vio->out_vio_data_queue = &map_db->write_queue;
       vio->out_covi_req_queue = &map_db->read_queue;
       map_db->out_covi_res_queue = &vio->in_covi_res_queue;
@@ -1395,9 +1398,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
         std::vector<int>& ids = curr_map_vis_data->landmarks_ids;
 
         for (size_t i = 0; i < ids.size(); i++) {
-          if (island_lm_ids.count(ids[i]) > 0) {
-            curr_island_points.push_back(points[i].cast<float>());
-          }
+          if (island_lm_ids.count(ids[i]) > 0) { curr_island_points.push_back(points[i].cast<float>()); }
         }
 
         glPointSize(10);
