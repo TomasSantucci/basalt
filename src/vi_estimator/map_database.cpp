@@ -261,6 +261,7 @@ void MapDatabase::initialize() {
       write_queue.pop(msg);
       if (msg == nullptr) {
         map.print();
+        covisibility_graph->print_stats();
         if (out_vis_queue) out_vis_queue->push(nullptr);
         if (out_map_update_queue) out_map_update_queue->push(nullptr);
         break;

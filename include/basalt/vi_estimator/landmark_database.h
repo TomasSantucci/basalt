@@ -186,6 +186,10 @@ class LandmarkDatabase {
 
   void removeObservations(LandmarkId lm_id, const std::set<TimeCamId>& obs);
 
+  void dump_map_to_json(const std::string& filename);
+
+  void dump_observations_map_to_json(const std::string& filename);
+
   void print(bool show_ids = false);
 
   inline void backup() {

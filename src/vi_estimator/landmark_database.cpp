@@ -519,6 +519,89 @@ void LandmarkDatabase<Scalar_>::removeObservations(LandmarkId lm_id, const std::
 }
 
 template <class Scalar_>
+void LandmarkDatabase<Scalar_>::dump_map_to_json(const std::string& filename) {
+  std::ofstream file(filename);
+  // it should write all the landmarks with the hosts, observations, and the observations map for host
+  file << "{\n";
+  file << "  \"landmarks\": [\n";
+  bool first_lm = true;
+  for (const auto& [lm_id, lm] : kpts) {
+    if (!first_lm) file << ",\n";
+    file << "    {\n";
+    file << "      \"id\": " << lm.id << ",\n";
+    file << "      \"host_kf_id\": \"" << lm.host_kf_id << "\",\n";
+    file << "      \"num_obs\": " << lm.obs.size() << ",\n";
+    file << "      \"observations\": [\n";
+    for (const auto& [tcid, pos] : lm.obs) {
+      file << "        { \"tcid\": \"" << tcid << "\", \"pos\": [";
+      for (int i = 0; i < pos.size(); ++i) {
+        file << pos[i];
+        if (i + 1 < pos.size()) file << ", ";
+      }
+      file << "] },\n";
+    }
+    file << "      ],\n";
+    file << "      \"observations_map_for_host\": [\n";
+    bool first_map = true;
+    for (const auto& [tcid, lms] : observations[lm.host_kf_id]) {
+      if (lms.count(lm.id) == 0) continue;
+      if (!first_map) file << ",\n";
+      file << "        { \"tcid\": \"" << tcid << "\", \"landmarks\": [";
+      bool first_lm = true;
+      for (const auto& lm_id : lms) {
+        if (!first_lm) file << ", ";
+        file << lm_id;
+        first_lm = false;
+      }
+      file << "] }";
+      first_map = false;
+    }
+    file << "\n      ]\n";
+    file << "    }";
+    first_lm = false;
+  }
+  file << "\n  ]\n";
+  file << "}\n";
+  file.close();
+}
+
+template <class Scalar_>
+void LandmarkDatabase<Scalar_>::dump_observations_map_to_json(const std::string& filename) {
+  std::ofstream file(filename);
+  file << "{\n";
+  file << "  \"observations_map\": [\n";
+  bool first_host = true;
+  for (const auto& [host_tcid, target_map] : observations) {
+    if (!first_host) file << ",\n";
+    file << "    {\n";
+    file << "      \"host_tcid\": \"" << host_tcid << "\",\n";
+    file << "      \"targets\": [\n";
+    bool first_target = true;
+    for (const auto& [target_tcid, lm_ids] : target_map) {
+      if (!first_target) file << ",\n";
+      file << "        {\n";
+      file << "          \"target_tcid\": \"" << target_tcid << "\",\n";
+      file << "          \"landmark_ids\": [";
+      bool first_lm = true;
+      for (const auto& lm_id : lm_ids) {
+        if (!first_lm) file << ", ";
+        file << lm_id;
+        first_lm = false;
+      }
+      file << "]\n";
+      file << "        }";
+      first_target = false;
+    }
+    file << "\n      ]\n";
+    file << "    }";
+    first_host = false;
+  }
+  file << "\n  ]\n";
+  file << "}\n";
+  file.close();
+}
+
+template <class Scalar_>
 void LandmarkDatabase<Scalar_>::print(bool show_ids) {
   // Print database header
   std::cout << "---------------------------------------------------" << std::endl;

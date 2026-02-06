@@ -130,6 +130,29 @@ class CovisibilityGraph {
     }
   }
 
+  void print_stats() const {
+    std::cout << "Covisibility Graph Stats:" << std::endl;
+    std::cout << "  Number of nodes: " << covis_.size() << std::endl;
+
+    size_t total_edges = 0;
+    for (const auto& [id, neighbors] : covis_) {
+      total_edges += neighbors.size();
+    }
+    // each edge is counted twice
+    total_edges /= 2;
+    std::cout << "  Number of edges: " << total_edges << std::endl;
+
+    std::cout << "  Number of tree nodes: " << tree_.size() << std::endl;
+
+    size_t total_loop_closures = 0;
+    for (const auto& [id, closures] : loop_closures_) {
+      total_loop_closures += closures.size();
+    }
+    // each loop closure is counted twice
+    total_loop_closures /= 2;
+    std::cout << "  Number of loop closures: " << total_loop_closures << std::endl;
+  }
+
  private:
   // Covisibility graph
   std::unordered_map<FrameId, std::unordered_map<FrameId, int>> covis_;
