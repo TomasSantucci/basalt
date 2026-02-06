@@ -202,6 +202,9 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
       config.loop_closing_cameras_to_reproject.size());
   std::vector<Eigen::aligned_vector<Vec2>> rematched_keypoints(config.loop_closing_cameras_to_reproject.size());
 
+  // TODO@tsantucci: In general, precompute as much as possible outside this loop:
+  // the keypoints of the current keyframe, for are_covisible, matches, etc. So,
+  // the next iterations are faster.
   for (const auto& candidate_kf : candidate_kfs) {
     matches.clear();
     inlier_matches.clear();
@@ -289,8 +292,8 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     lc_time_stats.addTime(LCTimeStage::GeometricVerification, true);
 
     if (config.loop_closing_use_rematches) {
-      // TODO@tsantucci: this step should be based on the previous inliers, not on all matches
-      // recompute the absolute pose with the new matches
+      matches = inlier_matches;
+
       std::vector<std::unordered_set<LandmarkId>> matched_landmarks(calib.intrinsics.size());
       for (const auto& [kf, kf_matches] : matches) {
         for (const auto& match : kf_matches) {
@@ -827,6 +830,7 @@ size_t LoopClosing::computeAbsolutePoseMultiCam(
 
   size_t num_matches = 0;
   for (const auto& candidate_kf : candidate_kf_ids) {
+    if (matches.find(candidate_kf) == matches.end()) continue;
     num_matches += matches.at(candidate_kf).size();
   }
 
@@ -839,6 +843,7 @@ size_t LoopClosing::computeAbsolutePoseMultiCam(
   std::vector<std::set<KeypointId>> used_kpt_ids(calib.intrinsics.size());
 
   for (const auto& candidate_kf : candidate_kf_ids) {
+    if (matches.find(candidate_kf) == matches.end()) continue;
     for (size_t i = 0; i < matches.at(candidate_kf).size(); i++) {
       const auto& match = matches.at(candidate_kf).at(i);
 
