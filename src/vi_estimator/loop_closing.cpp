@@ -979,8 +979,7 @@ bool LoopClosing::solveOptimizationProblem(ceres::Problem* problem) {
   CHECK(problem != nullptr);
 
   ceres::Solver::Options options;
-  // TODO@tsantucci: lower this ASAP!
-  options.max_num_iterations = 200;
+  options.max_num_iterations = 50;
   options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
 
   ceres::Solver::Summary summary;
