@@ -333,15 +333,17 @@ void MapDatabase::computeMapVisualData() {
   }
 
   // show covisibility
-  for (const auto& [kf_id, _pose] : map.getKeyframes()) {
-    if (!covisibility_graph->hasNode(kf_id)) continue;
+  if (config.debug1) {
+    for (const auto& [kf_id, _pose] : map.getKeyframes()) {
+      if (!covisibility_graph->hasNode(kf_id)) continue;
 
-    for (const auto& [other_kf_id, weight] : covisibility_graph->getCovisibleKfs(kf_id)) {
-      Eigen::Vector3d p1 = map.getKeyframePose(kf_id).template cast<double>().translation();
-      Eigen::Vector3d p2 = map.getKeyframePose(other_kf_id).template cast<double>().translation();
-      map_visual_data->covisibility.emplace_back(p1);
-      map_visual_data->covisibility.emplace_back(p2);
-      map_visual_data->covisibility_w.push_back(weight);
+      for (const auto& [other_kf_id, weight] : covisibility_graph->getCovisibleKfs(kf_id)) {
+        Eigen::Vector3d p1 = map.getKeyframePose(kf_id).template cast<double>().translation();
+        Eigen::Vector3d p2 = map.getKeyframePose(other_kf_id).template cast<double>().translation();
+        map_visual_data->covisibility.emplace_back(p1);
+        map_visual_data->covisibility.emplace_back(p2);
+        map_visual_data->covisibility_w.push_back(weight);
+      }
     }
   }
 
@@ -370,12 +372,14 @@ void MapDatabase::computeMapVisualData() {
   }
 
   // Show observations
-  for (const auto& [tcid, obs] : map.getKeyframeObs()) {
-    Eigen::Vector3d kf_pos = map.getKeyframePose(tcid.frame_id).template cast<double>().translation();
-    auto landmarks_3d = get_landmarks_3d_pos(obs);
-    for (const auto& lm_id : obs) {
-      map_visual_data->observations[lm_id].emplace_back(kf_pos);
-      map_visual_data->observations[lm_id].emplace_back(landmarks_3d[lm_id]);
+  if (config.debug1) {
+    for (const auto& [tcid, obs] : map.getKeyframeObs()) {
+      Eigen::Vector3d kf_pos = map.getKeyframePose(tcid.frame_id).template cast<double>().translation();
+      auto landmarks_3d = get_landmarks_3d_pos(obs);
+      for (const auto& lm_id : obs) {
+        map_visual_data->observations[lm_id].emplace_back(kf_pos);
+        map_visual_data->observations[lm_id].emplace_back(landmarks_3d[lm_id]);
+      }
     }
   }
 }
@@ -563,55 +567,73 @@ void MapDatabase::saveColmap(const std::string& path) {
   int next_point_id = 1;
   // For each landmark: list of (image_id, point2d_idx)
   std::unordered_map<LandmarkId, std::vector<std::pair<int, int>>> lm_tracks;
+  std::unordered_set<LandmarkId> valid_lm_ids;
+
+  // The valid points are those that are observed in at least two frames, where all the frames are only the left cameras
+  for (const auto& [lm_id, lm] : map.getLandmarks()) {
+    int obs_count = 0;
+    bool valid = true;
+    for (const auto& [tcid, _] : lm.obs) {
+      if (tcid.cam_id != 0) {
+        continue;
+      }
+      obs_count++;
+    }
+    if (obs_count >= 2) {
+      valid_lm_ids.insert(lm_id);
+    }
+  }
 
   for (const auto& [kf_id, pose] : map.getKeyframes()) {
-    for (size_t cam_id = 0; cam_id < calib.intrinsics.size(); cam_id++) {
-      int kf_small_id = next_image_id;
-      next_image_id++;
+    int kf_small_id = next_image_id;
+    next_image_id++;
 
-      TimeCamId kf_tcid{kf_id, static_cast<CamId>(cam_id)};
-      auto obs_it = map.getKeyframeObs().find(kf_tcid);
-      if (obs_it == map.getKeyframeObs().end()) {
+    TimeCamId kf_tcid{kf_id, static_cast<CamId>(0)};
+    auto obs_it = map.getKeyframeObs().find(kf_tcid);
+    if (obs_it == map.getKeyframeObs().end()) {
+      continue;
+    }
+
+    Sophus::SE3d T_i_c = calib.T_i_c[0];
+    Sophus::SE3d T_w_c = pose.template cast<double>() * T_i_c;
+    Sophus::SE3d T_c_w = T_w_c.inverse();
+    Eigen::Quaterniond q = T_c_w.unit_quaternion();
+    Eigen::Vector3d t = T_c_w.translation();
+    colmap_images_txt << kf_small_id << " " << q.w() << " " << q.x() << " " << q.y() << " " << q.z() << " " << t.x()
+                      << " " << t.y() << " " << t.z() << " " << 1 << " " << kf_id << std::endl;
+
+    int point2d_idx = 0;
+
+    for (const auto& lm_id : obs_it->second) {
+      if (valid_lm_ids.find(lm_id) == valid_lm_ids.end()) {
         continue;
       }
 
-      Sophus::SE3d T_i_c = calib.T_i_c[cam_id];
-      Sophus::SE3d T_w_c = pose.template cast<double>() * T_i_c;
-      Sophus::SE3d T_c_w = T_w_c.inverse();
-      Eigen::Quaterniond q = T_c_w.unit_quaternion();
-      Eigen::Vector3d t = T_c_w.translation();
-      colmap_images_txt << kf_small_id << " " << q.w() << " " << q.x() << " " << q.y() << " " << q.z() << " " << t.x()
-                        << " " << t.y() << " " << t.z() << " " << cam_id + 1 << " " << kf_id << std::endl;
-
-      int point2d_idx = 0;
-
-      for (const auto& lm_id : obs_it->second) {
-        if (lm_to_colmap_id.find(lm_id) == lm_to_colmap_id.end()) {
-          lm_to_colmap_id[lm_id] = next_point_id;
-          next_point_id++;
-        }
-
-        int pid = lm_to_colmap_id[lm_id];
-        const auto& lm = map.getLandmark(lm_id);
-
-        auto landmarks_3d = get_landmarks_3d_pos({lm_id});
-        Vec3d lm_3d = landmarks_3d.at(lm_id);
-
-        // skip the inf points
-        if (!std::isfinite(lm_3d.x()) || !std::isfinite(lm_3d.y()) || !std::isfinite(lm_3d.z())) {
-          continue;
-        }
-
-        const auto& pt = lm.obs.at(kf_tcid);
-
-        colmap_images_txt << pt.x() << " " << pt.y() << " " << pid << " ";
-
-        lm_tracks[lm_id].emplace_back(kf_small_id, point2d_idx);
-
-        point2d_idx++;
+      if (lm_to_colmap_id.find(lm_id) == lm_to_colmap_id.end()) {
+        lm_to_colmap_id[lm_id] = next_point_id;
+        next_point_id++;
       }
-      colmap_images_txt << "\n";
+
+      int pid = lm_to_colmap_id[lm_id];
+      const auto& lm = map.getLandmark(lm_id);
+
+      auto landmarks_3d = get_landmarks_3d_pos({lm_id});
+      Vec3d lm_3d = landmarks_3d.at(lm_id);
+
+      // skip the inf points
+      if (!std::isfinite(lm_3d.x()) || !std::isfinite(lm_3d.y()) || !std::isfinite(lm_3d.z())) {
+        continue;
+      }
+
+      const auto& pt = lm.obs.at(kf_tcid);
+
+      colmap_images_txt << pt.x() << " " << pt.y() << " " << pid << " ";
+
+      lm_tracks[lm_id].emplace_back(kf_small_id, point2d_idx);
+
+      point2d_idx++;
     }
+    colmap_images_txt << "\n";
   }
   colmap_images_txt.close();
 
@@ -622,6 +644,10 @@ void MapDatabase::saveColmap(const std::string& path) {
   colmap_points3D_txt << "#   POINT3D_ID, X, Y, Z, R, G, B, ERROR, TRACK[] as (IMAGE_ID, POINT2D_IDX)\n";
   colmap_points3D_txt << "# Number of points: " << map.numLandmarks() << std::endl;
   for (const auto& [lm_id, lm] : map.getLandmarks()) {
+    if (valid_lm_ids.find(lm_id) == valid_lm_ids.end()) {
+      continue;
+    }
+
     auto landmarks_3d = get_landmarks_3d_pos({lm_id});
     Vec3d lm_3d = landmarks_3d.at(lm_id);
     if (lm_to_colmap_id.find(lm_id) == lm_to_colmap_id.end()) {
