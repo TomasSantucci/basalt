@@ -72,12 +72,12 @@ class EurocVioDataset : public VioDataset {
 
   size_t get_num_cams() const override { return num_cams; }
 
-  std::vector<int64_t> &get_image_timestamps() override { return image_timestamps; }
+  std::vector<int64_t>& get_image_timestamps() override { return image_timestamps; }
 
-  const Eigen::aligned_vector<AccelData> &get_accel_data() const override { return accel_data; }
-  const Eigen::aligned_vector<GyroData> &get_gyro_data() const override { return gyro_data; }
-  const std::vector<int64_t> &get_gt_timestamps() const override { return gt_timestamps; }
-  const Eigen::aligned_vector<Sophus::SE3d> &get_gt_pose_data() const override { return gt_pose_data; }
+  const Eigen::aligned_vector<AccelData>& get_accel_data() const override { return accel_data; }
+  const Eigen::aligned_vector<GyroData>& get_gyro_data() const override { return gyro_data; }
+  const std::vector<int64_t>& get_gt_timestamps() const override { return gt_timestamps; }
+  const Eigen::aligned_vector<Sophus::SE3d>& get_gt_pose_data() const override { return gt_pose_data; }
 
   int64_t get_mocap_to_imu_offset_ns() const override { return mocap_to_imu_offset_ns; }
 
@@ -89,12 +89,13 @@ class EurocVioDataset : public VioDataset {
       if (!fs::exists(full_image_path)) return {};
 
       cv::Mat img = cv::imread(full_image_path, cv::IMREAD_UNCHANGED);
+      res[i].filename = image_path[t_ns];
 
       if (img.type() == CV_8UC1) {
         res[i].img = std::make_shared<ManagedImage<uint16_t>>(img.cols, img.rows);
 
-        const uint8_t *data_in = img.ptr();
-        uint16_t *data_out = res[i].img->ptr;
+        const uint8_t* data_in = img.ptr();
+        uint16_t* data_out = res[i].img->ptr;
 
         size_t full_size = long(img.cols) * img.rows;
         for (size_t i = 0; i < full_size; i++) {
@@ -105,8 +106,8 @@ class EurocVioDataset : public VioDataset {
       } else if (img.type() == CV_8UC3) {
         res[i].img = std::make_shared<ManagedImage<uint16_t>>(img.cols, img.rows);
 
-        const uint8_t *data_in = img.ptr();
-        uint16_t *data_out = res[i].img->ptr;
+        const uint8_t* data_in = img.ptr();
+        uint16_t* data_out = res[i].img->ptr;
 
         size_t full_size = long(img.cols) * img.rows;
         for (size_t i = 0; i < full_size; i++) {
@@ -139,7 +140,7 @@ class EurocIO : public DatasetIoInterface {
  public:
   EurocIO(bool load_mocap_as_gt) : load_mocap_as_gt(load_mocap_as_gt) {}
 
-  void read(const std::string &path) override {
+  void read(const std::string& path) override {
     if (!fs::exists(path)) std::cerr << "No dataset found in " << path << std::endl;
 
     data = std::make_shared<EurocVioDataset>();
@@ -180,7 +181,7 @@ class EurocIO : public DatasetIoInterface {
   VioDatasetPtr get_data() override { return data; }
 
  private:
-  void read_exposure(const std::string &path, std::unordered_map<int64_t, double> &exposure_data) {
+  void read_exposure(const std::string& path, std::unordered_map<int64_t, double>& exposure_data) {
     exposure_data.clear();
 
     std::ifstream f(path + "exposure.csv");
@@ -200,7 +201,7 @@ class EurocIO : public DatasetIoInterface {
     }
   }
 
-  void read_image_timestamps(const std::string &path) {
+  void read_image_timestamps(const std::string& path) {
     std::ifstream f(path + "data.csv");
     std::string line;
     while (std::getline(f, line)) {
@@ -216,7 +217,7 @@ class EurocIO : public DatasetIoInterface {
     }
   }
 
-  void read_imu_data(const std::string &path) {
+  void read_imu_data(const std::string& path) {
     data->accel_data.clear();
     data->gyro_data.clear();
 
@@ -244,7 +245,7 @@ class EurocIO : public DatasetIoInterface {
     }
   }
 
-  void read_gt_data_state(const std::string &path) {
+  void read_gt_data_state(const std::string& path) {
     data->gt_timestamps.clear();
     data->gt_pose_data.clear();
 
@@ -269,7 +270,7 @@ class EurocIO : public DatasetIoInterface {
     }
   }
 
-  void read_gt_data_pose(const std::string &path) {
+  void read_gt_data_pose(const std::string& path) {
     data->gt_timestamps.clear();
     data->gt_pose_data.clear();
 

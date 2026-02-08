@@ -151,6 +151,8 @@ struct VioConfig {
 
   bool causal_evaluation;
 
+  bool debug1;
+
   double mapper_obs_std_dev;
   double mapper_obs_huber_thresh;
   int mapper_detection_num_points;

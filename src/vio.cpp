@@ -155,6 +155,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
   tbb::concurrent_bounded_queue<basalt::OpticalFlowStats::Ptr> opt_flow_stats_queue;
   tbb::concurrent_bounded_queue<basalt::MapUpdate::Ptr> out_map_update_queue;
 
+  std::shared_ptr<std::unordered_map<FrameId, std::string>> frame_id_to_name =
+      std::make_shared<std::unordered_map<FrameId, std::string>>();
+
   std::vector<int64_t> opt_flow_t_ns;
   Eigen::aligned_vector<int> features;
   Eigen::aligned_vector<int> recalls;
@@ -389,7 +392,10 @@ struct basalt_vio_ui : vis::VIOUIBase {
     {
       map_db = std::make_shared<basalt::MapDatabase>(config, calib);
       map_db->initialize();
-      if (!colmap_export_path.empty()) map_db->colmap_export_path = colmap_export_path;
+      if (!colmap_export_path.empty()) {
+        map_db->colmap_export_path = colmap_export_path;
+        map_db->frame_id_to_name = frame_id_to_name;
+      }
       vio->out_vio_data_queue = &map_db->write_queue;
       vio->out_covi_req_queue = &map_db->read_queue;
       map_db->out_covi_res_queue = &vio->in_covi_res_queue;
@@ -455,6 +461,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
           try_to_initially_align(data);
           // NOTE: keyframe_idx is only filled when the UI is enabled
           if (data->keyframed_idx.count(data->t_ns) > 0) keyframes_ts.push_back(data->t_ns);
+
+          if (!colmap_export_path.empty())
+            (*frame_id_to_name)[data->t_ns] = data->opt_flow_res->input_images->img_data[0].filename;
         }
 
         std::cout << "Finished t3" << std::endl;

@@ -173,6 +173,8 @@ class MapDatabase {
   bool deterministic;
   std::string colmap_export_path;
 
+  std::shared_ptr<std::unordered_map<FrameId, std::string>> frame_id_to_name;
+
  private:
   VioConfig config;
   std::shared_ptr<std::thread> reading_thread;

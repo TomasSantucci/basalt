@@ -358,6 +358,8 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
 
   ar(CEREAL_NVP(config.causal_evaluation));
 
+  ar(CEREAL_NVP(config.debug1));
+
   ar(CEREAL_NVP(config.mapper_use_lm));
   ar(CEREAL_NVP(config.mapper_lm_lambda_min));
   ar(CEREAL_NVP(config.mapper_lm_lambda_max));

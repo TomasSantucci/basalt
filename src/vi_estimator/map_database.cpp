@@ -600,7 +600,7 @@ void MapDatabase::saveColmap(const std::string& path) {
     Eigen::Quaterniond q = T_c_w.unit_quaternion();
     Eigen::Vector3d t = T_c_w.translation();
     colmap_images_txt << kf_small_id << " " << q.w() << " " << q.x() << " " << q.y() << " " << q.z() << " " << t.x()
-                      << " " << t.y() << " " << t.z() << " " << 1 << " " << kf_id << std::endl;
+                      << " " << t.y() << " " << t.z() << " " << 1 << " " << (*frame_id_to_name)[kf_id] << std::endl;
 
     int point2d_idx = 0;
 
@@ -660,7 +660,7 @@ void MapDatabase::saveColmap(const std::string& path) {
       continue;
     }
     // Using a fixed color and error for simplicity
-    colmap_points3D_txt << lm_small_id << " " << lm_3d.x() << " " << lm_3d.y() << " " << lm_3d.z() << " 255 0 0 0.0 ";
+    colmap_points3D_txt << lm_small_id << " " << lm_3d.x() << " " << lm_3d.y() << " " << lm_3d.z() << " 0 255 0 0.0 ";
 
     const auto& tracks = lm_tracks[lm_id];
     for (const auto& [img_id, p2d_idx] : tracks) {
