@@ -524,11 +524,23 @@ void MapDatabase::saveColmap(const std::string& path) {
   // create the cameras.txt file
   std::ofstream colmap_cameras_txt;
   std::filesystem::create_directories(path);
-  colmap_cameras_txt.open(colmap_export_path + "/cameras.txt");
+  colmap_cameras_txt.open(path + "/cameras.txt");
   colmap_cameras_txt << "# Camera list with one line of data per camera:\n";
   colmap_cameras_txt << "#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n";
   colmap_cameras_txt << "# Number of cameras: " << calib.intrinsics.size() << "\n";
 
+  std::ofstream colmap_images_txt;
+  colmap_images_txt.open(path + "/images.txt");
+  colmap_images_txt << "# Image list with two lines of data per image:\n";
+  colmap_images_txt << "#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n";
+  colmap_images_txt << "#   POINTS2D[] as (X, Y, POINT3D_ID)\n";
+
+  std::ofstream colmap_points3D_txt;
+  colmap_points3D_txt.open(path + "/points3D.txt");
+  colmap_points3D_txt << "# 3D point list with one line of data per point:\n";
+  colmap_points3D_txt << "#   POINT3D_ID, X, Y, Z, R, G, B, ERROR, TRACK[] as (IMAGE_ID, POINT2D_IDX)\n";
+
+  // Write the cameras.txt file
   for (size_t i = 0; i < calib.intrinsics.size(); i++) {
     GenericCamera<double>& cam = calib.intrinsics[i];
     int w = calib.resolution[i].x();
@@ -546,30 +558,24 @@ void MapDatabase::saveColmap(const std::string& path) {
     else
       BASALT_ASSERT_MSG(false, "Camera model unavailable in colmap");
 
-    colmap_cameras_txt << i + 1 << " " << colmap_model << " " << w << " " << h;
+    colmap_cameras_txt << i + 1 << " ";
+    colmap_cameras_txt << colmap_model << " ";
+    colmap_cameras_txt << w << " ";
+    colmap_cameras_txt << h;
     for (double p : params) colmap_cameras_txt << " " << p;
     colmap_cameras_txt << "\n";
   }
-
   colmap_cameras_txt.close();
 
-  // create the images.txt file
-  std::ofstream colmap_images_txt;
-  colmap_images_txt.open(colmap_export_path + "/images.txt");
-  colmap_images_txt << "# Image list with two lines of data per image:\n";
-  colmap_images_txt << "#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n";
-  colmap_images_txt << "#   POINTS2D[] as (X, Y, POINT3D_ID)\n";
-  colmap_images_txt << "# Number of images: " << map.numKeyframes() << ", mean observations per image: "
-                    << static_cast<double>(map.numObservations()) / map.numKeyframes() << std::endl;
-
+  // Write the images.txt
   int next_image_id = 1;
-  std::unordered_map<LandmarkId, int> lm_to_colmap_id;
   int next_point_id = 1;
-  // For each landmark: list of (image_id, point2d_idx)
+  std::unordered_map<LandmarkId, int> lm_to_colmap_id;
   std::unordered_map<LandmarkId, std::vector<std::pair<int, int>>> lm_tracks;
-  std::unordered_set<LandmarkId> valid_lm_ids;
 
-  // The valid points are those that are observed in at least two frames, where all the frames are only the left cameras
+  // As only the landmarks observed by at least 2 keyframes are considered valid for colmap, we first collect the valid
+  // landmark ids.
+  std::unordered_set<LandmarkId> valid_lm_ids;
   for (const auto& [lm_id, lm] : map.getLandmarks()) {
     int obs_count = 0;
     bool valid = true;
@@ -584,23 +590,30 @@ void MapDatabase::saveColmap(const std::string& path) {
     }
   }
 
+  Sophus::SE3d T_i_c = calib.T_i_c[0];
   for (const auto& [kf_id, pose] : map.getKeyframes()) {
-    int kf_small_id = next_image_id;
-    next_image_id++;
-
     TimeCamId kf_tcid{kf_id, static_cast<CamId>(0)};
     auto obs_it = map.getKeyframeObs().find(kf_tcid);
     if (obs_it == map.getKeyframeObs().end()) {
       continue;
     }
 
-    Sophus::SE3d T_i_c = calib.T_i_c[0];
     Sophus::SE3d T_w_c = pose.template cast<double>() * T_i_c;
     Sophus::SE3d T_c_w = T_w_c.inverse();
     Eigen::Quaterniond q = T_c_w.unit_quaternion();
     Eigen::Vector3d t = T_c_w.translation();
-    colmap_images_txt << kf_small_id << " " << q.w() << " " << q.x() << " " << q.y() << " " << q.z() << " " << t.x()
-                      << " " << t.y() << " " << t.z() << " " << 1 << " " << (*frame_id_to_name)[kf_id] << std::endl;
+
+    colmap_images_txt << next_image_id << " ";
+    colmap_images_txt << q.w() << " ";
+    colmap_images_txt << q.x() << " ";
+    colmap_images_txt << q.y() << " ";
+    colmap_images_txt << q.z() << " ";
+    colmap_images_txt << t.x() << " ";
+    colmap_images_txt << t.y() << " ";
+    colmap_images_txt << t.z() << " ";
+    colmap_images_txt << 1 << " ";
+    colmap_images_txt << frame_id_to_name->at(kf_id);
+    colmap_images_txt << "\n";
 
     int point2d_idx = 0;
 
@@ -614,61 +627,64 @@ void MapDatabase::saveColmap(const std::string& path) {
         next_point_id++;
       }
 
-      int pid = lm_to_colmap_id[lm_id];
-      const auto& lm = map.getLandmark(lm_id);
-
       auto landmarks_3d = get_landmarks_3d_pos({lm_id});
       Vec3d lm_3d = landmarks_3d.at(lm_id);
 
-      // skip the inf points
+      // Skip the inf points
       if (!std::isfinite(lm_3d.x()) || !std::isfinite(lm_3d.y()) || !std::isfinite(lm_3d.z())) {
         continue;
       }
 
+      int pid = lm_to_colmap_id[lm_id];
+      const auto& lm = map.getLandmark(lm_id);
       const auto& pt = lm.obs.at(kf_tcid);
 
-      colmap_images_txt << pt.x() << " " << pt.y() << " " << pid << " ";
+      colmap_images_txt << pt.x() << " ";
+      colmap_images_txt << pt.y() << " ";
+      colmap_images_txt << pid << " ";
 
-      lm_tracks[lm_id].emplace_back(kf_small_id, point2d_idx);
+      lm_tracks[lm_id].emplace_back(next_image_id, point2d_idx);
 
       point2d_idx++;
     }
     colmap_images_txt << "\n";
+
+    next_image_id++;
   }
   colmap_images_txt.close();
 
-  // create the points3D.txt file
-  std::ofstream colmap_points3D_txt;
-  colmap_points3D_txt.open(colmap_export_path + "/points3D.txt");
-  colmap_points3D_txt << "# 3D point list with one line of data per point:\n";
-  colmap_points3D_txt << "#   POINT3D_ID, X, Y, Z, R, G, B, ERROR, TRACK[] as (IMAGE_ID, POINT2D_IDX)\n";
-  colmap_points3D_txt << "# Number of points: " << map.numLandmarks() << std::endl;
+  // Write the points3D.txt
   for (const auto& [lm_id, lm] : map.getLandmarks()) {
     if (valid_lm_ids.find(lm_id) == valid_lm_ids.end()) {
       continue;
     }
 
-    auto landmarks_3d = get_landmarks_3d_pos({lm_id});
-    Vec3d lm_3d = landmarks_3d.at(lm_id);
     if (lm_to_colmap_id.find(lm_id) == lm_to_colmap_id.end()) {
       continue;
     }
-    int lm_small_id = lm_to_colmap_id[lm_id];
 
-    // skip the inf points
+    auto landmarks_3d = get_landmarks_3d_pos({lm_id});
+    Vec3d lm_3d = landmarks_3d.at(lm_id);
+
+    // Skip the inf points
     if (!std::isfinite(lm_3d.x()) || !std::isfinite(lm_3d.y()) || !std::isfinite(lm_3d.z())) {
       continue;
     }
-    // Using a fixed color and error for simplicity
-    colmap_points3D_txt << lm_small_id << " " << lm_3d.x() << " " << lm_3d.y() << " " << lm_3d.z() << " 0 255 0 0.0 ";
+
+    colmap_points3D_txt << lm_to_colmap_id[lm_id] << " ";
+    colmap_points3D_txt << lm_3d.x() << " ";
+    colmap_points3D_txt << lm_3d.y() << " ";
+    colmap_points3D_txt << lm_3d.z() << " ";
+    colmap_points3D_txt << "0 255 0 0.0";  // Using a fixed color and error for simplicity
 
     const auto& tracks = lm_tracks[lm_id];
     for (const auto& [img_id, p2d_idx] : tracks) {
-      colmap_points3D_txt << img_id << " " << p2d_idx << " ";
+      colmap_points3D_txt << " " << img_id;
+      colmap_points3D_txt << " " << p2d_idx;
     }
-    colmap_points3D_txt << std::endl;
+    colmap_points3D_txt << "\n";
   }
-  colmap_points3D_txt << std::endl;
+  colmap_points3D_txt.close();
 }
 
 }  // namespace basalt
