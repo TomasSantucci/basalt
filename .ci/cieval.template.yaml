@@ -43,7 +43,6 @@ build:
 
 .run-dataset:
   allow_failure: true
-  needs: ["build"]
   variables:
     DATASET: ""
     DETERMINISTIC: 0
@@ -62,9 +61,10 @@ build:
     - echo $DATASET, $DS_DEV, $DS_REL_PATH, $DS_NAME, $DS_PATH, $DS_CONFIG, $DS_CALIB
     - echo Runner variables $GET_DATASET_LOCKFILE
     - ls /msdmo /msdmi /msdmg /euroc /tumvi
-    - .ci/get_dataset.py $DS_PATH /scratch --lock_file $GET_DATASET_LOCKFILE | tee get_dataset.log
+    - python3 -u .ci/get_dataset.py $DS_PATH /scratch --lock_file $GET_DATASET_LOCKFILE | tee get_dataset.log
     - export FINAL_DS_PATH=$(cat get_dataset.log | tail -n 1)
-    - echo $FINAL_DS_PATH
+    - echo $FINAL_DS_PATH | tee FINAL_DS_PATH.txt
+    - echo $DS_PATH | tee DS_PATH.txt
     - ls
     - |
       set -euo pipefail
@@ -83,6 +83,10 @@ build:
           tree $RESDIR
       done
     - echo "Runs completed"
+  after_script:
+    - echo "Deleting dataset"
+    - export FINAL_DS_PATH=$(cat FINAL_DS_PATH.txt)
+    - export DS_PATH=$(cat DS_PATH.txt)
     - if [ "$FINAL_DS_PATH" != "$DS_PATH" ]; then echo "Deleting $FINAL_DS_PATH"; rm -rf $FINAL_DS_PATH; fi
   artifacts:
     paths:

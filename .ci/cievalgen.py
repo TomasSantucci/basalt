@@ -33,7 +33,6 @@ TIMING_EVALSET_TEMPLATE = dedent(
     {evalset}:
         stage: {stage}
         tags: [{tags}]
-        needs: ["build"]
         extends: .run-dataset
         resource_group: run_alone
         variables:
