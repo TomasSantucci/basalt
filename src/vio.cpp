@@ -655,6 +655,8 @@ struct basalt_vio_ui : vis::VIOUIBase {
   }
 
   void stop() {
+    if (!vio) return;
+
     // wait first for vio to complete processing
     vio->maybe_join();
 

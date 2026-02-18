@@ -92,7 +92,7 @@ class SqrtKeypointVoEstimator : public VioEstimatorBase, public SqrtBundleAdjust
                   const Eigen::Vector3d& ba) override;
 
   void scheduleResetState() override;
-  bool resetState(bool& add_pose, OpticalFlowResult::Ptr& curr_frame, OpticalFlowResult::Ptr& prev_frame);
+  bool resetState(bool& add_pose);
   void initialize(const Eigen::Vector3d& bg, const Eigen::Vector3d& ba) override;
 
   virtual ~SqrtKeypointVoEstimator() { maybe_join(); }
@@ -200,6 +200,9 @@ class SqrtKeypointVoEstimator : public VioEstimatorBase, public SqrtBundleAdjust
   using BundleAdjustmentBase<Scalar>::calib;
 
  private:
+  OpticalFlowResult::Ptr prev_frame;
+  OpticalFlowResult::Ptr curr_frame;
+
   bool take_kf;         // true if next frame should become kf
   int frames_after_kf;  // number of frames since last kf
   size_t frame_count = 0;
