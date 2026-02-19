@@ -444,7 +444,7 @@ void NfrMapper::detect_keypoints() {
           TimeCamId tcid(kv->first, i);
           KeypointsData& kd = feature_corners[tcid];
 
-          if (!kv->second->img_data[i].img.get()) continue;
+          if (i >= kv->second->img_data.size() || !kv->second->img_data[i].img) continue;
 
           const Image<const uint16_t> img = kv->second->img_data[i].img->Reinterpret<const uint16_t>();
 

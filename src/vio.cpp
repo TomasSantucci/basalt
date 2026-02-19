@@ -56,6 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pangolin/image/image_io.h>
 #include <pangolin/image/typed_image.h>
 #include <pangolin/pangolin.h>
+#include <pangolin/plot/datalog.h>
 
 #include <CLI/CLI.hpp>
 
@@ -91,6 +92,7 @@ using std::make_shared;
 using std::shared_ptr;
 using std::string;
 using std::thread;
+using vis::AutoScaleDataLog;
 using vis::Button;
 using UIMAT = vis::UIMAT;
 
@@ -131,7 +133,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
   int64_t start_t_ns = -1;
   size_t frame_count = 0;
 
-  DataLog imu_data_log, vio_data_log, ate_data_log, rte_data_log;
+  AutoScaleDataLog log_imu;
+  AutoScaleDataLog log_vel, log_pos, log_ba, log_bg, log_point_count, log_ate, log_rte;
+  std::unordered_map<KeypointId, size_t> keypoint_lifespans;
   shared_ptr<Plotter> plotter;
 
   pangolin::OpenGlRenderState camera;
@@ -146,6 +150,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   std::vector<int64_t> gt_t_ns;
   Eigen::aligned_vector<Eigen::Vector3d> gt_t_w_i;
   Eigen::aligned_vector<Sophus::SE3d> gt_T_w_i;
+  std::vector<int64_t> keyframes_ts;
 
   std::string marg_data_path;
   size_t last_frame_processed = 0;
@@ -171,6 +176,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   bool print_queue = false;
   std::chrono::high_resolution_clock::time_point time_start;
   bool aborted = false;
+  bool initially_aligned = false;
 
   thread feed_images_thread;
   thread feed_imu_thread;
@@ -182,6 +188,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   Var<bool> trajectory_menu{"ui.Trajectory Menu", false, true};
   Var<string> trajectory_menu_title{"trajectory_menu.MENU", "Trajectory Menu", META_FLAG_READONLY};
   Var<bool> show_gt{"trajectory_menu.show_gt", true, true};
+  Var<bool> show_full_gt{"trajectory_menu.show_full_gt", true, true};
   Button align_se3_btn{"trajectory_menu.align_se3", [this]() { alignButton(); }};
   Var<bool> euroc_fmt{"trajectory_menu.euroc_fmt", true, true};
   Var<bool> tum_rgbd_fmt{"trajectory_menu.tum_rgbd_fmt", false, true};
@@ -199,6 +206,8 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
   Var<bool> continue_btn{"ui.continue", true, true};
   Var<bool> continue_fast{"ui.continue_fast", true, true};
+
+  shared_ptr<pangolin::VarValueGeneric> show_frame_bottom;
 
   struct OfflineVIOImageView : vis::VIOImageView {
     basalt_vio_ui& vio_ui;
@@ -347,7 +356,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
       }
     }
 
-    vio_data_log.Clear();
+    log_clear();
 
     if (step_by_step) {
       continue_btn = false;  // Disable automatically feeding next frame
@@ -362,12 +371,13 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
         while (true) {
           out_vis_queue.pop(data);
+          if (!data) break;
 
-          if (data.get()) {
-            vis_map[data->t_ns] = data;
-          } else {
-            break;
-          }
+          vis_map[data->t_ns] = data;
+          log_vis_data(data);
+          try_to_initially_align(data);
+          // NOTE: keyframe_idx is only filled when the UI is enabled
+          if (data->keyframed_idx.count(data->t_ns) > 0) keyframes_ts.push_back(data->t_ns);
         }
 
         std::cout << "Finished t3" << std::endl;
@@ -398,6 +408,39 @@ struct basalt_vio_ui : vis::VIOUIBase {
     return 0;
   }
 
+  void log_clear() {
+    log_vel.Clear();
+    log_pos.Clear();
+    log_ba.Clear();
+    log_bg.Clear();
+    log_point_count.Clear();
+    log_ate.Clear();
+    log_rte.Clear();
+  }
+
+  void log_vis_data(const VioVisualizationData::Ptr& data) {
+    float t_s = (data->t_ns - start_t_ns) * 1e-9;
+
+    std::vector<float> point_count;
+    for (const auto& proj : *data->projections) point_count.push_back(proj.size());
+    log_point_count.ScaledLog(t_s, point_count);
+
+    for (const auto& cam_kps : data->opt_flow_res->keypoints)
+      for (const auto& [kpid, _] : cam_kps) keypoint_lifespans[kpid]++;
+  }
+
+  bool try_to_initially_align(const VioVisualizationData::Ptr& data) {
+    if (initially_aligned) return false;
+
+    bool pose_moved_enough = !data->frames.empty() && data->frames.rbegin()->second.translation().norm() > 1.0f;
+    if (pose_moved_enough) {
+      alignButton();
+      initially_aligned = true;
+    }
+
+    return false;
+  }
+
   bool pop_state() {
     basalt::PoseVelBiasState<double>::Ptr data;
     out_state_queue.pop(data);
@@ -410,24 +453,21 @@ struct basalt_vio_ui : vis::VIOUIBase {
     int64_t t_ns = data->t_ns;
 
     Sophus::SE3d T_w_i = data->T_w_i;
+    Eigen::Vector3d pos_w_i = T_w_i.translation();
     Eigen::Vector3d vel_w_i = data->vel_w_i;
     Eigen::Vector3d bg = data->bias_gyro;
     Eigen::Vector3d ba = data->bias_accel;
 
     vio_t_ns.emplace_back(data->t_ns);
-    vio_t_w_i.emplace_back(T_w_i.translation());
+    vio_t_w_i.emplace_back(pos_w_i);
     vio_T_w_i.emplace_back(T_w_i);
 
     if (show_gui) {
-      std::vector<float> vals;
-      vals.push_back((t_ns - start_t_ns) * 1e-9);
-
-      for (int i = 0; i < 3; i++) vals.push_back(vel_w_i[i]);
-      for (int i = 0; i < 3; i++) vals.push_back(T_w_i.translation()[i]);
-      for (int i = 0; i < 3; i++) vals.push_back(bg[i]);
-      for (int i = 0; i < 3; i++) vals.push_back(ba[i]);
-
-      vio_data_log.Log(vals);
+      double t_s = (t_ns - start_t_ns) * 1e-9;
+      log_vel.ScaledLog(t_s, {vel_w_i[0], vel_w_i[1], vel_w_i[2]});
+      log_pos.ScaledLog(t_s, {pos_w_i[0], pos_w_i[1], pos_w_i[2]});
+      log_ba.ScaledLog(t_s, {ba[0], ba[1], ba[2]});
+      log_bg.ScaledLog(t_s, {bg[0], bg[1], bg[2]});
     }
 
     return true;
@@ -446,18 +486,18 @@ struct basalt_vio_ui : vis::VIOUIBase {
       glEnable(GL_DEPTH_TEST);
 
       View& main_display = pangolin::CreateDisplay();
-      main_display.SetBounds(0.0, 1.0, UI_WIDTH, 1.0);
+      main_display.SetBounds(UI_BOTTOM, 1.0, UI_WIDTH, 1.0);
 
       img_view_display = &pangolin::CreateDisplay();
       img_view_display->SetBounds(0.4, 1.0, 0.0, 0.4);
       img_view_display->SetLayout(pangolin::LayoutEqual);
 
-      plotter = make_shared<Plotter>(&imu_data_log, 0.0, 100, -10.0, 10.0, 0.01, 0.01);
+      plotter = make_shared<Plotter>(&log_imu, 0.0, 100, -10.0, 10.0, 0.01, 0.01);
       plotter->SetBackgroundColour(vis::C_BLUEGREY_DARK());
       plotter->SetAxisColour(vis::C_BLUEGREY_LIGHT());
       plotter->SetTickColour(vis::C_BLUEGREY());
       plot_display = &pangolin::CreateDisplay();
-      plot_display->SetBounds(0.0, 0.4, UI_WIDTH, 1.0);
+      plot_display->SetBounds(UI_BOTTOM, 0.4, UI_WIDTH, 1.0);
       plot_display->AddDisplay(*plotter);
 
       blocks_view = make_shared<pangolin::ImageView>();
@@ -469,11 +509,16 @@ struct basalt_vio_ui : vis::VIOUIBase {
       blocks_display->AddDisplay(*blocks_view);
       blocks_display->Show(show_blocks);
 
-      pangolin::CreatePanel("ui").SetBounds(0.0, 1.0, 0.0, UI_WIDTH);
+      pangolin::CreatePanel("ui").SetBounds(UI_BOTTOM, 1.0, 0.0, UI_WIDTH);
+      pangolin::CreatePanel("bottom_panel").SetBounds(0.0, UI_BOTTOM, 0.0, 1.0);
+      int& show_frame_ref = const_cast<int&>(show_frame.Get());  // HACK: pangolin makes this difficult otherwise
+      pangolin::AttachVar("bottom_panel.show_frame", show_frame_ref, 0, vio_dataset->get_image_timestamps().size() - 1);
+      show_frame_bottom = pangolin::VarState::I().GetByName("bottom_panel.show_frame");
+
       menus.push_back(&trajectory_menu);
       menus_str.emplace_back("trajectory_menu");
       for (size_t i = 0; i < menus.size(); i++) {
-        pangolin::CreatePanel(menus_str[i]).SetBounds(0.0, 0.4, 0.0, UI_WIDTH);
+        pangolin::CreatePanel(menus_str[i]).SetBounds(UI_BOTTOM, 0.4, 0.0, UI_WIDTH);
         pangolin::Display(menus_str[i]).Show(*menus[i]);
       }
 
@@ -538,6 +583,11 @@ struct basalt_vio_ui : vis::VIOUIBase {
           depth_guess = it->second->opt_flow_res->input_images->depth_guess;
         }
 
+        if (show_frame_bottom->Meta().gui_changed) {
+          show_frame_bottom->Meta().gui_changed = false;
+          show_frame.Meta().gui_changed = true;
+        };
+
         if (show_frame.GuiChanged()) {
           auto frame_id = static_cast<size_t>(show_frame);
           int64_t timestamp = vio_dataset->get_image_timestamps()[frame_id];
@@ -548,7 +598,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
             fmt.gltype = GL_UNSIGNED_SHORT;
             fmt.scalable_internal_format = GL_LUMINANCE16;
 
-            if (img_vec[cam_id].img.get())
+            if (cam_id < img_vec.size() && img_vec[cam_id].img && img_vec[cam_id].img)
               img_view[cam_id]->SetImage(img_vec[cam_id].img->ptr, img_vec[cam_id].img->w, img_vec[cam_id].img->h,
                                          img_vec[cam_id].img->pitch, fmt);
           }
@@ -559,9 +609,16 @@ struct basalt_vio_ui : vis::VIOUIBase {
           draw_plots();
         }
 
-        if (show_est_vel.GuiChanged() || show_est_pos.GuiChanged() || show_est_ba.GuiChanged() ||
-            show_est_bg.GuiChanged() || show_frames_ate.GuiChanged() || show_frames_rte.GuiChanged()) {
+        static const std::array curves_ticks = {&show_est_vel,     &show_est_pos,    &show_est_ba,    &show_est_bg,
+                                                &show_point_count, &show_frames_ate, &show_frames_rte};
+        static const std::array curves_logs = {&log_vel,         &log_pos, &log_ba, &log_bg,
+                                               &log_point_count, &log_ate, &log_rte};
+
+        for (size_t i = 0; i < curves_ticks.size(); i++) {
+          if (!curves_ticks[i]->GuiChanged()) continue;
           draw_plots();
+          if (*curves_ticks[i]) curves_logs[i]->FitPlotter(*plotter);
+          break;
         }
 
         if (highlight_landmarks.GuiChanged() || filter_highlights.GuiChanged() || show_highlights.GuiChanged() ||
@@ -748,6 +805,15 @@ struct basalt_vio_ui : vis::VIOUIBase {
     }
 
     if (save_times) timing_csv.close();
+
+    // Report average track length
+    if (show_gui) {
+      size_t total = 0;
+      for (const auto& [kpid, lifespan] : keypoint_lifespans) total += lifespan;
+
+      double avg = double(total) / double(keypoint_lifespans.size());
+      std::cout << "Average track length: " << avg << " frames\n";
+    }
   }
 
   VioVisualizationData::Ptr get_curr_vis_data() override {
@@ -868,6 +934,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     if (show_cam0_proj) do_show_cam0_proj(cam_id, depth_guess);
     if (show_grid) do_show_grid();
     if (show_safe_radius) do_show_safe_radius();
+    if (show_keyframe) do_show_keyframe();
   }
 
   void draw_scene(View& view) {
@@ -888,7 +955,15 @@ struct basalt_vio_ui : vis::VIOUIBase {
     }
 
     glColor3ubv(gt_color);
-    if (show_gt) pangolin::glDrawLineStrip(gt_t_w_i);
+    if (show_gt && show_full_gt)
+      pangolin::glDrawLineStrip(gt_t_w_i);
+    else if (show_gt) {
+      int64_t curr_ts = vio_dataset->get_image_timestamps().at(show_frame);
+      auto it = std::lower_bound(gt_t_ns.begin(), gt_t_ns.end(), curr_ts);
+      size_t end = std::distance(gt_t_ns.begin(), it);
+      Eigen::aligned_vector<Eigen::Vector3d> sub_gt(gt_t_w_i.begin(), gt_t_w_i.begin() + end);
+      pangolin::glDrawLineStrip(sub_gt);
+    }
 
     VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
     if (curr_vis_data == nullptr) return;
@@ -997,39 +1072,46 @@ struct basalt_vio_ui : vis::VIOUIBase {
     plotter->ClearMarkers();
 
     if (show_est_pos) {
-      plotter->AddSeries("$0", "$4", pangolin::DrawingModeLine, vis::C_RED(), "position x", &vio_data_log);
-      plotter->AddSeries("$0", "$5", pangolin::DrawingModeLine, vis::C_GREEN(), "position y", &vio_data_log);
-      plotter->AddSeries("$0", "$6", pangolin::DrawingModeLine, vis::C_BLUE(), "position z", &vio_data_log);
+      plotter->AddSeries("$0", "$1", pangolin::DrawingModeLine, vis::C_RED(), "position x", &log_pos);
+      plotter->AddSeries("$0", "$2", pangolin::DrawingModeLine, vis::C_GREEN(), "position y", &log_pos);
+      plotter->AddSeries("$0", "$3", pangolin::DrawingModeLine, vis::C_BLUE(), "position z", &log_pos);
     }
 
     if (show_est_vel) {
-      plotter->AddSeries("$0", "$1", pangolin::DrawingModeLine, vis::C_RED_DARK(), "velocity x", &vio_data_log);
-      plotter->AddSeries("$0", "$2", pangolin::DrawingModeLine, vis::C_GREEN_DARK(), "velocity y", &vio_data_log);
-      plotter->AddSeries("$0", "$3", pangolin::DrawingModeLine, vis::C_BLUE_DARK(), "velocity z", &vio_data_log);
+      plotter->AddSeries("$0", "$1", pangolin::DrawingModeLine, vis::C_RED_DARK(), "velocity x", &log_vel);
+      plotter->AddSeries("$0", "$2", pangolin::DrawingModeLine, vis::C_GREEN_DARK(), "velocity y", &log_vel);
+      plotter->AddSeries("$0", "$3", pangolin::DrawingModeLine, vis::C_BLUE_DARK(), "velocity z", &log_vel);
     }
 
     if (show_est_bg) {
-      plotter->AddSeries("$0", "$7", pangolin::DrawingModeLine, vis::C_RED(), "gyro bias x", &vio_data_log);
-      plotter->AddSeries("$0", "$8", pangolin::DrawingModeLine, vis::C_GREEN(), "gyro bias y", &vio_data_log);
-      plotter->AddSeries("$0", "$9", pangolin::DrawingModeLine, vis::C_BLUE(), "gyro bias z", &vio_data_log);
+      plotter->AddSeries("$0", "$1", pangolin::DrawingModeLine, vis::C_RED(), "gyro bias x", &log_bg);
+      plotter->AddSeries("$0", "$2", pangolin::DrawingModeLine, vis::C_GREEN(), "gyro bias y", &log_bg);
+      plotter->AddSeries("$0", "$3", pangolin::DrawingModeLine, vis::C_BLUE(), "gyro bias z", &log_bg);
     }
 
     if (show_est_ba) {
-      plotter->AddSeries("$0", "$10", pangolin::DrawingModeLine, vis::C_RED_DARK(), "accel bias x", &vio_data_log);
-      plotter->AddSeries("$0", "$11", pangolin::DrawingModeLine, vis::C_GREEN_DARK(), "accel bias y", &vio_data_log);
-      plotter->AddSeries("$0", "$12", pangolin::DrawingModeLine, vis::C_BLUE_DARK(), "accel bias z", &vio_data_log);
+      plotter->AddSeries("$0", "$1", pangolin::DrawingModeLine, vis::C_RED_DARK(), "accel bias x", &log_ba);
+      plotter->AddSeries("$0", "$2", pangolin::DrawingModeLine, vis::C_GREEN_DARK(), "accel bias y", &log_ba);
+      plotter->AddSeries("$0", "$3", pangolin::DrawingModeLine, vis::C_BLUE_DARK(), "accel bias z", &log_ba);
+    }
+
+    const size_t N = calib.intrinsics.size();
+    if (show_point_count) {
+      std::array<pangolin::Colour, 3> colors = {vis::C_GREEN(), vis::C_GREEN_DARK(), vis::C_GREEN_LIGHT()};
+      for (size_t i = 0; i < N; i++)
+        plotter->AddSeries("$0", "$" + std::to_string(i + 1), pangolin::DrawingModeLine, colors[i % colors.size()],
+                           "point count cam" + std::to_string(i), &log_point_count);
     }
 
     if (show_frames_ate) {
-      plotter->AddSeries("$0", "$1", pangolin::DrawingModeLine, vis::C_PINK_DARK(), "ATE [10µm]", &ate_data_log);
-      plotter->AddSeries("$0", "$2", pangolin::DrawingModeLine, vis::C_PINK(), "ATE diffs [µm]", &ate_data_log);
+      plotter->AddSeries("$0", "$1", pangolin::DrawingModeLine, vis::C_PINK_DARK(), "ATE [10µm]", &log_ate);
+      plotter->AddSeries("$0", "$2", pangolin::DrawingModeLine, vis::C_PINK(), "ATE diffs [µm]", &log_ate);
     }
 
     if (show_frames_rte) {
-      plotter->AddSeries("$0", "$1", pangolin::DrawingModeLine, vis::C_AMBER_DARK(), "RTE [10µm]", &rte_data_log);
-      plotter->AddSeries("$0", "$2", pangolin::DrawingModeLine, vis::C_AMBER(), "RTE diffs [µm]", &rte_data_log);
-      plotter->AddSeries("$0", "$3", pangolin::DrawingModeLine, vis::C_AMBER_LIGHT(), "RTE residuals [µm]",
-                         &rte_data_log);
+      plotter->AddSeries("$0", "$1", pangolin::DrawingModeLine, vis::C_AMBER_DARK(), "RTE [10µm]", &log_rte);
+      plotter->AddSeries("$0", "$2", pangolin::DrawingModeLine, vis::C_AMBER(), "RTE diffs [µm]", &log_rte);
+      plotter->AddSeries("$0", "$3", pangolin::DrawingModeLine, vis::C_AMBER_LIGHT(), "RTE residuals [µm]", &log_rte);
     }
 
     double t = (vio_dataset->get_image_timestamps()[show_frame] - start_t_ns) * 1e-9;
@@ -1050,7 +1132,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
     // Compute ATE
 
-    ate_data_log.Clear();
+    log_ate.Clear();
     constexpr int SAMPLE_POINTS = 10000;  // Maximum points to plot
     if (num_assocs > SAMPLE_POINTS)
       std::cout << "To many frames (" << num_assocs << "), sampling only " << SAMPLE_POINTS << std::endl;
@@ -1060,29 +1142,30 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
     float final_ate = 0;
     Eigen::Matrix4f T_ref_est{};
-    ate_data_log.Log({0, 0, 0});
+    log_ate.ScaledLog(0, {0, 0});
     for (int i = 1; i <= num_assocs; i += step) {
       T_ref_est = get_alignment(est_xyz, ref_xyz, 0, i);
       float ate = compute_ate(est_xyz, ref_xyz, T_ref_est, 0, i);
-      ate_data_log.Log({float((est_ts(i - 1) - start_t_ns) * 1e-9), ate * 1e5f, (ate - final_ate) * 1e6f});
+      log_ate.ScaledLog(float((est_ts(i - 1) - start_t_ns) * 1e-9), {ate * 1e5f, (ate - final_ate) * 1e6f});
       final_ate = ate;
     }
 
     // Compute RTE
 
-    rte_data_log.Clear();
+    log_rte.Clear();
     Eigen::Matrix<int64_t, Eigen::Dynamic, 1> rte_ts{};
     Eigen::Matrix<float, Eigen::Dynamic, 1> rte_residuals{};
     compute_rte(est_ts, est_xyz, est_quat, ref_xyz, ref_quat, rte_ts, rte_residuals, 0, num_assocs, rte_delta);
 
     float sqres_sum = 0;
     float final_rte = 0;
-    rte_data_log.Log({0, 0, 0, 0});
+    log_rte.ScaledLog(0, {0, 0, 0});
     for (int i = 1; i < rte_residuals.rows(); i++) {
       float residual = rte_residuals(i);
       sqres_sum += residual * residual;
       float rte = std::sqrt(sqres_sum / i);
-      rte_data_log.Log({float((rte_ts(i) - start_t_ns) * 1e-9), rte * 1e5f, (rte - final_rte) * 1e6f, residual * 1e6f});
+      log_rte.ScaledLog(float((rte_ts(i) - start_t_ns) * 1e-9),
+                        {rte * 1e5f, (rte - final_rte) * 1e6f, residual * 1e6f});
       final_rte = rte;
     }
 

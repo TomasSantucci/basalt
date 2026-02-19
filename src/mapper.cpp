@@ -269,7 +269,7 @@ int main(int argc, char** argv) {
           fmt.gltype = GL_UNSIGNED_SHORT;
           fmt.scalable_internal_format = GL_LUMINANCE16;
 
-          if (img_vec[cam_id].img.get()) {
+          if (cam_id < img_vec.size() && img_vec[cam_id].img) {
             img_view[0]->SetImage(img_vec[cam_id].img->ptr, img_vec[cam_id].img->w, img_vec[cam_id].img->h,
                                   img_vec[cam_id].img->pitch, fmt);
           } else {
@@ -301,7 +301,7 @@ int main(int argc, char** argv) {
           fmt.gltype = GL_UNSIGNED_SHORT;
           fmt.scalable_internal_format = GL_LUMINANCE16;
 
-          if (img_vec[cam_id].img.get()) {
+          if (cam_id < img_vec.size() && img_vec[cam_id].img) {
             img_view[1]->SetImage(img_vec[cam_id].img->ptr, img_vec[cam_id].img->w, img_vec[cam_id].img->h,
                                   img_vec[cam_id].img->pitch, fmt);
           } else {

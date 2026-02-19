@@ -440,7 +440,8 @@ int main(int argc, char *argv[]) {
 
         if (t265_device->last_img_data.get())
           for (size_t cam_id = 0; cam_id < basalt::RsT265Device::NUM_CAMS; cam_id++) {
-            if (t265_device->last_img_data->img_data[cam_id].img.get())
+            if (cam_id < t265_device->last_img_data->img_data.size() &&
+                t265_device->last_img_data->img_data[cam_id].img)
               img_view[cam_id]->SetImage(t265_device->last_img_data->img_data[cam_id].img->ptr,
                                          t265_device->last_img_data->img_data[cam_id].img->w,
                                          t265_device->last_img_data->img_data[cam_id].img->h,

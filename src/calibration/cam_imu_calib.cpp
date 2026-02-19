@@ -189,7 +189,7 @@ void CamImuCalib::renderingLoop() {
         const std::vector<ImageData> &img_vec = vio_dataset->get_image_data(timestamp);
 
         for (size_t cam_id = 0; cam_id < vio_dataset->get_num_cams(); cam_id++)
-          if (img_vec[cam_id].img.get()) {
+          if (cam_id < img_vec.size() && img_vec[cam_id].img) {
             pangolin::GlPixFormat fmt;
             fmt.glformat = GL_LUMINANCE;
             fmt.gltype = GL_UNSIGNED_SHORT;

@@ -113,7 +113,7 @@ void CalibHelper::detectCorners(const VioDatasetPtr &vio_data, const AprilGrid &
                         const std::vector<ImageData> &img_vec = vio_data->get_image_data(timestamp_ns);
 
                         for (size_t i = 0; i < img_vec.size(); i++) {
-                          if (img_vec[i].img.get()) {
+                          if (i < img_vec.size() && img_vec[i].img) {
                             CalibCornerData ccd_good;
                             CalibCornerData ccd_bad;
                             ad.detectTags(*img_vec[i].img, ccd_good.corners, ccd_good.corner_ids, ccd_good.radii,

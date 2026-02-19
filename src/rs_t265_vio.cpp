@@ -339,7 +339,7 @@ int main(int argc, char** argv) {
           auto& img_data = curr_vis_data->opt_flow_res->input_images->img_data;
 
           for (size_t cam_id = 0; cam_id < basalt::RsT265Device::NUM_CAMS; cam_id++) {
-            if (img_data[cam_id].img.get())
+            if (cam_id < img_data.size() && img_data[cam_id].img)
               img_view[cam_id]->SetImage(img_data[cam_id].img->ptr, img_data[cam_id].img->w, img_data[cam_id].img->h,
                                          img_data[cam_id].img->pitch, fmt);
           }

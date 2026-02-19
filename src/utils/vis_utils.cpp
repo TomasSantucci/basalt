@@ -233,9 +233,9 @@ void VIOUIBase::do_show_tracking_guess(size_t cam_id, size_t frame_id, const Vio
 
   if (frame_id < 1) return;
 
-  auto new_kpts = curr_vis_data->opt_flow_res->keypoints[cam_id];
-  auto prev_kpts = prev_vis_data->opt_flow_res->keypoints[cam_id];
-  auto guess_obs = curr_vis_data->opt_flow_res->tracking_guesses[cam_id];
+  const auto& new_kpts = curr_vis_data->opt_flow_res->keypoints[cam_id];
+  const auto& prev_kpts = prev_vis_data->opt_flow_res->keypoints[cam_id];
+  const auto& guess_obs = curr_vis_data->opt_flow_res->tracking_guesses[cam_id];
 
   std::vector<Vector2f> prev_lines;
   std::vector<Vector2f> prev_points;
@@ -252,26 +252,28 @@ void VIOUIBase::do_show_tracking_guess(size_t cam_id, size_t frame_id, const Vio
   float radius = 3.0F;
 
   // Draw tracked features in previous frame
-  for (auto& [kpid, kpt] : new_kpts) {
+  for (auto& [kpid, kpt] : prev_kpts) {
     if (prev_kpts.count(kpid) == 0) continue;
     if (guess_obs.count(kpid) == 0) continue;
 
     bool show = !filter_highlights || is_selected(highlights, kpid);
     if (!show) continue;
 
-    auto n = kpt.translation();
-    auto p = prev_kpts.at(kpid).translation();
-    auto g = guess_obs.at(kpid).translation();
+    auto p = kpt.translation();
+    prev_points.emplace_back(p);
 
+    auto g = guess_obs.at(kpid).translation();
+    guess_points.emplace_back(g);
+
+    if (new_kpts.count(kpid) == 0) continue;
+
+    auto n = new_kpts.at(kpid).translation();
     now_points.emplace_back(n);
 
     prev_lines.emplace_back(p);
     prev_lines.emplace_back(n);
-    prev_points.emplace_back(p);
-
     guess_lines.emplace_back(g);
     guess_lines.emplace_back(n);
-    guess_points.emplace_back(g);
   }
 
   glColor4f(1, 0.59, 0, 0.9);
@@ -290,8 +292,8 @@ void VIOUIBase::do_show_recall_guesses(size_t cam_id) {
   const VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
   if (curr_vis_data == nullptr) return;
 
-  auto new_kpts = curr_vis_data->opt_flow_res->keypoints.at(cam_id);
-  auto guess_obs = curr_vis_data->opt_flow_res->recall_guesses.at(cam_id);
+  const auto& new_kpts = curr_vis_data->opt_flow_res->keypoints.at(cam_id);
+  const auto& guess_obs = curr_vis_data->opt_flow_res->recall_guesses.at(cam_id);
 
   std::vector<Vector2f> guess_lines;
   std::vector<Vector2f> guess_points;
@@ -303,7 +305,7 @@ void VIOUIBase::do_show_recall_guesses(size_t cam_id) {
   glColor4f(255 / 255.0F, 13 / 255.0F, 134 / 255.0F, 0.9);
 
   // Draw tracked features in previous frame
-  for (auto& [kpid, kpt] : guess_obs) {
+  for (const auto& [kpid, kpt] : guess_obs) {
     bool show = !filter_highlights || is_selected(highlights, kpid);
     if (!show) continue;
 
@@ -516,6 +518,26 @@ void VIOUIBase::do_show_safe_radius() {
   float w = calib.resolution.at(0).x();
   float h = calib.resolution.at(0).y();
   pangolin::glDrawCirclePerimeter(w / 2, h / 2, config.optical_flow_image_safe_radius);
+}
+
+void VIOUIBase::do_show_keyframe() {
+  // Draw a 10 px blue border around the image
+  const VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
+  if (curr_vis_data == nullptr) return;
+
+  bool is_keyframe = curr_vis_data->keyframed_idx.count(curr_vis_data->t_ns) > 0;
+  if (!is_keyframe) return;
+
+  float w = calib.resolution.at(0).x();
+  float h = calib.resolution.at(0).y();
+  float b = 8.0f;
+  float p = -0.5f;  // Off-center pixel
+
+  glColor4f(0.13, 0.59, 0.95, 0.75);                         // Low opacity blue
+  pangolin::glDrawRect(p + 0, p + 0, p + w, p + b);          // Top
+  pangolin::glDrawRect(p + 0, p + h - b, p + w, p + h);      // Bottom
+  pangolin::glDrawRect(p + 0, p + b, p + b, p + h - b);      // Left
+  pangolin::glDrawRect(p + w - b, p + b, p + w, p + h - b);  // Right
 }
 
 void VIOUIBase::do_show_guesses(size_t cam_id) {

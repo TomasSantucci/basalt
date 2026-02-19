@@ -153,7 +153,7 @@ void CamCalib::computeVign() {
 
       auto it = reprojected_vignette.find(tcid);
 
-      if (it != reprojected_vignette.end() && img_vec[j].img.get()) {
+      if (it != reprojected_vignette.end() && j < img_vec.size() && img_vec[j].img) {
         Eigen::aligned_vector<Eigen::Vector3d> rv;
         rv.resize(it->second.corners_proj.size());
 
@@ -234,7 +234,7 @@ void CamCalib::renderingLoop() {
         const std::vector<ImageData> &img_vec = vio_dataset->get_image_data(timestamp);
 
         for (size_t cam_id = 0; cam_id < vio_dataset->get_num_cams(); cam_id++)
-          if (img_vec[cam_id].img.get()) {
+          if (cam_id < img_vec.size() && img_vec[cam_id].img) {
             pangolin::GlPixFormat fmt;
             fmt.glformat = GL_LUMINANCE;
             fmt.gltype = GL_UNSIGNED_SHORT;
@@ -495,7 +495,7 @@ void CamCalib::initCamIntrinsics() {
     while (img_idx < vio_dataset->get_image_timestamps().size()) {
       bool img_data_valid = true;
       for (size_t i = 0; i < vio_dataset->get_num_cams(); i++) {
-        if (!img_data[i].img.get()) img_data_valid = false;
+        if (i >= img_data.size() || !img_data[i].img) img_data_valid = false;
       }
 
       if (!img_data_valid) {

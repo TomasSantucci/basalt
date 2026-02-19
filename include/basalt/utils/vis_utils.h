@@ -43,6 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <basalt/utils/vis_matrices.h>
 #include <basalt/vi_estimator/vio_estimator.h>
+#include <pangolin/plot/datalog.h>
+#include <pangolin/plot/plotter.h>
 #include <pangolin/var/var.h>
 #include <pangolin/var/varvaluegeneric.h>
 #include <basalt/utils/sophus_utils.hpp>
@@ -54,10 +56,10 @@ extern pangolin::GlFont FONT;
 }
 using basalt::vis::FONT;
 
-const uint8_t cam_color[3]{250, 0, 125};
-const uint8_t state_color[3]{250, 0, 26};
-const uint8_t pose_color[3]{0, 50, 255};
-const uint8_t gt_color[3]{0, 171, 47};
+const uint8_t cam_color[3]{255, 193, 7};                // amber
+const uint8_t state_color[3]{233, 30, 99};              // pink
+const uint8_t pose_color[3]{33, 150, 243};              // blue
+const uint8_t gt_color[3]{76, 175, 80};                 // green
 constexpr float MIN_DEPTH_COLOR[3]{0.27, 0.79, 1};      // blue
 constexpr float MAX_DEPTH_COLOR[3]{1, 0.1, 0.42};       // pink
 constexpr uint8_t MIN_DEPTH_COLOR_UB[3]{69, 201, 255};  // blue
@@ -191,6 +193,7 @@ inline Colour C_BLUEGREY() { return {69 / 255.0, 90 / 255.0, 100 / 255.0}; }
 inline Colour C_RED() { return {244 / 255.0, 67 / 255.0, 54 / 255.0}; }
 inline Colour C_PINK() { return {233 / 255.0, 30 / 255.0, 99 / 255.0}; }
 inline Colour C_BLUE() { return {33 / 255.0, 150 / 255.0, 243 / 255.0}; }
+inline Colour C_CYAN() { return {0 / 255.0, 188 / 255.0, 212 / 255.0}; }
 inline Colour C_GREEN() { return {76 / 255.0, 175 / 255.0, 80 / 255.0}; }
 inline Colour C_YELLOW() { return {255 / 255.0, 152 / 255.0, 0 / 255.0}; }
 inline Colour C_AMBER() { return {255 / 255.0, 193 / 255.0, 7 / 255.0}; }
@@ -199,6 +202,7 @@ inline Colour C_BLUEGREY_DARK() { return {38 / 255.0, 50 / 255.0, 56 / 255.0}; }
 inline Colour C_RED_DARK() { return {183 / 255.0, 28 / 255.0, 28 / 255.0}; }
 inline Colour C_PINK_DARK() { return {136 / 255.0, 14 / 255.0, 79 / 255.0}; }
 inline Colour C_BLUE_DARK() { return {13 / 255.0, 71 / 255.0, 161 / 255.0}; }
+inline Colour C_CYAN_DARK() { return {0 / 255.0, 96 / 255.0, 100 / 255.0}; }
 inline Colour C_GREEN_DARK() { return {27 / 255.0, 94 / 255.0, 32 / 255.0}; }
 inline Colour C_YELLOW_DARK() { return {245 / 255.0, 127 / 255.0, 23 / 255.0}; }
 inline Colour C_AMBER_DARK() { return {255 / 255.0, 111 / 255.0, 0 / 255.0}; }
@@ -207,6 +211,7 @@ inline Colour C_BLUEGREY_LIGHT() { return {236 / 255.0, 239 / 255.0, 241 / 255.0
 inline Colour C_RED_LIGHT() { return {255 / 255.0, 235 / 255.0, 238 / 255.0}; }
 inline Colour C_PINK_LIGHT() { return {252 / 255.0, 228 / 255.0, 236 / 255.0}; }
 inline Colour C_BLUE_LIGHT() { return {227 / 255.0, 242 / 255.0, 253 / 255.0}; }
+inline Colour C_CYAN_LIGHT() { return {224 / 255.0, 247 / 255.0, 250 / 255.0}; }
 inline Colour C_GREEN_LIGHT() { return {232 / 255.0, 245 / 255.0, 233 / 255.0}; }
 inline Colour C_AMBER_LIGHT() { return {255 / 255.0, 248 / 255.0, 225 / 255.0}; }
 
@@ -238,7 +243,9 @@ bool is_selected(const Selection& selection, size_t n);
 
 struct VIOUIBase {
   static constexpr int UI_WIDTH_PIX = 200;
+  static constexpr int UI_BOTTOM_PIX = 32;
   const pangolin::Attach UI_WIDTH = pangolin::Attach::Pix(UI_WIDTH_PIX);
+  const pangolin::Attach UI_BOTTOM = pangolin::Attach::Pix(UI_BOTTOM_PIX);
 
   View* img_view_display;
   View* plot_display;
@@ -286,6 +293,7 @@ struct VIOUIBase {
   Var<bool> keyframe_menu{"ui.Keyframe Menu", false, true};
   Var<string> keyframe_menu_title{"keyframe_menu.MENU", "Keyframe Menu", META_FLAG_READONLY};
   Button take_ltkf_btn{"keyframe_menu.Take Keyframe", [this]() { take_ltkf(); }};
+  Var<bool> show_keyframe{"keyframe_menu.show_keyframe", false, true};
 
   Var<bool> image_menu{"ui.Image Menu", false, true};
   Var<string> image_menu_title{"image_menu.MENU", "Image Menu", META_FLAG_READONLY};
@@ -310,6 +318,7 @@ struct VIOUIBase {
   Var<bool> show_est_vel{"curves_menu.show_est_vel", false, true};
   Var<bool> show_est_bg{"curves_menu.show_est_bg", false, true};
   Var<bool> show_est_ba{"curves_menu.show_est_ba", false, true};
+  Var<bool> show_point_count{"curves_menu.show_point_count", false, true};
 
   Var<bool> follow{"ui.follow", true, true};
   Button reset_state_btn{"ui.Reset State", [this]() { reset_state(); }};
@@ -341,6 +350,7 @@ struct VIOUIBase {
   void do_show_cam0_proj(size_t cam_id, double depth_guess);
   void do_show_grid();
   void do_show_safe_radius();
+  void do_show_keyframe();
   void do_show_guesses(size_t cam_id);
   void do_show_obs(size_t cam_id);
   void draw_blocks_overlay();
@@ -360,6 +370,58 @@ struct VIOImageView : ImageView {
   VIOImageView(VIOUIBase& ui);
   void Mouse(View& view, MouseButton button, int x_screen, int y_screen, bool pressed, int button_state) override;
   void Keyboard(View& view, unsigned char key, int x, int y, bool pressed) override;
+};
+
+class AutoScaleDataLog : public pangolin::DataLog {
+ public:
+  AutoScaleDataLog() : xmin_(+inf()), xmax_(-inf()), ymin_(+inf()), ymax_(-inf()) {}
+
+  void Clear() {
+    pangolin::DataLog::Clear();
+    ResetBounds();
+  }
+
+  template <typename Scalar>
+  void ScaledLog(Scalar x, const std::vector<Scalar>& ys) {
+    std::vector<float> vals;
+    vals.push_back(x);
+    vals.insert(vals.end(), ys.begin(), ys.end());
+    pangolin::DataLog::Log(vals);
+    for (Scalar y : ys) update_bounds(x, y);
+  }
+
+  void FitPlotter(pangolin::Plotter& plotter, float pad_frac = 0.05) const {
+    using std::isfinite;
+
+    if (xmin_ >= xmax_ || ymin_ >= ymax_) return;
+    if (!isfinite(xmin_) || !isfinite(xmax_) || !isfinite(ymin_) || !isfinite(ymax_)) return;
+
+    const float padx = pad_frac * (xmax_ - xmin_);
+    const float pady = pad_frac * (ymax_ - ymin_);
+
+    // Scale x and y axis to data
+    plotter.SetViewSmooth({{xmin_ - padx, xmax_ + padx}, {ymin_ - pady, ymax_ + pady}});
+  }
+
+  void ResetBounds() {
+    xmin_ = +inf();
+    xmax_ = -inf();
+    ymin_ = +inf();
+    ymax_ = -inf();
+  }
+
+ private:
+  float xmin_, xmax_;
+  float ymin_, ymax_;
+
+  static constexpr float inf() { return std::numeric_limits<float>::infinity(); }
+
+  void update_bounds(float x, float y) {
+    xmin_ = std::min(xmin_, x);
+    xmax_ = std::max(xmax_, x);
+    ymin_ = std::min(ymin_, y);
+    ymax_ = std::max(ymax_, y);
+  }
 };
 
 }  // namespace basalt::vis
