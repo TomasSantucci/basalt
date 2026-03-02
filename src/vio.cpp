@@ -1478,24 +1478,34 @@ struct basalt_vio_ui : vis::VIOUIBase {
   void associate_loop(const int64_t& filter_start_ns, const int64_t& filter_end_ns, const std::vector<int64_t>& gt_t_ns,
                       const Eigen::aligned_vector<Sophus::SE3d>& gt_T_w_i, Sophus::SE3d& T_gt_start,
                       Sophus::SE3d& T_gt_end) {
-    size_t j = 0;
+    if (gt_t_ns.size() < 2 || gt_T_w_i.size() < 2) return;  // not enough samples to interpolate
 
-    while (j < gt_t_ns.size() && gt_t_ns[j] < filter_start_ns) j++;
-    j--;
+    auto interpolate_clamped = [&](const int64_t ts, Sophus::SE3d& out) {
+      // find the first gt timestamp that is >= ts
+      size_t idx = std::lower_bound(gt_t_ns.begin(), gt_t_ns.end(), ts) - gt_t_ns.begin();
 
-    double dt_ns = filter_start_ns - gt_t_ns[j];
-    double int_t_ns = gt_t_ns[j + 1] - gt_t_ns[j];
-    double ratio = dt_ns / int_t_ns;
-    T_gt_start = Sophus::interpolate(gt_T_w_i[j], gt_T_w_i[j + 1], ratio);
+      if (idx == 0) {
+        double span = static_cast<double>(gt_t_ns[1] - gt_t_ns[0]);
+        double ratio = span > 0 ? std::clamp(static_cast<double>(ts - gt_t_ns[0]) / span, 0.0, 1.0) : 0.0;
+        out = Sophus::interpolate(gt_T_w_i[0], gt_T_w_i[1], ratio);
+        return;
+      }
 
-    while (j < gt_t_ns.size() && gt_t_ns[j] < filter_end_ns) j++;
-    j--;
-    dt_ns = filter_end_ns - gt_t_ns[j];
-    int_t_ns = gt_t_ns[j + 1] - gt_t_ns[j];
+      if (idx >= gt_t_ns.size()) {
+        // ts is beyond the last sample; snap to the last interval end
+        idx = gt_t_ns.size() - 2;
+        out = Sophus::interpolate(gt_T_w_i[idx], gt_T_w_i[idx + 1], 1.0);
+        return;
+      }
 
-    ratio = dt_ns / int_t_ns;
+      idx -= 1;  // use the interval [idx, idx + 1]
+      double span = static_cast<double>(gt_t_ns[idx + 1] - gt_t_ns[idx]);
+      double ratio = span > 0 ? std::clamp(static_cast<double>(ts - gt_t_ns[idx]) / span, 0.0, 1.0) : 0.0;
+      out = Sophus::interpolate(gt_T_w_i[idx], gt_T_w_i[idx + 1], ratio);
+    };
 
-    T_gt_end = Sophus::interpolate(gt_T_w_i[j], gt_T_w_i[j + 1], ratio);
+    interpolate_clamped(filter_start_ns, T_gt_start);
+    interpolate_clamped(filter_end_ns, T_gt_end);
   }
 
   void show_3d_points(Eigen::aligned_vector<Eigen::Matrix<double, 3, 1>>& points, std::vector<int>& ids,
