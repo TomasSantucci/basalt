@@ -356,6 +356,12 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.loop_closing_reprojected_pnp_min_inliers));
   ar(CEREAL_NVP(config.loop_closing_pnp_inliers_ratio));
 
+  ar(CEREAL_NVP(config.debug1));
+  ar(CEREAL_NVP(config.debug2));
+  ar(CEREAL_NVP(config.debug3));
+
+  ar(CEREAL_NVP(config.cameras_to_export));
+
   ar(CEREAL_NVP(config.causal_evaluation));
 
   ar(CEREAL_NVP(config.debug1));

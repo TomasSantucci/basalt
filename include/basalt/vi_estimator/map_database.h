@@ -105,7 +105,7 @@ class MapDatabase {
 
   using SE3 = Sophus::SE3<Scalar>;
 
-  MapDatabase(const VioConfig& config, const basalt::Calibration<double>& calib);
+  MapDatabase(const VioConfig& config, const basalt::Calibration<double>& calib, const std::string& map_export_path);
 
   ~MapDatabase() { maybe_join(); }
 
@@ -144,6 +144,8 @@ class MapDatabase {
 
   void saveColmap(const std::string& path);
 
+  void saveJson(const std::string& file_path);
+
   inline void maybe_join() {
     if (reading_thread) {
       reading_thread->join();
@@ -171,11 +173,11 @@ class MapDatabase {
   SyncState* sync_map_stamp = nullptr;
   SyncState* sync_lc_finished = nullptr;
   bool deterministic;
-  std::string colmap_export_path;
 
-  std::shared_ptr<std::unordered_map<FrameId, std::string>> frame_id_to_name;
+  std::shared_ptr<std::unordered_map<TimeCamId, std::string>> frame_id_to_name;
 
  private:
+  std::string map_export_path;
   VioConfig config;
   std::shared_ptr<std::thread> reading_thread;
   std::shared_ptr<std::thread> writing_thread;

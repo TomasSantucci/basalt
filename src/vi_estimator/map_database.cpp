@@ -1,13 +1,16 @@
 #include <basalt/vi_estimator/map_database.h>
 #include <filesystem>
+#include <nlohmann/json.hpp>
 
 namespace basalt {
 
-MapDatabase::MapDatabase(const VioConfig& config, const Calibration<double>& calib) : out_vis_queue(nullptr) {
+MapDatabase::MapDatabase(const VioConfig& config, const Calibration<double>& calib, const std::string& map_export_path)
+    : out_vis_queue(nullptr) {
   this->config = config;
   this->calib = calib;
   this->map = LandmarkDatabase<float>("Persistent Map");
   this->covisibility_graph = std::make_shared<CovisibilityGraph>();
+  this->map_export_path = map_export_path.empty() ? "exported_map" : map_export_path;
 }
 
 void MapDatabase::write_map_stamp(basalt::MapStamp::Ptr& map_stamp) {
@@ -263,7 +266,7 @@ void MapDatabase::initialize() {
       if (msg == nullptr) {
         map.print();
         covisibility_graph->print_stats();
-        if (!colmap_export_path.empty()) saveColmap(colmap_export_path);
+        if (!map_export_path.empty()) saveJson(map_export_path);
         if (out_vis_queue) out_vis_queue->push(nullptr);
         if (out_map_update_queue) out_map_update_queue->push(nullptr);
         break;
@@ -518,6 +521,84 @@ void MapDatabase::updateCovisibilityGraph(const LandmarkDatabase<Scalar>::Ptr& l
   }
 }
 
+void MapDatabase::saveJson(const std::string& file_path) {
+  std::unique_lock<std::mutex> lock(mutex);
+
+  std::filesystem::create_directories(std::filesystem::path(file_path).parent_path());
+  std::ofstream json_file;
+  json_file.open(file_path);
+
+  nlohmann::json j;
+
+  // Identify valid landmarks (at least 2 observations and finite position)
+  std::unordered_set<LandmarkId> valid_lm_ids;
+  for (const auto& [lm_id, lm] : map.getLandmarks()) {
+    if (lm.obs.size() < 2) {
+      continue;
+    }
+
+    auto landmarks_3d = get_landmarks_3d_pos({lm_id});
+    Vec3d lm_3d = landmarks_3d.at(lm_id);
+
+    if (!std::isfinite(lm_3d.x()) || !std::isfinite(lm_3d.y()) || !std::isfinite(lm_3d.z())) {
+      continue;
+    }
+
+    valid_lm_ids.insert(lm_id);
+  }
+
+  // Save keyframes
+  nlohmann::json keyframes_json = nlohmann::json::array();
+  for (const auto& [kf_id, pose] : map.getKeyframes()) {
+    Sophus::SE3d T_w_i = pose.template cast<double>();
+    Eigen::Quaterniond q = T_w_i.unit_quaternion();
+    Eigen::Vector3d t = T_w_i.translation();
+
+    nlohmann::json kf_json;
+    kf_json["id"] = kf_id;
+    kf_json["T_w_i"] = {q.w(), q.x(), q.y(), q.z(), t.x(), t.y(), t.z()};
+    keyframes_json.push_back(kf_json);
+  }
+  j["keyframes"] = keyframes_json;
+
+  // Save landmarks
+  nlohmann::json landmarks_json = nlohmann::json::array();
+  for (const auto& lm_id : valid_lm_ids) {
+    auto landmarks_3d = get_landmarks_3d_pos({lm_id});
+    Vec3d lm_3d = landmarks_3d.at(lm_id);
+
+    nlohmann::json lm_json;
+    lm_json["id"] = lm_id;
+    lm_json["p_w"] = {lm_3d.x(), lm_3d.y(), lm_3d.z()};
+    landmarks_json.push_back(lm_json);
+  }
+  j["landmarks"] = landmarks_json;
+
+  // Save observations
+  nlohmann::json observations_json = nlohmann::json::array();
+  for (const auto& [tcid, obs_set] : map.getKeyframeObs()) {
+    for (const auto& lm_id : obs_set) {
+      if (valid_lm_ids.find(lm_id) == valid_lm_ids.end()) {
+        continue;
+      }
+
+      const auto& lm = map.getLandmark(lm_id);
+      const auto& pt = lm.obs.at(tcid);
+
+      nlohmann::json obs_json;
+      obs_json["kf_id"] = tcid.frame_id;
+      obs_json["cam_id"] = tcid.cam_id;
+      obs_json["lm_id"] = lm_id;
+      obs_json["pos"] = {pt.x(), pt.y()};
+      observations_json.push_back(obs_json);
+    }
+  }
+  j["observations"] = observations_json;
+
+  json_file << j.dump(2);
+  json_file.close();
+}
+
 void MapDatabase::saveColmap(const std::string& path) {
   std::unique_lock<std::mutex> lock(mutex);
 
@@ -539,6 +620,10 @@ void MapDatabase::saveColmap(const std::string& path) {
   colmap_points3D_txt.open(path + "/points3D.txt");
   colmap_points3D_txt << "# 3D point list with one line of data per point:\n";
   colmap_points3D_txt << "#   POINT3D_ID, X, Y, Z, R, G, B, ERROR, TRACK[] as (IMAGE_ID, POINT2D_IDX)\n";
+
+  // Also create a file that maps the sequential colmap image ids to the original frame ids for easier debugging
+  std::ofstream colmap_image_id_to_frame_id_txt;
+  colmap_image_id_to_frame_id_txt.open(path + "/image_id_to_frame_id.txt");
 
   // Write the cameras.txt file
   for (size_t i = 0; i < calib.intrinsics.size(); i++) {
@@ -580,7 +665,9 @@ void MapDatabase::saveColmap(const std::string& path) {
     int obs_count = 0;
     bool valid = true;
     for (const auto& [tcid, _] : lm.obs) {
-      if (tcid.cam_id != 0) {
+      // if the tcid.cam_id is not the the cameras to export vector, then the landmark is not valid for colmap
+      if (std::find(config.cameras_to_export.begin(), config.cameras_to_export.end(), tcid.cam_id) ==
+          config.cameras_to_export.end()) {
         continue;
       }
       obs_count++;
@@ -590,68 +677,73 @@ void MapDatabase::saveColmap(const std::string& path) {
     }
   }
 
-  Sophus::SE3d T_i_c = calib.T_i_c[0];
-  for (const auto& [kf_id, pose] : map.getKeyframes()) {
-    TimeCamId kf_tcid{kf_id, static_cast<CamId>(0)};
-    auto obs_it = map.getKeyframeObs().find(kf_tcid);
-    if (obs_it == map.getKeyframeObs().end()) {
-      continue;
-    }
-
-    Sophus::SE3d T_w_c = pose.template cast<double>() * T_i_c;
-    Sophus::SE3d T_c_w = T_w_c.inverse();
-    Eigen::Quaterniond q = T_c_w.unit_quaternion();
-    Eigen::Vector3d t = T_c_w.translation();
-
-    colmap_images_txt << next_image_id << " ";
-    colmap_images_txt << q.w() << " ";
-    colmap_images_txt << q.x() << " ";
-    colmap_images_txt << q.y() << " ";
-    colmap_images_txt << q.z() << " ";
-    colmap_images_txt << t.x() << " ";
-    colmap_images_txt << t.y() << " ";
-    colmap_images_txt << t.z() << " ";
-    colmap_images_txt << 1 << " ";
-    colmap_images_txt << frame_id_to_name->at(kf_id);
-    colmap_images_txt << "\n";
-
-    int point2d_idx = 0;
-
-    for (const auto& lm_id : obs_it->second) {
-      if (valid_lm_ids.find(lm_id) == valid_lm_ids.end()) {
+  for (const auto& cam_id : config.cameras_to_export) {
+    Sophus::SE3d T_i_c = calib.T_i_c[cam_id];
+    for (const auto& [kf_id, pose] : map.getKeyframes()) {
+      TimeCamId kf_tcid{kf_id, static_cast<CamId>(cam_id)};
+      auto obs_it = map.getKeyframeObs().find(kf_tcid);
+      if (obs_it == map.getKeyframeObs().end()) {
         continue;
       }
 
-      if (lm_to_colmap_id.find(lm_id) == lm_to_colmap_id.end()) {
-        lm_to_colmap_id[lm_id] = next_point_id;
-        next_point_id++;
+      Sophus::SE3d T_w_c = pose.template cast<double>() * T_i_c;
+      Sophus::SE3d T_c_w = T_w_c.inverse();
+      Eigen::Quaterniond q = T_c_w.unit_quaternion();
+      Eigen::Vector3d t = T_c_w.translation();
+
+      colmap_images_txt << next_image_id << " ";
+      colmap_images_txt << q.w() << " ";
+      colmap_images_txt << q.x() << " ";
+      colmap_images_txt << q.y() << " ";
+      colmap_images_txt << q.z() << " ";
+      colmap_images_txt << t.x() << " ";
+      colmap_images_txt << t.y() << " ";
+      colmap_images_txt << t.z() << " ";
+      colmap_images_txt << cam_id + 1 << " ";
+      colmap_images_txt << frame_id_to_name->at(kf_tcid);
+      colmap_images_txt << "\n";
+
+      colmap_image_id_to_frame_id_txt << next_image_id << " " << kf_id << " " << cam_id + 1 << "\n";
+
+      int point2d_idx = 0;
+
+      for (const auto& lm_id : obs_it->second) {
+        if (valid_lm_ids.find(lm_id) == valid_lm_ids.end()) {
+          continue;
+        }
+
+        if (lm_to_colmap_id.find(lm_id) == lm_to_colmap_id.end()) {
+          lm_to_colmap_id[lm_id] = next_point_id;
+          next_point_id++;
+        }
+
+        auto landmarks_3d = get_landmarks_3d_pos({lm_id});
+        Vec3d lm_3d = landmarks_3d.at(lm_id);
+
+        // Skip the inf points
+        if (!std::isfinite(lm_3d.x()) || !std::isfinite(lm_3d.y()) || !std::isfinite(lm_3d.z())) {
+          continue;
+        }
+
+        int pid = lm_to_colmap_id[lm_id];
+        const auto& lm = map.getLandmark(lm_id);
+        const auto& pt = lm.obs.at(kf_tcid);
+
+        colmap_images_txt << pt.x() << " ";
+        colmap_images_txt << pt.y() << " ";
+        colmap_images_txt << pid << " ";
+
+        lm_tracks[lm_id].emplace_back(next_image_id, point2d_idx);
+
+        point2d_idx++;
       }
+      colmap_images_txt << "\n";
 
-      auto landmarks_3d = get_landmarks_3d_pos({lm_id});
-      Vec3d lm_3d = landmarks_3d.at(lm_id);
-
-      // Skip the inf points
-      if (!std::isfinite(lm_3d.x()) || !std::isfinite(lm_3d.y()) || !std::isfinite(lm_3d.z())) {
-        continue;
-      }
-
-      int pid = lm_to_colmap_id[lm_id];
-      const auto& lm = map.getLandmark(lm_id);
-      const auto& pt = lm.obs.at(kf_tcid);
-
-      colmap_images_txt << pt.x() << " ";
-      colmap_images_txt << pt.y() << " ";
-      colmap_images_txt << pid << " ";
-
-      lm_tracks[lm_id].emplace_back(next_image_id, point2d_idx);
-
-      point2d_idx++;
+      next_image_id++;
     }
-    colmap_images_txt << "\n";
-
-    next_image_id++;
   }
   colmap_images_txt.close();
+  colmap_image_id_to_frame_id_txt.close();
 
   // Write the points3D.txt
   for (const auto& [lm_id, lm] : map.getLandmarks()) {
@@ -675,7 +767,7 @@ void MapDatabase::saveColmap(const std::string& path) {
     colmap_points3D_txt << lm_3d.x() << " ";
     colmap_points3D_txt << lm_3d.y() << " ";
     colmap_points3D_txt << lm_3d.z() << " ";
-    colmap_points3D_txt << "0 255 0 0.0";  // Using a fixed color and error for simplicity
+    colmap_points3D_txt << "0 0 0 0.0";  // Using a fixed color and error for simplicity
 
     const auto& tracks = lm_tracks[lm_id];
     for (const auto& [img_id, p2d_idx] : tracks) {

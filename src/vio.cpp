@@ -155,8 +155,8 @@ struct basalt_vio_ui : vis::VIOUIBase {
   tbb::concurrent_bounded_queue<basalt::OpticalFlowStats::Ptr> opt_flow_stats_queue;
   tbb::concurrent_bounded_queue<basalt::MapUpdate::Ptr> out_map_update_queue;
 
-  std::shared_ptr<std::unordered_map<FrameId, std::string>> frame_id_to_name =
-      std::make_shared<std::unordered_map<FrameId, std::string>>();
+  std::shared_ptr<std::unordered_map<TimeCamId, std::string>> frame_id_to_name =
+      std::make_shared<std::unordered_map<TimeCamId, std::string>>();
 
   std::vector<int64_t> opt_flow_t_ns;
   Eigen::aligned_vector<int> features;
@@ -206,6 +206,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   bool aborted = false;
   bool initially_aligned = false;
   std::string colmap_export_path;
+  std::string map_export_path;
 
   thread feed_images_thread;
   thread feed_imu_thread;
@@ -302,6 +303,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     app.add_option("--max-frames", max_frames, "Limit number of frames to process from dataset (0 means unlimited)");
     app.add_option("--max-gui-frames", max_gui_frames, "Limit UI frames in memory (unlimited: 0, default: 10000)");
     app.add_option("--export-colmap-path", colmap_export_path, "Path to export COLMAP files.");
+    app.add_option("--map-export-path", map_export_path, "Path to export the map.");
 
     try {
       app.parse(argc, argv);
@@ -390,12 +392,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
       }
     }
     {
-      map_db = std::make_shared<basalt::MapDatabase>(config, calib);
+      map_db = std::make_shared<basalt::MapDatabase>(config, calib, map_export_path);
       map_db->initialize();
-      if (!colmap_export_path.empty()) {
-        map_db->colmap_export_path = colmap_export_path;
-        map_db->frame_id_to_name = frame_id_to_name;
-      }
+      if (!map_export_path.empty()) map_db->frame_id_to_name = frame_id_to_name;
       vio->out_vio_data_queue = &map_db->write_queue;
       vio->out_covi_req_queue = &map_db->read_queue;
       map_db->out_covi_res_queue = &vio->in_covi_res_queue;
@@ -462,8 +461,11 @@ struct basalt_vio_ui : vis::VIOUIBase {
           // NOTE: keyframe_idx is only filled when the UI is enabled
           if (data->keyframed_idx.count(data->t_ns) > 0) keyframes_ts.push_back(data->t_ns);
 
-          if (!colmap_export_path.empty())
-            (*frame_id_to_name)[data->t_ns] = data->opt_flow_res->input_images->img_data[0].filename;
+          if (!map_export_path.empty())
+            for (const auto& cam_id : config.cameras_to_export) {
+              (*frame_id_to_name)[TimeCamId{data->t_ns, static_cast<CamId>(cam_id)}] =
+                  data->opt_flow_res->input_images->img_data[cam_id].filename;
+            }
         }
 
         std::cout << "Finished t3" << std::endl;

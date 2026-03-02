@@ -152,6 +152,10 @@ struct VioConfig {
   bool causal_evaluation;
 
   bool debug1;
+  bool debug2;
+  bool debug3;
+
+  std::vector<size_t> cameras_to_export;
 
   double mapper_obs_std_dev;
   double mapper_obs_huber_thresh;
