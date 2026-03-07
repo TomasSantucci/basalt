@@ -52,12 +52,12 @@ void MapDatabase::write_map_stamp(basalt::MapStamp::Ptr& map_stamp) {
     sync_map_stamp->cvar.notify_one();
   }
 
-  if (requested_frame_id != -1 && map.keyframeExists(requested_frame_id)) {
-    auto map_msg = std::make_shared<ReadMapReqMsg>();
-    map_msg->frame_id = requested_frame_id;
-    read_queue.push(map_msg);
+  if (pending_loop_detection != nullptr && map.keyframeExists(pending_loop_detection->current_kf_id)) {
+    auto map_msg = std::make_shared<WriteMapUpdateMsg>();
+    map_msg->loop_closing_result = pending_loop_detection;
+    write_queue.push(map_msg);
 
-    requested_frame_id = -1;
+    pending_loop_detection = nullptr;
   }
 }
 
@@ -72,24 +72,62 @@ void MapDatabase::write_map_marg(std::set<FrameId>& keyframes_to_marg) {
   }
 }
 
-void MapDatabase::write_map_update(
-    std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>>& keyframe_poses, FrameId candidate_kf_id,
-    FrameId curr_kf_id, std::unordered_map<LandmarkId, LandmarkId>& lm_fusions,
-    std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Eigen::Matrix<float, 2, 1>>>& curr_lc_obs) {
-  if (keyframe_poses == nullptr) return;
-
+void MapDatabase::write_map_update(LoopClosingResult::Ptr& loop_closing_result) {
   std::unique_lock<std::mutex> lock(mutex);
-  map.mergeKeyframesPoses(keyframe_poses);
 
-  covisibility_graph->addLoopClosure(candidate_kf_id, curr_kf_id);
+  // If keyframe_poses is null, it's just a loop detection result
+  if (loop_closing_result->keyframe_poses == nullptr) {
+    // If the keyframe is not in the map yet, save the loop detection for later
+    if (!map.keyframeExists(loop_closing_result->current_kf_id)) {
+      pending_loop_detection = loop_closing_result;
+      return;
+    }
+
+    // Obtain the drift that the loop closure would correct. If it's not big enough, perform the loop
+    // fusion but skip the pose graph optimization. If it's big enough, send a map copy to LC to optimize
+    // and it will later receive another loop closure result with the optimized poses
+    Sophus::SE3f current_pose = map.getKeyframePose(loop_closing_result->current_kf_id).cast<float>();
+    Sophus::SE3f corrected_pose = loop_closing_result->current_kf_corrected_pose;
+    float drift_reduced = (current_pose.translation() - corrected_pose.translation()).norm();
+
+    if (drift_reduced >= config.loop_closing_min_drift_reduction) {
+      auto keyframes_poses_copy = std::make_shared<Eigen::aligned_map<FrameId, Sophus::SE3f>>(map.getKeyframes());
+      auto covisibility_graph_copy = std::make_shared<CovisibilityGraph>(*covisibility_graph);
+
+      MapResponse::Ptr map_response = std::make_shared<MapResponse>();
+      map_response->keyframe_poses = keyframes_poses_copy;
+      map_response->covisibility_graph = covisibility_graph_copy;
+      map_response->not_marg_kfs = not_marg_kfs;
+      map_response->close_loop = true;
+
+      if (out_map_res_queue) {
+        out_map_res_queue->push(map_response);
+      }
+
+      return;
+    } else {
+      MapResponse::Ptr map_response = std::make_shared<MapResponse>();
+      map_response->close_loop = false;
+      if (out_map_res_queue) {
+        out_map_res_queue->push(map_response);
+      }
+    }
+  }
+
+  if (loop_closing_result->keyframe_poses != nullptr) {
+    map.mergeKeyframesPoses(loop_closing_result->keyframe_poses);
+  }
+
+  // TODO@tsantucci: idk if i should add the loop closure edge when i'm not actually closing the loop
+  covisibility_graph->addLoopClosure(loop_closing_result->candidate_kf_id, loop_closing_result->current_kf_id);
 
   // Perform loop fusion
   std::unordered_map<FrameId, std::set<LandmarkId>> covisibilities_updated;
   std::set<LandmarkId> curr_lms_to_merge;
 
-  for (const auto& [curr_tcid, lm_obs_map] : curr_lc_obs) {
+  for (const auto& [curr_tcid, lm_obs_map] : loop_closing_result->curr_kf_obs) {
     for (const auto& [curr_lm_id, obs] : lm_obs_map) {
-      LandmarkId host_lm_id = lm_fusions[curr_lm_id];
+      LandmarkId host_lm_id = loop_closing_result->lm_fusions[curr_lm_id];
 
       if (!map.landmarkExists(host_lm_id)) {
         continue;
@@ -121,7 +159,7 @@ void MapDatabase::write_map_update(
   }
 
   for (const auto& curr_lm_id : curr_lms_to_merge) {
-    LandmarkId host_lm_id = lm_fusions[curr_lm_id];
+    LandmarkId host_lm_id = loop_closing_result->lm_fusions[curr_lm_id];
 
     // The host landmark might have been already merged into another one
     if (!map.landmarkExists(host_lm_id)) {
@@ -153,7 +191,7 @@ void MapDatabase::write_map_update(
     map.mergeLandmarks(host_lm_id, curr_lm_id);
   }
 
-  if (out_map_update_queue && !config.causal_evaluation) {
+  if (loop_closing_result->keyframe_poses != nullptr && out_map_update_queue && !config.causal_evaluation) {
     MapUpdate::Ptr map_update_msg = std::make_shared<basalt::MapUpdate>();
     map_update_msg->keyframe_poses = map.getKeyframes();
     out_map_update_queue->push(map_update_msg);
@@ -224,28 +262,6 @@ void MapDatabase::read_3d_points_req(FrameId keyframe, size_t neighbors_num) {
     map_island_response->island_keyframes = keyframes;
     map_island_response->landmarks_3d_map = *landmarks_3d_map;
     out_3d_points_res_queue->push(map_island_response);
-  }
-}
-
-void MapDatabase::read_map_req(FrameId frame_id) {
-  std::unique_lock<std::mutex> lock(mutex);
-
-  // If the requested keyframe does not exist, store the request and return
-  if (!map.keyframeExists(frame_id)) {
-    requested_frame_id = frame_id;
-    return;
-  }
-
-  auto keyframes_poses_copy = std::make_shared<Eigen::aligned_map<FrameId, Sophus::SE3f>>(map.getKeyframes());
-  auto covisibility_graph_copy = std::make_shared<CovisibilityGraph>(*covisibility_graph);
-
-  MapResponse::Ptr map_response = std::make_shared<MapResponse>();
-  map_response->keyframe_poses = keyframes_poses_copy;
-  map_response->covisibility_graph = covisibility_graph_copy;
-  map_response->not_marg_kfs = not_marg_kfs;
-
-  if (out_map_res_queue) {
-    out_map_res_queue->push(map_response);
   }
 }
 

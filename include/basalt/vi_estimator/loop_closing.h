@@ -132,8 +132,10 @@ struct LoopClosingVisualizationData {
   std::vector<Eigen::aligned_vector<Vec2>> rematched_keypoints;
 
   // Poses
-  SE3 current_keyframe_pose;
   SE3 candidate_corrected_pose;
+
+  // Whether the loop was closed
+  bool loop_closed = false;
 };
 
 class PoseGraph3dErrorTerm {
@@ -231,12 +233,10 @@ class LoopClosing {
 
   bool runLoopClosure(const LoopClosingInput::Ptr& optical_flow_res, const HashBowVector& bow_vector,
                       TimeCamId& best_candidate_tcid, Sophus::SE3f& best_corrected_pose,
-                      std::vector<FrameId>& best_island, std::unordered_map<LandmarkId, LandmarkId>& lm_fusions,
-                      std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>>& curr_lc_obs);
+                      std::vector<FrameId>& best_island);
 
   bool closeLoop(const FrameId curr_kf_id, const std::vector<FrameId>& best_island,
-                 const Sophus::SE3f& best_corrected_pose, const std::unordered_map<LandmarkId, LandmarkId>& lm_fusions,
-                 const std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>>& curr_lc_obs);
+                 const Sophus::SE3f& best_corrected_pose);
 
   void query_hashbow_database(FrameId curr_kf_id, const HashBowVector& bow_vector, std::vector<FrameId>& results,
                               std::vector<double>& scores);
@@ -303,5 +303,6 @@ class LoopClosing {
 
   std::shared_ptr<std::thread> processing_thread;
   LoopClosingVisualizationData::Ptr loop_closing_visualization_data;
+  LoopClosingResult::Ptr loop_closing_result;
 };
 }  // namespace basalt

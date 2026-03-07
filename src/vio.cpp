@@ -1347,8 +1347,11 @@ struct basalt_vio_ui : vis::VIOUIBase {
       LoopClosingVisualizationData::Ptr curr_lc_vis_data = get_curr_lc_vis_data();
       if (curr_lc_vis_data == nullptr) { return; }
 
+      int curr_kf_idx = timestamp_to_id[curr_lc_vis_data->t_ns];
+      Sophus::SE3f current_keyframe_pose = vio_T_w_i[curr_kf_idx].cast<float>();
+
       glLineWidth(0.25);
-      pangolin::glDrawAxis(curr_lc_vis_data->current_keyframe_pose.matrix(), 0.1);
+      pangolin::glDrawAxis(current_keyframe_pose.matrix(), 0.1);
 
       FrameId candidate_id = curr_lc_vis_data->island[0];
 
@@ -1368,7 +1371,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
       Sophus::SE3f corrected_pose = curr_lc_vis_data->candidate_corrected_pose;
       if (!config.close_loops) { pangolin::glDrawAxis(corrected_pose.matrix(), 0.1); }
 
-      Eigen::Vector3f t_actual_curr = curr_lc_vis_data->current_keyframe_pose.translation();
+      Eigen::Vector3f t_actual_curr = current_keyframe_pose.translation();
       Eigen::Vector3f t_corrected_curr = corrected_pose.translation();
       Eigen::Vector3f t_actual_candidate = vio_T_w_i[actual_frame_idx].cast<float>().translation();
 
@@ -1413,7 +1416,11 @@ struct basalt_vio_ui : vis::VIOUIBase {
         }
 
         glPointSize(10);
-        glColor3ubv(vis::GREEN);
+        if (curr_lc_vis_data->loop_closed) {
+          glColor3ubv(vis::GREEN);
+        } else {
+          glColor3ubv(vis::YELLOW);
+        }
         pangolin::glDrawPoints(curr_island_points);
         glPointSize(3);
       }

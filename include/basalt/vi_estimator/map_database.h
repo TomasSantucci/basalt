@@ -64,6 +64,8 @@ struct MapResponse {
   std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>> keyframe_poses;
   CovisibilityGraph::Ptr covisibility_graph;
   std::set<FrameId> not_marg_kfs;
+
+  bool close_loop;
 };
 
 struct MapIslandResponse {
@@ -115,16 +117,11 @@ class MapDatabase {
 
   void write_map_marg(std::set<FrameId>& keyframes_to_marg);
 
-  void write_map_update(
-      std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>>& keyframe_poses, FrameId candidate_kf_id,
-      FrameId curr_kf_id, std::unordered_map<LandmarkId, LandmarkId>& lm_fusions,
-      std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Eigen::Matrix<float, 2, 1>>>& curr_lc_obs);
+  void write_map_update(LoopClosingResult::Ptr& loop_closing_result);
 
   void read_covisibility_req(std::shared_ptr<std::vector<KeypointId>>& keypoints_ptr);
 
   void read_3d_points_req(FrameId keyframe, size_t neighbors_num);
-
-  void read_map_req(FrameId frame_id);
 
   void get_map_points(Eigen::aligned_vector<Vec3d>& points, std::vector<int>& ids);
 
@@ -184,7 +181,7 @@ class MapDatabase {
   MapDatabaseVisualizationData::Ptr map_visual_data;
   LandmarkDatabase<Scalar> map;
   std::mutex mutex;
-  FrameId requested_frame_id = -1;
+  LoopClosingResult::Ptr pending_loop_detection = nullptr;
   CovisibilityGraph::Ptr covisibility_graph;
 
   std::set<FrameId> not_marg_kfs;

@@ -72,13 +72,13 @@ void LoopClosing::initialize() {
 
       if (config.loop_closing_dump_times) lc_time_stats.addTime(LCTimeStage::HashBowIndex, true);
 
+      loop_closing_result = std::make_shared<LoopClosingResult>();
+
       TimeCamId best_candidate_tcid;
       Sophus::SE3f best_corrected_pose;
       std::vector<FrameId> best_island;
-      std::unordered_map<LandmarkId, LandmarkId> lm_fusions;
-      std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>> curr_lc_obs;
-      bool success = runLoopClosure(loop_closing_input, bow_vector, best_candidate_tcid, best_corrected_pose,
-                                    best_island, lm_fusions, curr_lc_obs);
+      bool success =
+          runLoopClosure(loop_closing_input, bow_vector, best_candidate_tcid, best_corrected_pose, best_island);
 
       if (!success) {
         if (config.loop_closing_dump_times) lc_time_stats.loop_closed = false;
@@ -88,34 +88,36 @@ void LoopClosing::initialize() {
 
       if (config.loop_closing_dump_times) lc_time_stats.loop_closed = true;
 
-      auto map_msg = std::make_shared<ReadMapReqMsg>();
-      map_msg->frame_id = loop_closing_input->t_ns;
-      // TODO@tsantucci: make MDB decide if the loop should be closed
-      out_map_req_queue->push(map_msg);
+      auto map_msg = std::make_shared<WriteMapUpdateMsg>();
+      loop_closing_result->keyframe_poses = nullptr;
+      loop_closing_result->candidate_kf_id = best_island[0];
+      loop_closing_result->current_kf_id = loop_closing_input->t_ns;
+      loop_closing_result->current_kf_corrected_pose = best_corrected_pose;
+
+      map_msg->loop_closing_result = loop_closing_result;
+      out_map_update_queue->push(map_msg);
       in_map_res_queue.pop(map_response);
 
-      // get the distance between best_corrected_pose and the current pose
-      Sophus::SE3f current_pose = map_response->keyframe_poses->at(loop_closing_input->t_ns).cast<float>();
-      float drift_reduced = (current_pose.translation() - best_corrected_pose.translation()).norm();
-      if (drift_reduced < config.loop_closing_min_drift_reduction) {
-        notify_lc_finished = true;
+      if (!map_response->close_loop) {
+        if (out_lc_vis_queue) {
+          loop_closing_visualization_data->loop_closed = false;
+          out_lc_vis_queue->push(loop_closing_visualization_data);
+        }
         continue;
       }
 
-      if (out_lc_vis_queue) {
-        loop_closing_visualization_data->current_keyframe_pose =
-            map_response->keyframe_poses->at(loop_closing_input->t_ns).cast<float>();
-      }
-
       if (config.close_loops) {
-        success = closeLoop(loop_closing_input->t_ns, best_island, best_corrected_pose, lm_fusions, curr_lc_obs);
+        success = closeLoop(loop_closing_input->t_ns, best_island, best_corrected_pose);
         if (config.loop_closing_dump_times) lc_time_stats.addTime(LCTimeStage::LoopClosure, true);
         notify_lc_finished = !success;
       } else {
         notify_lc_finished = true;
       }
 
-      if (out_lc_vis_queue) out_lc_vis_queue->push(loop_closing_visualization_data);
+      if (out_lc_vis_queue) {
+        loop_closing_visualization_data->loop_closed = success;
+        out_lc_vis_queue->push(loop_closing_visualization_data);
+      }
     }
   };
 
@@ -136,9 +138,7 @@ void LoopClosing::initialize() {
 }
 
 bool LoopClosing::closeLoop(const FrameId curr_kf_id, const std::vector<FrameId>& best_island,
-                            const Sophus::SE3f& best_corrected_pose,
-                            const std::unordered_map<LandmarkId, LandmarkId>& lm_fusions,
-                            const std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>>& curr_lc_obs) {
+                            const Sophus::SE3f& best_corrected_pose) {
   MapOfPoses map_of_poses;
   VectorOfConstraints constraints;
   buildPoseGraph(TimeCamId{curr_kf_id, 0}, best_island, best_corrected_pose, map_of_poses, constraints);
@@ -155,11 +155,8 @@ bool LoopClosing::closeLoop(const FrameId curr_kf_id, const std::vector<FrameId>
   restorePosesFromCeres(map_of_poses);
 
   auto map_update_msg = std::make_shared<WriteMapUpdateMsg>();
-  map_update_msg->keyframe_poses = map_response->keyframe_poses;
-  map_update_msg->candidate_kf_id = best_island[0];
-  map_update_msg->curr_kf_id = curr_kf_id;
-  map_update_msg->lm_fusions = lm_fusions;
-  map_update_msg->curr_lc_obs = curr_lc_obs;
+  loop_closing_result->keyframe_poses = map_response->keyframe_poses;
+  map_update_msg->loop_closing_result = loop_closing_result;
   if (out_map_update_queue) out_map_update_queue->push(map_update_msg);
 
   return true;
@@ -167,9 +164,7 @@ bool LoopClosing::closeLoop(const FrameId curr_kf_id, const std::vector<FrameId>
 
 bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input, const HashBowVector& bow_vector,
                                  TimeCamId& best_candidate_tcid, Sophus::SE3f& best_corrected_pose,
-                                 std::vector<FrameId>& best_island,
-                                 std::unordered_map<LandmarkId, LandmarkId>& lm_fusions,
-                                 std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>>& curr_lc_obs) {
+                                 std::vector<FrameId>& best_island) {
   FrameId curr_kf_id = loop_closing_input->t_ns;
 
   if (out_lc_vis_queue) {
@@ -369,6 +364,9 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     std::cout << std::endl;
 
     // Fuse the landmarks
+    std::unordered_map<LandmarkId, LandmarkId>& lm_fusions = loop_closing_result->lm_fusions;
+    std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>>& curr_kf_obs = loop_closing_result->curr_kf_obs;
+
     for (const auto& [kf_id, inlier_matches_vec] : inlier_matches) {
       for (const auto& match : inlier_matches_vec) {
         LandmarkId candidate_lm_id = match.candidate_kf_kpt_id;
@@ -379,7 +377,7 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
         }
 
         TimeCamId curr_tcid{curr_kf_id, match.current_kf_cam};
-        curr_lc_obs[curr_tcid][curr_lm_id] = curr_kf_kpts[match.current_kf_cam][curr_lm_id].translation().cast<float>();
+        curr_kf_obs[curr_tcid][curr_lm_id] = curr_kf_kpts[match.current_kf_cam][curr_lm_id].translation().cast<float>();
       }
     }
 
