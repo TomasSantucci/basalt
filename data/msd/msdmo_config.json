@@ -101,7 +101,7 @@
         "config.loop_closing_pgo_min_covisibility_weight": 70,
         "config.always_detect_loop": true,
         "config.close_loops": true,
-        "config.loop_closing_min_drift_reduction": 0.05,
+        "config.loop_closing_min_drift_reduction": 0.1,
         "config.loop_closing_skip_initial_matching": false,
         "config.loop_closing_min_initial_matches": 10,
         "config.loop_closing_min_island_matches": 20,

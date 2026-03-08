@@ -114,7 +114,7 @@
         "config.loop_closing_min_island_matches": 20,
         "config.loop_closing_pnp_min_inliers": 20,
         "config.loop_closing_reprojected_pnp_min_inliers": 30,
-        "config.loop_closing_pnp_inliers_ratio": 0.6,
+        "config.loop_closing_pnp_inliers_ratio": 0.5,
         "config.debug1": false,
         "config.debug2": false,
         "config.debug3": false,

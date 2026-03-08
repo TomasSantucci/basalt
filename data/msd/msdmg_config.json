@@ -100,14 +100,16 @@
         "config.loop_closing_use_rematches": true,
         "config.loop_closing_cameras_to_reproject": [
             0,
-            1
+            1,
+            2,
+            3
         ],
         "config.loop_closing_num_neighbors": 4,
         "config.loop_closing_frame_time_margin_s": 20,
-        "config.loop_closing_pgo_min_covisibility_weight": 150,
+        "config.loop_closing_pgo_min_covisibility_weight": 100,
         "config.always_detect_loop": true,
         "config.close_loops": true,
-        "config.loop_closing_min_drift_reduction": 0.05,
+        "config.loop_closing_min_drift_reduction": 0.1,
         "config.loop_closing_skip_initial_matching": false,
         "config.loop_closing_min_initial_matches": 10,
         "config.loop_closing_min_island_matches": 20,
