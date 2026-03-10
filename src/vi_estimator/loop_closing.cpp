@@ -977,11 +977,13 @@ bool LoopClosing::solveOptimizationProblem(ceres::Problem* problem) {
   CHECK(problem != nullptr);
 
   ceres::Solver::Options options;
-  options.max_num_iterations = 50;
+  options.max_num_iterations = 20;
   options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
 
   ceres::Solver::Summary summary;
   ceres::Solve(options, problem, &summary);
+
+  std::cout << summary.BriefReport() << std::endl;
 
   return summary.IsSolutionUsable();
 }

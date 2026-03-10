@@ -89,7 +89,7 @@
         "config.loop_closing_max_hamming_distance": 70,
         "config.loop_closing_second_best_test_ratio": 1.2,
         "config.loop_closing_pnp_ransac_threshold": 5e-05,
-        "config.loop_closing_pnp_ransac_iterations": 20,
+        "config.loop_closing_pnp_ransac_iterations": 35,
         "config.loop_closing_use_all_recent_keypoints": false,
         "config.dump_loop_detection_result": false,
         "config.loop_closing_fast_threshold": 15,
