@@ -141,6 +141,8 @@ class MapDatabase {
 
   void saveColmap(const std::string& path);
 
+  void saveEuroc(const std::string& path);
+
   void saveJson(const std::string& file_path);
 
   inline void maybe_join() {

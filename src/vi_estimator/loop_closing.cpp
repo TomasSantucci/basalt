@@ -892,6 +892,7 @@ size_t LoopClosing::computeAbsolutePoseMultiCam(
   auto absposeproblem_ptr = std::make_shared<opengv::sac_problems::absolute_pose::AbsolutePoseSacProblem>(
       adapter, opengv::sac_problems::absolute_pose::AbsolutePoseSacProblem::GP3P, !deterministic);
 
+  // ransac.threshold_ = 1.0 - cos(atan(pixel_tolerance/focal_length));
   ransac.sac_model_ = absposeproblem_ptr;
   ransac.threshold_ =
       config.loop_closing_pnp_ransac_threshold;  // adapt threshold (error metric expects cos-angle or similar)

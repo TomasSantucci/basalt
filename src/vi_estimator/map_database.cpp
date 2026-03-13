@@ -282,7 +282,10 @@ void MapDatabase::initialize() {
       if (msg == nullptr) {
         map.print();
         covisibility_graph->print_stats();
-        if (!map_export_path.empty()) saveJson(map_export_path);
+        if (!map_export_path.empty()) {
+          saveEuroc(map_export_path + "/tracking.csv");
+          saveJson(map_export_path + "/map.json");
+        }
         if (out_vis_queue) out_vis_queue->push(nullptr);
         if (out_map_update_queue) out_map_update_queue->push(nullptr);
         break;
@@ -552,6 +555,26 @@ void MapDatabase::updateCovisibilityGraph(const LandmarkDatabase<Scalar>::Ptr& l
     // add to spanning tree
     covisibility_graph->addTreeNode(kf_id, max_kf_id);
   }
+}
+
+void MapDatabase::saveEuroc(const std::string& file_path) {
+  std::unique_lock<std::mutex> lock(mutex);
+
+  std::filesystem::create_directories(std::filesystem::path(file_path).parent_path());
+
+  std::ofstream os(file_path);
+
+  os << "#timestamp [ns],p_RS_R_x [m],p_RS_R_y [m],p_RS_R_z [m],q_RS_w "
+        "[],q_RS_x [],q_RS_y [],q_RS_z []"
+     << std::endl;
+
+  for (const auto& [kf_id, pose] : map.getKeyframes()) {
+    os << std::fixed << std::setprecision(10) << kf_id << "," << pose.translation().x() << "," << pose.translation().y()
+       << "," << pose.translation().z() << "," << pose.unit_quaternion().w() << "," << pose.unit_quaternion().x() << ","
+       << pose.unit_quaternion().y() << "," << pose.unit_quaternion().z() << std::endl;
+  }
+
+  std::cout << "Saved trajectory in Euroc Dataset format in " << file_path << std::endl;
 }
 
 void MapDatabase::saveJson(const std::string& file_path) {
