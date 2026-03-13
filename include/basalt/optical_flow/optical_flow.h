@@ -123,7 +123,7 @@ class OpticalFlowBase {
 
   OpticalFlowBase(const VioConfig& conf) : config(conf) {
     input_img_queue.set_capacity(10);
-    input_imu_queue.set_capacity(300);
+    input_imu_queue.set_capacity(3000);
     // patch_coord is initialized in OpticalFlowTyped since we need the Pattern type
     // patch_coord = PatchT::pattern2.template cast<float>();
     depth_guess = config.optical_flow_matching_default_depth;
