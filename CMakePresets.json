@@ -129,6 +129,29 @@
         "BASALT_INSTANTIATIONS_DOUBLE": "on",
         "BASALT_BUILD_TESTS": "on"
       }
+    },
+    {
+      "name": "android-arm64-vcpkg",
+      "description": "arm64 build for Android, for something like a Tensor G1 or an XR2 gen 2",
+      "inherits": [
+        "library"
+      ],
+      "binaryDir": "${sourceDir}/build-android/arm64-v8a-vcpkg",
+      "installDir": "${sourceDir}/build-android-installed/arm64-v8a-vcpkg",
+      "environment": {
+        "ANDROID_NDK_HOME": "$env{ANDROID_HOME}/ndk/27.3.13750724"
+      },
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+        "VCPKG_TARGET_TRIPLET": "arm64-android",
+        "ANDROID_ABI": "arm64-v8a",
+        "ANDROID_PLATFORM": "34",
+        "ANDROID_STL": "c++_shared",
+        "CXX_MARCH": "armv8.2-a",
+        "CXX_MCPU": "cortex-a76",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     }
   ]
 }

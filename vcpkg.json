@@ -1,0 +1,21 @@
+{
+  "dependencies": [
+    "fmt",
+    {
+      "name": "opencv4",
+      "default-features": false,
+      "features": [
+        "calib3d",
+        "highgui",
+        "jpeg",
+        "png",
+        "thread",
+        "tiff",
+        "webp"
+      ]
+    },
+    "tbb",
+    "eigen3",
+    "cereal"
+  ]
+}

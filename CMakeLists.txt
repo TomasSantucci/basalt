@@ -199,6 +199,10 @@ if(APPLE)
   else()
     message(WARNING "Detected macOS with unsupported compiler ${CMAKE_CXX_COMPILER_ID}")
   endif()
+elseif(ANDROID)
+  # assume libc++
+  set(STD_CXX_FS)
+  message(STATUS "Detected Android.")
 
 elseif(UNIX)
   # assume libstdc++
@@ -247,6 +251,12 @@ set(BASALT_CXX_FLAGS "${BASALT_CXX_FLAGS} -DEIGEN_DONT_PARALLELIZE")
 option(BASALT_INSTANTIATIONS_DOUBLE "Instatiate templates for Scalar=double." ON)
 option(BASALT_INSTANTIATIONS_FLOAT "Instatiate templates for Scalar=float." ON)
 option(BASALT_BUILD_SHARED_LIBRARY_ONLY "Build only Basalt shared library" OFF)
+if(ANDROID)
+  set(BASALT_BUILD_VISUALIZATION OFF CACHE INTERNAL "")
+  set(CMAKE_Fortran_COMPILER "NOTFOUND" CACHE INTERNAL "")
+else()
+  option(BASALT_BUILD_VISUALIZATION "Build visualization capability" ON)
+endif()
 
 if(BASALT_BUILD_SHARED_LIBRARY_ONLY)
   if(NOT DEFINED BASALT_INSTANTIATIONS_DOUBLE)
@@ -375,7 +385,6 @@ target_sources(
          ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/union_find.h
          ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/vio_config.h
          ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/vis_matrices.h
-         ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/vis_utils.h
          ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/ba_base.h
          ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/landmark_database.h
          ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/marg_helper.h
@@ -395,7 +404,6 @@ target_sources(
           ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/system_utils.cpp
           ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/time_utils.cpp
           ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/vio_config.cpp
-          ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/vis_utils.cpp
           ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/ba_base.cpp
           ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/landmark_database.cpp
           ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/marg_helper.cpp
@@ -412,7 +420,6 @@ target_link_libraries(
          basalt::opencv
          basalt::basalt-headers
          TBB::tbb
-         pangolin
          basalt::cli11
          basalt::vit
          basalt::magic_enum
@@ -421,6 +428,14 @@ target_link_libraries(
 target_include_directories(basalt_internal PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(basalt_internal PUBLIC ${BASALT_COMPILE_DEFINITIONS})
 #target_compile_definitions(basalt_internal PUBLIC BASALT_DISABLE_ASSERTS)
+if(BASALT_BUILD_VISUALIZATION)
+  target_sources(
+    basalt_internal
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/vis_utils.h
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/vis_utils.cpp
+  )
+  target_link_libraries(basalt_internal PUBLIC pangolin)
+endif()
 
 if(NOT BASALT_BUILD_SHARED_LIBRARY_ONLY)
   target_sources(

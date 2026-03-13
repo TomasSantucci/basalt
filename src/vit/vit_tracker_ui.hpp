@@ -52,10 +52,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <sophus/se3.hpp>
 
+#ifdef BASALT_BUILD_VISUALIZATION
 #include <pangolin/display/display.h>
 #include <pangolin/display/image_view.h>
 #include <pangolin/gl/gldraw.h>
 #include <pangolin/pangolin.h>
+#endif
 
 #include <basalt/io/marg_data_io.h>
 #include <basalt/optical_flow/optical_flow.h>
@@ -63,8 +65,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/utils/keypoints.h>
 #include <basalt/utils/vio_config.h>
 #include <basalt/utils/vis_matrices.h>
-#include <basalt/utils/vis_utils.h>
 #include <basalt/vi_estimator/vio_estimator.h>
+#ifdef BASALT_BUILD_VISUALIZATION
+#include <basalt/utils/vis_utils.h>
+#endif
 
 #define ASSERT(cond, ...)                                      \
   do { /* NOLINT(cppcoreguidelines-avoid-do-while) */          \
@@ -80,8 +84,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace basalt::vit_implementation {
 
 using namespace Eigen;
+#ifdef BASALT_BUILD_VISUALIZATION
 using pangolin::Var;
 using pangolin::View;
+#endif
 using std::cout;
 using std::make_shared;
 using std::shared_ptr;
@@ -90,6 +96,32 @@ using std::thread;
 using std::vector;
 using vis::UIMAT;
 
+#ifndef BASALT_BUILD_VISUALIZATION
+
+class vit_tracker_ui {
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+ public:
+  tbb::concurrent_bounded_queue<VioVisualizationData::Ptr> out_vis_queue{};
+
+  void initialize(int ncams) { (void)ncams; }
+
+  void start(const Sophus::SE3d& T_w_i_init, const Calibration<double>& calib, const VioConfig& config,
+             const OpticalFlowBase::Ptr& of, const VioEstimatorBase::Ptr& ve) {
+    (void)T_w_i_init;
+    (void)calib;
+    (void)config;
+    (void)of;
+    (void)ve;
+  }
+  void stop() {}
+
+  UIMAT get_mat_to_show() { return UIMAT::NONE; }
+  void update_last_image(OpticalFlowInput::Ptr& data) { (void)data; }
+  void log_vio_data(const PoseVelBiasState<double>::Ptr& data) { (void)data; }
+};
+
+#else
 class vit_tracker_ui : public vis::VIOUIBase {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
@@ -456,4 +488,7 @@ class vit_tracker_ui : public vis::VIOUIBase {
     }
   }
 };
+
+#endif  // BASALT_BUILD_VISUALIZATION
+
 }  // namespace basalt::vit_implementation

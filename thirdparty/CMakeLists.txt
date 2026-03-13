@@ -29,6 +29,8 @@ set(BUILD_PANGOLIN_LIBTIFF OFF CACHE BOOL "Enable libtiff")
 # see: https://github.com/stevenlovegrove/Pangolin/issues/737
 set(BUILD_PANGOLIN_FFMPEG OFF CACHE BOOL "Build support for ffmpeg video input")
 
+set(SKIP_PERFORMANCE_COMPARISON ON CACHE BOOL "disable cereal perf comparison adding a Boost dep")
+
 set(EIGEN_INCLUDE_DIR "${EIGEN3_INCLUDE_DIR}")
 set(EIGEN_INCLUDE_DIRS "${EIGEN3_INCLUDE_DIR}")
 
@@ -54,35 +56,37 @@ macro(include)
   endif()
 endmacro()
 
-# Add pangolin and create an INTERFACE SYSTEM library out of it
-# TODO: For cmake 3.25, use the SYSTEM parameter of add_subidrectory to avoid adding SYSTEM and silencing warnings explicitly
-add_subdirectory(Pangolin EXCLUDE_FROM_ALL)
+if(BASALT_BUILD_VISUALIZATION)
+  # Add pangolin and create an INTERFACE SYSTEM library out of it
+  # TODO: For cmake 3.25, use the SYSTEM parameter of add_subidrectory to avoid adding SYSTEM and silencing warnings explicitly
+  add_subdirectory(Pangolin EXCLUDE_FROM_ALL)
 
-get_property(pangolin_targets DIRECTORY Pangolin PROPERTY BUILDSYSTEM_TARGETS)
-foreach(_target ${pangolin_targets})
-  ignore_external_warnings(${_target})
-endforeach()
-
-add_library(pangolin INTERFACE)
-target_link_libraries(pangolin INTERFACE ${pangolin_targets})
-target_include_directories(pangolin SYSTEM INTERFACE ${pangolin_targets})
-
-# TODO: enable once mpark issue is fixed upstream pangolin
-#set_target_properties(pangolin PROPERTIES
-#  CXX_STANDARD 17)
-
-# check here the directories for the pangolin and opengv targets, and
-# confirm that the eigen-related include dirs match.
-foreach(_target opengv pangolin)
-  get_target_property(_include_dirs ${_target} INTERFACE_INCLUDE_DIRECTORIES)
-  foreach(_dir IN LISTS _include_dirs)
-    if("${_dir}" MATCHES ".*/eigen3?(/unsupported)?$")
-      if(NOT _dir MATCHES "^${EIGEN3_INCLUDE_DIR}.*")
-
-      endif()
-    endif()
+  get_property(pangolin_targets DIRECTORY Pangolin PROPERTY BUILDSYSTEM_TARGETS)
+  foreach(_target ${pangolin_targets})
+    ignore_external_warnings(${_target})
   endforeach()
-endforeach()
+
+  add_library(pangolin INTERFACE)
+  target_link_libraries(pangolin INTERFACE ${pangolin_targets})
+  target_include_directories(pangolin SYSTEM INTERFACE ${pangolin_targets})
+
+  # TODO: enable once mpark issue is fixed upstream pangolin
+  #set_target_properties(pangolin PROPERTIES
+  #  CXX_STANDARD 17)
+
+  # check here the directories for the pangolin and opengv targets, and
+  # confirm that the eigen-related include dirs match.
+  foreach(_target opengv pangolin)
+    get_target_property(_include_dirs ${_target} INTERFACE_INCLUDE_DIRECTORIES)
+    foreach(_dir IN LISTS _include_dirs)
+      if("${_dir}" MATCHES ".*/eigen3?(/unsupported)?$")
+        if(NOT _dir MATCHES "^${EIGEN3_INCLUDE_DIR}.*")
+
+        endif()
+      endif()
+    endforeach()
+  endforeach()
+endif()
 
 # opengv and pangolin assume that eigen is found outside the source
 # directory and thus include it in INTERFACE_INCLUDE_DIRECTORIES,
@@ -90,7 +94,11 @@ endforeach()
 # source folder. Thus, we update the property to only include these
 # eigen paths in the "BUILD_INTERFACE" (not "INSTALL").
 if(EIGEN3_INCLUDE_DIR MATCHES "^${CMAKE_SOURCE_DIR}.*")
-  foreach(_target opengv pangolin)
+  set(_targets opengv)
+  if(TARGET pangolin)
+    list(APPEND _targets pangolin)
+  endif()
+  foreach(_target ${_targets})
     get_target_property(_include_dirs ${_target} INTERFACE_INCLUDE_DIRECTORIES)
     set(_include_dirs_new "")
     foreach(_dir IN LISTS _include_dirs)
