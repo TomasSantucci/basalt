@@ -113,8 +113,9 @@ struct VioConfig {
   bool vio_triangulate_with_all_cams;
   int vio_covisibility_query_frequency;  // How often the VIO makes the covisibility query (measured in frames)
   MapCovisibilityCriteria map_covisibility_criteria;
-  int map_sts_max_size;
   bool map_sts_use_last_frame;
+  int map_covisibility_min_weight;
+  int map_covisibility_max_size;
 
   bool enable_loop_closing;
   std::vector<int64_t> loop_closing_timestamps;

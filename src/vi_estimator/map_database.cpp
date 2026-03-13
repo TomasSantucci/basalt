@@ -407,8 +407,25 @@ void MapDatabase::handleCovisibilityReq(const std::vector<size_t>& curr_kpts) {
   LandmarkDatabase<Scalar>::Ptr covisible_submap{};
 
   if (config.map_covisibility_criteria == MapCovisibilityCriteria::MAP_COV_DEFAULT) {
+    std::vector<FrameId> candidate_kfs =
+        covisibility_graph->getAboveWeight(map.getLastKeyframe().frame_id, config.map_covisibility_min_weight);
+
+    // sort the candidate_kfs from oldest to newest
+    std::sort(candidate_kfs.begin(), candidate_kfs.end());
+
     covisible_submap = std::make_shared<LandmarkDatabase<Scalar>>("Covisible Submap");
-    map.getCovisibilityMap(covisible_submap);
+
+    std::set<TimeCamId> covisible_kf_tcids;
+
+    for (size_t i = 0; i < candidate_kfs.size() && i < static_cast<size_t>(config.map_covisibility_max_size); i++) {
+      FrameId kf_id = candidate_kfs[i];
+      for (size_t cam_id = 0; cam_id < calib.intrinsics.size(); cam_id++) {
+        TimeCamId tcid{kf_id, static_cast<CamId>(cam_id)};
+        covisible_kf_tcids.insert(tcid);
+      }
+    }
+
+    map.getSubmap(covisible_kf_tcids, covisible_submap);
   } else if (config.map_covisibility_criteria == MapCovisibilityCriteria::MAP_COV_STS) {
     computeSTSMap(curr_kpts);
     covisible_submap = std::make_shared<LandmarkDatabase<Scalar>>(*sts_map);
@@ -451,7 +468,7 @@ void MapDatabase::computeSTSMap(const std::vector<size_t>& curr_kpts) {
   std::set<TimeCamId> candidate_kfs;
   for (const auto& [kf_id, sdc] : keyframes_sdc) {
     if (current_sdc.hasOverlap(keyframes_sdc[kf_id])) candidate_kfs.insert(kf_id);
-    if (static_cast<int>(candidate_kfs.size()) >= config.map_sts_max_size) break;
+    if (static_cast<int>(candidate_kfs.size()) >= config.map_covisibility_max_size) break;
   }
 
   map.getSubmap(candidate_kfs, sts_map);
