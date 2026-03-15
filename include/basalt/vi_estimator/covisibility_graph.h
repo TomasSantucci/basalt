@@ -61,6 +61,10 @@ class CovisibilityGraph {
   }
 
   std::vector<FrameId> getAboveWeight(FrameId id, int weight_threshold) const {
+    if (covis_.find(id) == covis_.end()) {
+      return {};
+    }
+
     std::vector<FrameId> result;
     for (const auto& [neighbor_id, weight] : covis_.at(id)) {
       if (weight >= weight_threshold) {
