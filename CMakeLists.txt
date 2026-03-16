@@ -469,6 +469,7 @@ target_sources(
   basalt PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vit/vit_tracker.hpp
   PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/vit/vit_tracker.cpp
 )
+target_include_directories(basalt PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
 
 target_compile_definitions(basalt PRIVATE VIT_INTERFACE_IMPLEMENTATION)
 

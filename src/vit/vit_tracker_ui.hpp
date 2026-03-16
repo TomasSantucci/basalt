@@ -52,6 +52,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <sophus/se3.hpp>
 
+#include <basalt/utils/build_config.h>
+
 #ifdef BASALT_BUILD_VISUALIZATION
 #include <pangolin/display/display.h>
 #include <pangolin/display/image_view.h>
