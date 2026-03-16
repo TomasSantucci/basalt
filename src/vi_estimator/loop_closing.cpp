@@ -644,7 +644,7 @@ void LoopClosing::buildPoseGraph(const TimeCamId& curr_kf_tcid, const std::vecto
   for (const auto& [kf_id, T_w_i] : keyframe_poses) {
     if (kf_id == spanning_tree_root) continue;
 
-    FrameId parent_kf_id = covisibility_graph->getParentNode(kf_id);
+    FrameId parent_kf_id = covisibility_graph->getParentId(kf_id);
     Sophus::SE3f T_w_p = keyframe_poses.at(parent_kf_id);
     Sophus::SE3f T_p_i = T_w_p.inverse() * T_w_i;
     Constraint3d c;
@@ -659,7 +659,7 @@ void LoopClosing::buildPoseGraph(const TimeCamId& curr_kf_tcid, const std::vecto
   }
 
   // add the past loop closure constraints
-  for (const auto& [kf_id, loop_closures] : covisibility_graph->getAllLoopClosures()) {
+  for (const auto& [kf_id, loop_closures] : covisibility_graph->getLoopClosures()) {
     for (const auto& loop_kf_id : loop_closures) {
       if (kf_id < loop_kf_id) {
         Sophus::SE3f T_w_i = keyframe_poses.at(kf_id);
@@ -681,17 +681,17 @@ void LoopClosing::buildPoseGraph(const TimeCamId& curr_kf_tcid, const std::vecto
   // Add constraints for the most covisible keyframes
   for (const auto& [kf_id, T_w_i] : keyframe_poses) {
     std::vector<FrameId> most_covisible_kfs =
-        covisibility_graph->getAboveWeight(kf_id, config.loop_closing_pgo_min_covisibility_weight);
+        covisibility_graph->getCovisibleAbove(kf_id, config.loop_closing_pgo_min_covisibility_weight);
     for (const auto& covisible_kf_id : most_covisible_kfs) {
       if (kf_id >= covisible_kf_id) continue;
 
       if (kf_id != spanning_tree_root) {
-        if (covisibility_graph->getParentNode(kf_id) == covisible_kf_id) {
+        if (covisibility_graph->getParentId(kf_id) == covisible_kf_id) {
           continue;  // already added as part of the spanning tree
         }
       }
       if (covisible_kf_id != spanning_tree_root) {
-        if (covisibility_graph->getParentNode(covisible_kf_id) == kf_id) {
+        if (covisibility_graph->getParentId(covisible_kf_id) == kf_id) {
           continue;  // already added as part of the spanning tree
         }
       }

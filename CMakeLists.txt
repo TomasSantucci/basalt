@@ -433,6 +433,7 @@ target_sources(basalt_internal
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/sqrt_keypoint_vo.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/vio_estimator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/map_database.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/covisibility_graph.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/loop_closing.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vi_estimator/map_interface.cpp
 )

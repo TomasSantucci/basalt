@@ -118,7 +118,6 @@ void MapDatabase::write_map_update(LoopClosingResult::Ptr& loop_closing_result) 
     map.mergeKeyframesPoses(loop_closing_result->keyframe_poses);
   }
 
-  // TODO@tsantucci: idk if i should add the loop closure edge when i'm not actually closing the loop
   covisibility_graph->addLoopClosure(loop_closing_result->candidate_kf_id, loop_closing_result->current_kf_id);
 
   // Perform loop fusion
@@ -143,7 +142,7 @@ void MapDatabase::write_map_update(LoopClosingResult::Ptr& loop_closing_result) 
             if (tcid.frame_id == curr_tcid.frame_id) {
               continue;
             }
-            covisibility_graph->updateEdge(curr_tcid.frame_id, tcid.frame_id, 1);
+            covisibility_graph->incrementEdge(curr_tcid.frame_id, tcid.frame_id, 1);
           }
           covisibilities_updated[curr_tcid.frame_id].insert(host_lm_id);
         }
@@ -183,7 +182,7 @@ void MapDatabase::write_map_update(LoopClosingResult::Ptr& loop_closing_result) 
         if (old_kf_id == new_kf_id) {
           continue;
         }
-        covisibility_graph->updateEdge(old_kf_id, new_kf_id, 1);
+        covisibility_graph->incrementEdge(old_kf_id, new_kf_id, 1);
       }
     }
 
@@ -219,7 +218,7 @@ void MapDatabase::read_3d_points_req(FrameId keyframe, size_t neighbors_num) {
 
   std::vector<FrameId> keyframes = {keyframe};
 
-  for (const auto& covi_kf : covisibility_graph->getTopK(keyframe, neighbors_num)) {
+  for (const auto& covi_kf : covisibility_graph->getTopCovisible(keyframe, neighbors_num)) {
     keyframes.push_back(covi_kf);
   }
 
@@ -359,7 +358,9 @@ void MapDatabase::computeMapVisualData() {
     for (const auto& [kf_id, _pose] : map.getKeyframes()) {
       if (!covisibility_graph->hasNode(kf_id)) continue;
 
-      for (const auto& [other_kf_id, weight] : covisibility_graph->getCovisibleKfs(kf_id)) {
+      for (const auto& [other_kf_id, weight] : covisibility_graph->getCovisibility(kf_id)) {
+        if (kf_id >= other_kf_id) continue;
+
         Eigen::Vector3d p1 = map.getKeyframePose(kf_id).template cast<double>().translation();
         Eigen::Vector3d p2 = map.getKeyframePose(other_kf_id).template cast<double>().translation();
         map_visual_data->covisibility.emplace_back(p1);
@@ -373,7 +374,7 @@ void MapDatabase::computeMapVisualData() {
   for (const auto& [kf_id, _pose] : map.getKeyframes()) {
     if (!covisibility_graph->hasNode(kf_id)) continue;
 
-    FrameId tcid_h = covisibility_graph->getParentNode(kf_id);
+    FrameId tcid_h = covisibility_graph->getParentId(kf_id);
     if (tcid_h == CovisibilityGraph::invalid()) continue;
 
     Eigen::Vector3d p1 = map.getKeyframePose(tcid_h).template cast<double>().translation();
@@ -383,7 +384,7 @@ void MapDatabase::computeMapVisualData() {
   }
 
   // show loop closures
-  for (const auto& [kf_id, loop_closures] : covisibility_graph->getAllLoopClosures()) {
+  for (const auto& [kf_id, loop_closures] : covisibility_graph->getLoopClosures()) {
     Eigen::Vector3d p1 = map.getKeyframePose(kf_id).template cast<double>().translation();
     for (const auto& other_kf_id : loop_closures) {
       if (kf_id >= other_kf_id) continue;
@@ -411,7 +412,7 @@ void MapDatabase::handleCovisibilityReq(const std::vector<size_t>& curr_kpts) {
 
   if (config.map_covisibility_criteria == MapCovisibilityCriteria::MAP_COV_DEFAULT) {
     std::vector<FrameId> candidate_kfs =
-        covisibility_graph->getAboveWeight(map.getLastKeyframe().frame_id, config.map_covisibility_min_weight);
+        covisibility_graph->getCovisibleAbove(map.getLastKeyframe().frame_id, config.map_covisibility_min_weight);
 
     // sort the candidate_kfs from oldest to newest
     std::sort(candidate_kfs.begin(), candidate_kfs.end());
@@ -486,8 +487,6 @@ const std::map<std::string, double> MapDatabase::getStats() {
 }
 
 void MapDatabase::updateCovisibilityGraph(const LandmarkDatabase<Scalar>::Ptr& lmdb) {
-  // TODO@tsantucci: generalize this for when the covisibility request is on.
-  // It may be interesting to use all the keyframes in the lmdb, not only the new ones.
   for (const auto& [kf_id, _] : lmdb->getKeyframes()) {
     if (covisibility_graph->hasNode(kf_id)) {
       continue;
@@ -498,8 +497,8 @@ void MapDatabase::updateCovisibilityGraph(const LandmarkDatabase<Scalar>::Ptr& l
     }
 
     // Compute the covisibility edges
-    // Count each landmark only once per keyframe, even if seen from multiple cameras
     std::unordered_map<FrameId, int> covisibilities;
+    // Count each landmark only once per keyframe, even if seen from multiple cameras
     std::unordered_set<LandmarkId> counted_landmarks;
     for (size_t cam_id = 0; cam_id < calib.intrinsics.size(); cam_id++) {
       TimeCamId kf_tcid{kf_id, static_cast<CamId>(cam_id)};
@@ -537,14 +536,19 @@ void MapDatabase::updateCovisibilityGraph(const LandmarkDatabase<Scalar>::Ptr& l
     // Add a covisibility to the previous keyframe in the graph to avoid disconnected components
     if (covisibilities.empty() && covisibility_graph->getRoot() != kf_id) {
       auto iter = map.getKeyframes().find(kf_id);
-      if (iter == map.getKeyframes().begin()) continue;  // this should never happen anyway
+
+      // Check this for safety, but it should never happen
+      if (iter == map.getKeyframes().begin()) {
+        continue;
+      }
+
       --iter;
       FrameId prev_kf_id = iter->first;
       covisibilities[prev_kf_id] = 0;
     }
 
     for (const auto& [other_kf_id, weight] : covisibilities) {
-      covisibility_graph->addEdge(kf_id, other_kf_id, weight);
+      covisibility_graph->setEdge(kf_id, other_kf_id, weight);
 
       if (weight > max_weight) {
         max_weight = weight;
@@ -552,7 +556,7 @@ void MapDatabase::updateCovisibilityGraph(const LandmarkDatabase<Scalar>::Ptr& l
       }
     }
 
-    // add to spanning tree
+    // Finally add it to the spanning tree
     covisibility_graph->addTreeNode(kf_id, max_kf_id);
   }
 }
