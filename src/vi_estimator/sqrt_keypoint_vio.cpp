@@ -512,7 +512,6 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
         }
       }
 
-      bool covisibility_request_sent = false;
       bool send_covisibility_request =
           out_covi_req_queue && ((config.vio_covisibility_query_frequency != 0 &&
                                   frame_count % config.vio_covisibility_query_frequency == 0) ||
@@ -528,12 +527,13 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
         msg->keypoints = std::make_shared<std::vector<KeypointId>>(keypoint_ids);
         out_covi_req_queue->push(msg);
         get_map = false;
-        covisibility_request_sent = true;
-      }
 
-      if (covisibility_request_sent) {
-        in_covi_res_queue.pop(covisible_submap);
-        addCovisibilityMap();
+        if (deterministic) {
+          in_covi_res_queue.pop(covisible_submap);
+          addCovisibilityMap();
+        } else {
+          while (in_covi_res_queue.try_pop(covisible_submap)) addCovisibilityMap();
+        }
       }
 
       bool success = measure(curr_frame, meas);
