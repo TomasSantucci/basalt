@@ -138,7 +138,7 @@ bool VIOUIBase::highlight_kps_in_rect(size_t cam_id, float l, float r, float t, 
 void VIOUIBase::clear_highlights() {
   if (highlights.empty()) return;
 
-  for (const auto& [ts, vis] : vis_map) vis->invalidate_mat_imgs();
+  vis_window.for_each([](int64_t, auto vis) { vis->invalidate_mat_imgs(); });
   if (show_blocks) do_show_blocks();
   if (follow_highlight) do_follow_highlight(false, true);
 
@@ -162,6 +162,11 @@ bool VIOUIBase::take_ltkf() {
 bool VIOUIBase::reset_state() {
   vio->scheduleResetState();
   return true;
+}
+
+void VIOUIBase::do_show_empty_warning(size_t) {
+  glColor3ubv(RED);
+  FONT.Text("Pose unavailable").Draw(64, 64);
 }
 
 void VIOUIBase::do_show_flow(size_t cam_id) {
@@ -325,13 +330,13 @@ void VIOUIBase::do_show_recall_guesses(size_t cam_id) {
 }
 
 void VIOUIBase::do_show_tracking_guess_vio(size_t cam_id, size_t frame_id, const VioDatasetPtr& vio_dataset,
-                                           const std::unordered_map<int64_t, VioVisualizationData::Ptr>& vis_map) {
+                                           const VisWindow& vis_window) {
   if (frame_id < 1) return;
 
   int64_t prev_ts = vio_dataset->get_image_timestamps().at(frame_id - 1);
-  auto prev_it = vis_map.find(prev_ts);
-  if (prev_it == vis_map.end()) return;
-  const VioVisualizationData::Ptr& prev_vis_data = prev_it->second;
+  auto prev_it = vis_window.find(prev_ts);
+  if (!prev_it) return;
+  const VioVisualizationData::Ptr& prev_vis_data = prev_it;
 
   do_show_tracking_guess(cam_id, frame_id, prev_vis_data);
 }
@@ -1221,13 +1226,15 @@ void VIOImageView::Mouse(View& view, MouseButton button, int x_screen, int y_scr
       ui.highlight_landmarks = selection_to_string(ui.highlights);
       if (ui.highlights.empty()) ui.filter_highlights = false;
       if (ui.highlights.empty()) ui.show_highlights = false;
-      for (const auto& [ts, vis] : ui.vis_map) vis->invalidate_mat_imgs();
+      ui.vis_window.for_each([](int64_t, auto vis) { vis->invalidate_mat_imgs(); });
+
       if (ui.show_blocks) ui.do_show_blocks();
     } else if (shift_pressed) {  // Shift+LMB: Add to highlights
       ui.highlights.emplace_back(false, kpid, -1);
       ui.highlight_landmarks = selection_to_string(ui.highlights);
       ui.show_highlights = true;
-      for (const auto& [ts, vis] : ui.vis_map) vis->invalidate_mat_imgs();
+      ui.vis_window.for_each([](int64_t, auto vis) { vis->invalidate_mat_imgs(); });
+
       if (ui.show_blocks) ui.do_show_blocks();
     } else if (ctrl_pressed) {  // Ctrl+LMB: Follow a single keypoint
       ui.highlights = {{false, kpid, size_t(-1)}};
@@ -1235,7 +1242,8 @@ void VIOImageView::Mouse(View& view, MouseButton button, int x_screen, int y_scr
       ui.filter_highlights = true;
       ui.show_highlights = true;
       ui.follow_highlight = true;
-      for (const auto& [ts, vis] : ui.vis_map) vis->invalidate_mat_imgs();
+      ui.vis_window.for_each([](int64_t, auto vis) { vis->invalidate_mat_imgs(); });
+
       if (ui.show_blocks) ui.do_show_blocks();
       ui.do_follow_highlight(true, true);
     } else {  // LMB: Highlight a single keypoint
@@ -1243,7 +1251,8 @@ void VIOImageView::Mouse(View& view, MouseButton button, int x_screen, int y_scr
       ui.highlight_landmarks = selection_to_string(ui.highlights);
       ui.filter_highlights = false;
       ui.show_highlights = true;
-      for (const auto& [ts, vis] : ui.vis_map) vis->invalidate_mat_imgs();
+      ui.vis_window.for_each([](int64_t, auto vis) { vis->invalidate_mat_imgs(); });
+
       if (ui.show_blocks) ui.do_show_blocks();
     }
   }
@@ -1256,7 +1265,8 @@ void VIOImageView::Mouse(View& view, MouseButton button, int x_screen, int y_scr
       bool selected = ui.highlight_kps_in_rect(cam_id, l, r, t, b);
       if (selected) {
         ui.show_highlights = true;
-        for (const auto& [ts, vis] : ui.vis_map) vis->invalidate_mat_imgs();
+        ui.vis_window.for_each([](int64_t, auto vis) { vis->invalidate_mat_imgs(); });
+
         if (ui.show_blocks) ui.do_show_blocks();
       }
     }

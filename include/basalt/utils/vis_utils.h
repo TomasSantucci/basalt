@@ -241,6 +241,36 @@ void get_rect_containing_kps(const Keypoints& kpids, float& l, float& r, float& 
 
 bool is_selected(const Selection& selection, size_t n);
 
+class VisWindow {
+  std::map<int64_t, VioVisualizationData::Ptr> vis_map;
+  size_t window_size = 5000;
+  bool keep_images = true;
+
+ public:
+  VisWindow(size_t size = 5000, bool keep_images = true) : window_size(size), keep_images(keep_images) {}
+
+  /// Adds a new VIO viz packet to the window, only supports chronological order
+  /// and a single calling thread
+  void add(int64_t t_ns, const VioVisualizationData::Ptr& ptr) {
+    BASALT_ASSERT(vis_map.empty() || t_ns > vis_map.rbegin()->first);
+
+    if (!keep_images) ptr->opt_flow_res->input_images->img_data.clear();
+    vis_map[t_ns] = ptr;
+
+    while (vis_map.size() > window_size) vis_map.erase(vis_map.begin());
+  }
+
+  VioVisualizationData::Ptr find(int64_t t_ns) const {
+    auto it = vis_map.find(t_ns);
+    return it != vis_map.end() ? it->second : nullptr;
+  }
+
+  template <typename Func>
+  void for_each(Func func) const {
+    for (const auto& [ts, vis] : vis_map) func(ts, vis);
+  }
+};
+
 struct VIOUIBase {
   static constexpr int UI_WIDTH_PIX = 200;
   static constexpr int UI_BOTTOM_PIX = 32;
@@ -259,7 +289,7 @@ struct VIOUIBase {
   OpticalFlowBase::Ptr opt_flow;
   VioEstimatorBase::Ptr vio;
   // TODO: Make vis_map into a queue that stores a range of frames, even in realtime mode
-  unordered_map<int64_t, VioVisualizationData::Ptr> vis_map;
+  VisWindow vis_window;
 
   Var<int> show_frame{"ui.show_frame", 0, META_FLAG_READONLY};
 
@@ -339,11 +369,12 @@ struct VIOUIBase {
   bool toggle_blocks();
   bool take_ltkf();
   bool reset_state();
+  void do_show_empty_warning(size_t cam_id);
   void do_show_flow(size_t cam_id);
   void do_show_highlights(size_t cam_id);
   void do_show_tracking_guess(size_t cam_id, size_t frame_id, const VioVisualizationData::Ptr& prev_vis_data);
   void do_show_tracking_guess_vio(size_t cam_id, size_t frame_id, const VioDatasetPtr& vio_dataset,
-                                  const std::unordered_map<int64_t, VioVisualizationData::Ptr>& vis_map);
+                                  const VisWindow& vis_window);
   void do_show_recall_guesses(size_t cam_id);
   void do_show_matching_guesses(size_t cam_id);
   void do_show_masks(size_t cam_id);

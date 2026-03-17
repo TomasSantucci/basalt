@@ -163,6 +163,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   bool deterministic = false;
   bool save_times = false;
   size_t max_frames = 0;
+  size_t max_gui_frames = 10000;
 
   std::ofstream timing_csv{};
 
@@ -261,6 +262,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     app.add_option("--use-double", use_double, "Use double not float.");
     app.add_option("--deterministic", deterministic, "Make the pipeline output reproducible (some performance impact)");
     app.add_option("--max-frames", max_frames, "Limit number of frames to process from dataset (0 means unlimited)");
+    app.add_option("--max-gui-frames", max_gui_frames, "Limit UI frames in memory (unlimited: 0, default: 10000)");
 
     try {
       app.parse(argc, argv);
@@ -323,6 +325,10 @@ struct basalt_vio_ui : vis::VIOUIBase {
       }
     }
 
+    bool keep_images = false;
+    size_t gui_frames = max_gui_frames == 0 ? frame_count : max_gui_frames;
+    vis_window = vis::VisWindow(gui_frames, keep_images);
+
     {
       vio = basalt::VioEstimatorFactory::getVioEstimator(config, calib, basalt::constants::g, use_imu, use_double);
       vio->initialize(Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
@@ -373,7 +379,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
           out_vis_queue.pop(data);
           if (!data) break;
 
-          vis_map[data->t_ns] = data;
+          vis_window.add(data->t_ns, data);
           log_vis_data(data);
           try_to_initially_align(data);
           // NOTE: keyframe_idx is only filled when the UI is enabled
@@ -557,19 +563,17 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
         size_t frame_id = show_frame;
         int64_t t_ns = vio_dataset->get_image_timestamps()[frame_id];
-        auto it = vis_map.find(t_ns);
-        if (follow) {
-          if (it != vis_map.end()) {
-            Sophus::SE3d T_w_i;
-            if (!it->second->states.empty()) {
-              T_w_i = it->second->states.rbegin()->second;
-            } else if (!it->second->frames.empty()) {
-              T_w_i = it->second->frames.rbegin()->second;
-            }
-            T_w_i.so3() = Sophus::SO3d();
-
-            camera.Follow(T_w_i.matrix());
+        VioVisualizationData::Ptr viz = vis_window.find(t_ns);
+        if (follow && viz) {
+          Sophus::SE3d T_w_i;
+          if (!viz->states.empty()) {
+            T_w_i = viz->states.rbegin()->second;
+          } else if (!viz->frames.empty()) {
+            T_w_i = viz->frames.rbegin()->second;
           }
+          T_w_i.so3() = Sophus::SO3d();
+
+          camera.Follow(T_w_i.matrix());
         }
 
         display3D.Activate(camera);
@@ -579,8 +583,8 @@ struct basalt_vio_ui : vis::VIOUIBase {
         if (fixed_depth.GuiChanged() && vio->opt_flow_depth_guess_queue != nullptr) {
           vio->opt_flow_depth_guess_queue->push(fixed_depth);
           depth_guess = fixed_depth;
-        } else if (it != vis_map.end() && it->second->opt_flow_res && it->second->opt_flow_res->input_images) {
-          depth_guess = it->second->opt_flow_res->input_images->depth_guess;
+        } else if (viz && viz->opt_flow_res && viz->opt_flow_res->input_images) {
+          depth_guess = viz->opt_flow_res->input_images->depth_guess;
         }
 
         if (show_frame_bottom->Meta().gui_changed) {
@@ -625,7 +629,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
             show_ids.GuiChanged()) {
           highlights = vis::parse_selection(highlight_landmarks);
           filter_highlights = filter_highlights && !highlights.empty();
-          for (const auto& [ts, vis] : vis_map) vis->invalidate_mat_imgs();
+          vis_window.for_each([](int64_t, auto vis) { vis->invalidate_mat_imgs(); });
           if (show_blocks) do_show_blocks();
         }
 
@@ -818,10 +822,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
   VioVisualizationData::Ptr get_curr_vis_data() override {
     int64_t curr_ts = vio_dataset->get_image_timestamps().at(show_frame);
-    auto it = vis_map.find(curr_ts);
-    if (it == vis_map.end()) return nullptr;
-    VioVisualizationData::Ptr curr_vis_data = it->second;
-    return curr_vis_data;
+    return vis_window.find(curr_ts);
   }
 
   OpticalFlowInput::Ptr load_frameset(size_t idx) {
@@ -922,12 +923,15 @@ struct basalt_vio_ui : vis::VIOUIBase {
   void draw_image_overlay(pangolin::ImageView& v, size_t cam_id) {
     UNUSED(v);
     VioVisualizationData::Ptr curr_vis_data = get_curr_vis_data();
-    if (curr_vis_data == nullptr) return;
+    if (curr_vis_data == nullptr) {
+      do_show_empty_warning(cam_id);
+      return;
+    }
 
     if (show_obs) do_show_obs(cam_id);
     if (show_flow) do_show_flow(cam_id);
     if (show_highlights) do_show_highlights(cam_id);
-    if (show_tracking_guess) do_show_tracking_guess_vio(cam_id, show_frame, vio_dataset, vis_map);
+    if (show_tracking_guess) do_show_tracking_guess_vio(cam_id, show_frame, vio_dataset, vis_window);
     if (show_matching_guess) do_show_matching_guesses(cam_id);
     if (show_recall_guess) do_show_recall_guesses(cam_id);
     if (show_masks) do_show_masks(cam_id);
@@ -1133,7 +1137,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     // Compute ATE
 
     log_ate.Clear();
-    constexpr int SAMPLE_POINTS = 10000;  // Maximum points to plot
+    constexpr int SAMPLE_POINTS = 20000;  // Maximum points to plot
     if (num_assocs > SAMPLE_POINTS)
       std::cout << "To many frames (" << num_assocs << "), sampling only " << SAMPLE_POINTS << std::endl;
 
