@@ -525,12 +525,19 @@ endif(NOT BASALT_BUILD_SHARED_LIBRARY_ONLY)
 configure_file(${CMAKE_CURRENT_LIST_DIR}/cmake_modules/basalt.map.in ${CMAKE_CURRENT_BINARY_DIR}/basalt.map @ONLY)
 
 # Export only the VIT interface symbols
-set_target_properties(
-  ${PROJECT_NAME}
-  PROPERTIES LINK_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/basalt.map
-             LINK_FLAGS "-Wl,--version-script=${CMAKE_CURRENT_BINARY_DIR}/basalt.map"
-             VERSION "${VIT_VERSION_MAJOR}.${VIT_VERSION_MINOR}.${VIT_VERSION_PATCH}" SOVERSION ${VIT_VERSION_MAJOR}
-)
+if(NOT APPLE)
+  set_target_properties(
+    ${PROJECT_NAME}
+    PROPERTIES LINK_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/basalt.map
+               LINK_FLAGS "-Wl,--version-script=${CMAKE_CURRENT_BINARY_DIR}/basalt.map"
+               VERSION "${VIT_VERSION_MAJOR}.${VIT_VERSION_MINOR}.${VIT_VERSION_PATCH}" SOVERSION ${VIT_VERSION_MAJOR}
+  )
+else()
+  set_target_properties(
+    ${PROJECT_NAME} PROPERTIES VERSION "${VIT_VERSION_MAJOR}.${VIT_VERSION_MINOR}.${VIT_VERSION_PATCH}"
+                               SOVERSION ${VIT_VERSION_MAJOR}
+  )
+endif()
 
 include(GNUInstallDirs)
 if(BASALT_BUILD_SHARED_LIBRARY_ONLY)
