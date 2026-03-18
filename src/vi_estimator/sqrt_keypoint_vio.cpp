@@ -433,7 +433,7 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
         visual_data = std::make_shared<VioVisualizationData>();
         visual_data->t_ns = curr_frame->t_ns;
       }
-      if (out_vio_data_queue) {
+      if (out_map_write_queue) {
         map_stamp = std::make_shared<MapStamp>();
         map_stamp->t_ns = curr_frame->t_ns;
       }
@@ -513,19 +513,17 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
       }
 
       bool send_covisibility_request =
-          out_covi_req_queue && ((config.vio_covisibility_query_frequency != 0 &&
+          out_map_read_queue && ((config.vio_covisibility_query_frequency != 0 &&
                                   frame_count % config.vio_covisibility_query_frequency == 0) ||
                                  get_map);
       if (send_covisibility_request) {
         if (covisible_submap != nullptr) removeCovisibilityMap();
-        std::vector<KeypointId> keypoint_ids;
+        auto msg = std::make_shared<CovisibilityRequest>();
         for (size_t i = 0; i < curr_frame->keypoints.size(); i++) {
-          for (const auto& kv : curr_frame->keypoints[i]) keypoint_ids.emplace_back(kv.first);
+          for (const auto& kv : curr_frame->keypoints[i]) msg->keypoints.emplace_back(kv.first);
         }
         // TODO: doing the request here leaves a frame without any covisibility map
-        auto msg = std::make_shared<ReadCovisibilityReqMsg>();
-        msg->keypoints = std::make_shared<std::vector<KeypointId>>(keypoint_ids);
-        out_covi_req_queue->push(msg);
+        out_map_read_queue->push(msg);
         get_map = false;
 
         if (deterministic) {
@@ -556,9 +554,9 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
 
     if (out_vis_queue) out_vis_queue->push(nullptr);
     if (out_marg_queue) out_marg_queue->push(nullptr);
-    if (out_vio_data_queue) out_vio_data_queue->push(nullptr);
+    if (out_map_write_queue) out_map_write_queue->push(StopMsg{});
     if (out_state_queue) out_state_queue->push(nullptr);
-    if (out_covi_req_queue) out_covi_req_queue->push(nullptr);
+    if (out_map_read_queue) out_map_read_queue->push(StopMsg{});
     if (out_opt_flow_queue_loop_closing) out_opt_flow_queue_loop_closing->push(nullptr);
 
     finished = true;
@@ -778,7 +776,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
   if (take_kf) {
     take_kf = false;
 
-    if (out_vio_data_queue) {
+    if (out_map_write_queue) {
       // Send a map stamp to the Map Database
       BASALT_ASSERT(lmdb.debug_check_keyframes_consistency("VIO"));
 
@@ -786,9 +784,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
 
       BASALT_ASSERT(map_stamp->lmdb->debug_check_keyframes_consistency("VIO.MapStamp"));
 
-      auto msg = std::make_shared<WriteMapStampMsg>();
-      msg->map_stamp = map_stamp;
-      out_vio_data_queue->push(msg);
+      out_map_write_queue->push(map_stamp);
 
       if (sync_map_stamp != nullptr) {
         std::unique_lock<std::mutex> lk(sync_map_stamp->m);
@@ -1239,12 +1235,16 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
       }
     }
 
-    if (out_vio_data_queue && !kfs_to_marg.empty()) {
-      auto msg = std::make_shared<WriteMapMargMsg>();
-      msg->keyframes_to_marg = kfs_to_marg;
-      out_vio_data_queue->push(msg);
+    if (out_map_write_queue && !kfs_to_marg.empty()) {
+      auto msg = std::make_shared<MarginalizationStamp>();
+      msg->keyframe_ids = kfs_to_marg;
+      out_map_write_queue->push(msg);
 
-      // TODO@tsantucci: should sync here
+      if (sync_map_marg != nullptr) {
+        std::unique_lock<std::mutex> lk(sync_map_marg->m);
+        sync_map_marg->cvar.wait(lk, [&] { return sync_map_marg->ready; });
+        sync_map_marg->ready = false;
+      }
     }
 
     std::set<int> idx_to_keep, idx_to_marg;

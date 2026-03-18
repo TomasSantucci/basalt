@@ -24,7 +24,7 @@ void MapDatabase::write_map_stamp(basalt::MapStamp::Ptr& map_stamp) {
 
   for (const auto& [kf_id, _] : map_stamp->lmdb->getKeyframes()) {
     if (!map.keyframeExists(kf_id)) {
-      not_marg_kfs.insert(kf_id);
+      active_keyframes.insert(kf_id);
     }
   }
 
@@ -53,9 +53,7 @@ void MapDatabase::write_map_stamp(basalt::MapStamp::Ptr& map_stamp) {
   }
 
   if (pending_loop_detection != nullptr && map.keyframeExists(pending_loop_detection->current_kf_id)) {
-    auto map_msg = std::make_shared<WriteMapUpdateMsg>();
-    map_msg->loop_closing_result = pending_loop_detection;
-    write_queue.push(map_msg);
+    write_queue.push(pending_loop_detection);
 
     pending_loop_detection = nullptr;
   }
@@ -68,7 +66,13 @@ void MapDatabase::write_map_marg(std::set<FrameId>& keyframes_to_marg) {
 
   std::unique_lock<std::mutex> lock(mutex);
   for (const auto& kf_id : keyframes_to_marg) {
-    not_marg_kfs.erase(kf_id);
+    active_keyframes.erase(kf_id);
+  }
+
+  if (sync_map_marg != nullptr) {
+    std::lock_guard<std::mutex> lk(sync_map_marg->m);
+    sync_map_marg->ready = true;
+    sync_map_marg->cvar.notify_one();
   }
 }
 
@@ -83,33 +87,31 @@ void MapDatabase::write_map_update(LoopClosingResult::Ptr& loop_closing_result) 
       return;
     }
 
-    // Obtain the drift that the loop closure would correct. If it's not big enough, perform the loop
+    // Obtain the drift that the loop closure would correct. If it's not enough, perform the loop
     // fusion but skip the pose graph optimization. If it's big enough, send a map copy to LC to optimize
     // and it will later receive another loop closure result with the optimized poses
     Sophus::SE3f current_pose = map.getKeyframePose(loop_closing_result->current_kf_id).cast<float>();
     Sophus::SE3f corrected_pose = loop_closing_result->current_kf_corrected_pose;
     float drift_reduced = (current_pose.translation() - corrected_pose.translation()).norm();
 
+    LoopClosureDecision::Ptr loop_closure_decision = std::make_shared<LoopClosureDecision>();
     if (drift_reduced >= config.loop_closing_min_drift_reduction) {
       auto keyframes_poses_copy = std::make_shared<Eigen::aligned_map<FrameId, Sophus::SE3f>>(map.getKeyframes());
-      auto covisibility_graph_copy = std::make_shared<CovisibilityGraph>(*covisibility_graph);
 
-      MapResponse::Ptr map_response = std::make_shared<MapResponse>();
-      map_response->keyframe_poses = keyframes_poses_copy;
-      map_response->covisibility_graph = covisibility_graph_copy;
-      map_response->not_marg_kfs = not_marg_kfs;
-      map_response->close_loop = true;
+      loop_closure_decision->keyframe_poses = keyframes_poses_copy;
+      loop_closure_decision->covisibility_graph = *covisibility_graph;
+      loop_closure_decision->active_keyframes = active_keyframes;
+      loop_closure_decision->close_loop = true;
 
-      if (out_map_res_queue) {
-        out_map_res_queue->push(map_response);
+      if (out_lc_dec_res_queue) {
+        out_lc_dec_res_queue->push(loop_closure_decision);
       }
 
       return;
     } else {
-      MapResponse::Ptr map_response = std::make_shared<MapResponse>();
-      map_response->close_loop = false;
-      if (out_map_res_queue) {
-        out_map_res_queue->push(map_response);
+      loop_closure_decision->close_loop = false;
+      if (out_lc_dec_res_queue) {
+        out_lc_dec_res_queue->push(loop_closure_decision);
       }
     }
   }
@@ -190,10 +192,10 @@ void MapDatabase::write_map_update(LoopClosingResult::Ptr& loop_closing_result) 
     map.mergeLandmarks(host_lm_id, curr_lm_id);
   }
 
-  if (loop_closing_result->keyframe_poses != nullptr && out_map_update_queue && !config.causal_evaluation) {
-    MapUpdate::Ptr map_update_msg = std::make_shared<basalt::MapUpdate>();
-    map_update_msg->keyframe_poses = map.getKeyframes();
-    out_map_update_queue->push(map_update_msg);
+  if (loop_closing_result->keyframe_poses != nullptr && out_opt_poses_queue && !config.causal_evaluation) {
+    auto opt_poses_update = std::make_shared<basalt::OptimizedPosesUpdate>();
+    opt_poses_update->keyframe_poses = loop_closing_result->keyframe_poses;
+    out_opt_poses_queue->push(opt_poses_update);
   }
 
   if (sync_lc_finished != nullptr) {
@@ -203,33 +205,35 @@ void MapDatabase::write_map_update(LoopClosingResult::Ptr& loop_closing_result) 
   }
 }
 
-void MapDatabase::read_covisibility_req(std::shared_ptr<std::vector<KeypointId>>& keypoints_ptr) {
-  if (keypoints_ptr == nullptr) {
+void MapDatabase::read_covisibility_req(std::vector<KeypointId>& keypoints) {
+  if (keypoints.empty()) {
     return;
   }
-  std::vector<KeypointId>& keypoints = *keypoints_ptr;
 
   std::unique_lock<std::mutex> lock(mutex);
   handleCovisibilityReq(keypoints);
 }
 
-void MapDatabase::read_3d_points_req(FrameId keyframe, size_t neighbors_num) {
+void MapDatabase::read_island_req(FrameId keyframe, size_t neighbors_num) {
+  IslandResponse::Ptr island_response = std::make_shared<IslandResponse>();
+
+  island_response->keyframes.push_back(keyframe);
+
+  std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>& landmarks_3d_map =
+      island_response->landmarks_3d_map;
+
   std::unique_lock<std::mutex> lock(mutex);
 
-  std::vector<FrameId> keyframes = {keyframe};
-
   for (const auto& covi_kf : covisibility_graph->getTopCovisible(keyframe, neighbors_num)) {
-    keyframes.push_back(covi_kf);
+    island_response->keyframes.push_back(covi_kf);
   }
 
-  auto landmarks_3d_map = std::make_shared<std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>>();
+  for (const auto& kf_id : island_response->keyframes) {
+    if (!map.keyframeExists(kf_id)) {
+      continue;
+    }
 
-  for (const auto& kf_id : keyframes) {
     for (size_t cam_id = 0; cam_id < calib.intrinsics.size(); cam_id++) {
-      if (!map.keyframeExists(kf_id)) {
-        continue;
-      }
-
       TimeCamId kf_tcid{kf_id, cam_id};
       auto it = map.getKeyframeObs().find(kf_tcid);
       if (it == map.getKeyframeObs().end()) {
@@ -251,45 +255,68 @@ void MapDatabase::read_3d_points_req(FrameId keyframe, size_t neighbors_num) {
 
         Vec4d pt_w = T_w_c * pt_cam;
 
-        (*landmarks_3d_map)[kf_tcid][lm_id] = (pt_w.template head<3>() / pt_w[3]).template cast<double>();
+        landmarks_3d_map[kf_tcid][lm_id] = (pt_w.template head<3>() / pt_w[3]).template cast<double>();
       }
     }
   }
 
-  if (out_3d_points_res_queue) {
-    MapIslandResponse::Ptr map_island_response = std::make_shared<MapIslandResponse>();
-    map_island_response->island_keyframes = keyframes;
-    map_island_response->landmarks_3d_map = *landmarks_3d_map;
-    out_3d_points_res_queue->push(map_island_response);
+  if (out_island_res_queue) {
+    out_island_res_queue->push(island_response);
   }
 }
 
 void MapDatabase::initialize() {
   auto read_func = [&]() {
-    std::shared_ptr<ReadMessage> msg;
-    while (true) {
+    MapReadMessage msg;
+    bool running = true;
+    while (running) {
       read_queue.pop(msg);
-      if (msg == nullptr) break;
-      msg->execute(*this);
+
+      std::visit(
+          [&](auto& m) {
+            using T = std::decay_t<decltype(m)>;
+
+            if constexpr (std::is_same_v<T, CovisibilityRequest::Ptr>) {
+              read_covisibility_req(m->keypoints);
+            } else if constexpr (std::is_same_v<T, IslandRequest::Ptr>) {
+              read_island_req(m->keyframe, m->neighbors_num);
+            } else if constexpr (std::is_same_v<T, StopMsg>) {
+              running = false;
+            }
+          },
+          msg);
     }
   };
 
   auto write_func = [&]() {
-    std::shared_ptr<WriteMessage> msg;
-    while (true) {
+    MapWriteMessage msg;
+    bool running = true;
+    while (running) {
       write_queue.pop(msg);
-      if (msg == nullptr) {
-        map.print();
-        covisibility_graph->print_stats();
-        if (!map_export_path.empty()) {
-          saveEuroc(map_export_path + "/tracking.csv");
-          saveJson(map_export_path + "/map.json");
-        }
-        if (out_vis_queue) out_vis_queue->push(nullptr);
-        if (out_map_update_queue) out_map_update_queue->push(nullptr);
-        break;
-      }
-      msg->execute(*this);
+
+      std::visit(
+          [&](auto& m) {
+            using T = std::decay_t<decltype(m)>;
+
+            if constexpr (std::is_same_v<T, MapStamp::Ptr>) {
+              write_map_stamp(m);
+            } else if constexpr (std::is_same_v<T, MarginalizationStamp::Ptr>) {
+              write_map_marg(m->keyframe_ids);
+            } else if constexpr (std::is_same_v<T, LoopClosingResult::Ptr>) {
+              write_map_update(m);
+            } else if constexpr (std::is_same_v<T, StopMsg>) {
+              map.print();
+              covisibility_graph->print_stats();
+              if (!map_export_path.empty()) {
+                saveEuroc(map_export_path + "/tracking.csv");
+                saveJson(map_export_path + "/map.json");
+              }
+              if (out_vis_queue) out_vis_queue->push(nullptr);
+              if (out_opt_poses_queue) out_opt_poses_queue->push(nullptr);
+              running = false;
+            }
+          },
+          msg);
     }
   };
 

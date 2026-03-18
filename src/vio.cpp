@@ -153,7 +153,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   tbb::concurrent_bounded_queue<basalt::LoopClosingVisualizationData::Ptr> out_lc_vis_queue;
   tbb::concurrent_bounded_queue<basalt::PoseVelBiasState<double>::Ptr> out_state_queue;
   tbb::concurrent_bounded_queue<basalt::OpticalFlowStats::Ptr> opt_flow_stats_queue;
-  tbb::concurrent_bounded_queue<basalt::MapUpdate::Ptr> out_map_update_queue;
+  tbb::concurrent_bounded_queue<basalt::OptimizedPosesUpdate::Ptr> out_opt_poses_queue;
 
   std::shared_ptr<std::unordered_map<TimeCamId, std::string>> frame_id_to_name =
       std::make_shared<std::unordered_map<TimeCamId, std::string>>();
@@ -178,9 +178,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
   tbb::concurrent_unordered_map<int64_t, int> timestamp_to_id;
 
-  // TODO@tsantucci: leave only those that are needed
   SyncState sync_map_stamp;
   SyncState sync_lc_finished;
+  SyncState sync_map_marg;
 
   std::mutex m;
   std::condition_variable cvar;
@@ -389,18 +389,20 @@ struct basalt_vio_ui : vis::VIOUIBase {
       if (deterministic) {
         if (config.enable_loop_closing) { vio->sync_lc_finished = &sync_lc_finished; }
         vio->sync_map_stamp = &sync_map_stamp;
+        vio->sync_map_marg = &sync_map_marg;
       }
     }
     {
       map_db = std::make_shared<basalt::MapDatabase>(config, calib, map_export_path);
       map_db->initialize();
       if (!map_export_path.empty()) map_db->frame_id_to_name = frame_id_to_name;
-      vio->out_vio_data_queue = &map_db->write_queue;
-      vio->out_covi_req_queue = &map_db->read_queue;
+      vio->out_map_write_queue = &map_db->write_queue;
+      vio->out_map_read_queue = &map_db->read_queue;
       map_db->out_covi_res_queue = &vio->in_covi_res_queue;
-      if (config.enable_loop_closing) map_db->out_map_update_queue = &out_map_update_queue;
+      if (config.enable_loop_closing) map_db->out_opt_poses_queue = &out_opt_poses_queue;
       if (deterministic) {
         map_db->sync_map_stamp = &sync_map_stamp;
+        map_db->sync_map_marg = &sync_map_marg;
         if (config.enable_loop_closing) map_db->sync_lc_finished = &sync_lc_finished;
       }
       if (show_gui) map_db->out_vis_queue = &out_mapper_vis_queue;
@@ -409,10 +411,10 @@ struct basalt_vio_ui : vis::VIOUIBase {
       loop_closing = std::make_shared<basalt::LoopClosing>(config, calib);
       loop_closing->initialize();
       loop_closing->deterministic = deterministic;
-      loop_closing->out_map_req_queue = &map_db->read_queue;
-      map_db->out_map_res_queue = &loop_closing->in_map_res_queue;
-      map_db->out_3d_points_res_queue = &loop_closing->in_map_3d_points_queue;
-      loop_closing->out_map_update_queue = &map_db->write_queue;
+      loop_closing->out_map_read_queue = &map_db->read_queue;
+      map_db->out_lc_dec_res_queue = &loop_closing->in_lc_dec_res_queue;
+      map_db->out_island_res_queue = &loop_closing->in_island_res_queue;
+      loop_closing->out_map_write_queue = &map_db->write_queue;
       vio->out_opt_flow_queue_loop_closing = &loop_closing->in_optical_flow_queue;
       if (deterministic) { loop_closing->sync_lc_finished = &sync_lc_finished; }
       if (show_gui) loop_closing->out_lc_vis_queue = &out_lc_vis_queue;
@@ -603,28 +605,30 @@ struct basalt_vio_ui : vis::VIOUIBase {
   }
 
   bool pop_map_updates() {
-    basalt::MapUpdate::Ptr map_update;
-    out_map_update_queue.pop(map_update);
+    basalt::OptimizedPosesUpdate::Ptr opt_poses_update;
+    out_opt_poses_queue.pop(opt_poses_update);
 
-    if (map_update.get() == nullptr) return false;
+    if (opt_poses_update.get() == nullptr) return false;
 
-    Sophus::SE3d T_correction = Sophus::SE3d();
     Sophus::SE3d current_kf_pose, next_kf_pose;
     FrameId current_kf_ns = 0, next_kf_ns = 0;
+    auto kf_it = opt_poses_update->keyframe_poses->begin();
+    const auto kf_end = opt_poses_update->keyframe_poses->end();
     for (size_t i = 0; i < vio_t_w_i.size(); i++) {
       int64_t ts = vio_t_ns[i];
 
-      if (map_update->keyframe_poses.count(ts)) {
-        vio_T_w_i[i] = map_update->keyframe_poses.at(ts).cast<double>();
+      while (kf_it != kf_end && kf_it->first < ts) ++kf_it;
+
+      if (kf_it != kf_end && kf_it->first == ts) {
+        vio_T_w_i[i] = kf_it->second.cast<double>();
         vio_t_w_i[i] = vio_T_w_i[i].translation();
         current_kf_pose = vio_T_w_i[i];
         current_kf_ns = ts;
-        // get the next keyframe pose in keyframe poses
-        auto it = map_update->keyframe_poses.find(ts);
-        it++;
-        if (it != map_update->keyframe_poses.end()) {
-          next_kf_pose = it->second.cast<double>();
-          next_kf_ns = it->first;
+        // get the next keyframe pose
+        auto next_it = std::next(kf_it);
+        if (next_it != kf_end) {
+          next_kf_pose = next_it->second.cast<double>();
+          next_kf_ns = next_it->first;
         } else {
           next_kf_pose = current_kf_pose;
           next_kf_ns = current_kf_ns;

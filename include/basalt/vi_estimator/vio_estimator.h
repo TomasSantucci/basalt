@@ -101,8 +101,8 @@ class VioEstimatorBase {
   VioEstimatorBase()
       : out_state_queue(nullptr),
         out_marg_queue(nullptr),
-        out_vio_data_queue(nullptr),
-        out_covi_req_queue(nullptr),
+        out_map_write_queue(nullptr),
+        out_map_read_queue(nullptr),
         out_vis_queue(nullptr) {
     vision_data_queue.set_capacity(10);
     imu_data_queue.set_capacity(300);
@@ -121,8 +121,8 @@ class VioEstimatorBase {
 
   tbb::concurrent_bounded_queue<PoseVelBiasState<double>::Ptr>* out_state_queue = nullptr;
   tbb::concurrent_bounded_queue<MargData::Ptr>* out_marg_queue = nullptr;
-  tbb::concurrent_bounded_queue<WriteMessage::Ptr>* out_vio_data_queue = nullptr;
-  tbb::concurrent_bounded_queue<ReadMessage::Ptr>* out_covi_req_queue = nullptr;
+  tbb::concurrent_bounded_queue<MapWriteMessage>* out_map_write_queue = nullptr;
+  tbb::concurrent_bounded_queue<MapReadMessage>* out_map_read_queue = nullptr;
   tbb::concurrent_bounded_queue<LandmarkDatabase<float>::Ptr> in_covi_res_queue;
   tbb::concurrent_bounded_queue<VioVisualizationData::Ptr>* out_vis_queue = nullptr;
 
@@ -134,6 +134,7 @@ class VioEstimatorBase {
 
   SyncState* sync_map_stamp = nullptr;
   SyncState* sync_lc_finished = nullptr;
+  SyncState* sync_map_marg = nullptr;
   bool deterministic;
 
   virtual void initialize(int64_t t_ns, const Sophus::SE3d& T_w_i, const Eigen::Vector3d& vel_w_i,

@@ -1,11 +1,10 @@
 #pragma once
 
+#include <basalt/vi_estimator/covisibility_graph.h>
 #include <basalt/vi_estimator/landmark_database.h>
 #include "basalt/utils/common_types.h"
 
 namespace basalt {
-
-class MapDatabase;
 
 struct LoopClosingResult {
   using Vec2 = Eigen::Matrix<float, 2, 1>;
@@ -25,47 +24,53 @@ struct MapStamp {
 
   int64_t t_ns;
   typename LandmarkDatabase<float>::Ptr lmdb;
-  std::set<FrameId> keyframes_to_marg;
 };
 
-struct WriteMessage {
-  typedef std::shared_ptr<WriteMessage> Ptr;
+struct MarginalizationStamp {
+  using Ptr = std::shared_ptr<MarginalizationStamp>;
 
-  virtual ~WriteMessage() = default;
-  virtual void execute(MapDatabase& db) = 0;
+  std::set<FrameId> keyframe_ids;
 };
 
-struct WriteMapStampMsg : WriteMessage {
-  MapStamp::Ptr map_stamp;
-  void execute(MapDatabase& db) override;
+struct CovisibilityRequest {
+  using Ptr = std::shared_ptr<CovisibilityRequest>;
+
+  std::vector<KeypointId> keypoints;
 };
 
-struct WriteMapUpdateMsg : WriteMessage {
-  LoopClosingResult::Ptr loop_closing_result;
-  void execute(MapDatabase& db) override;
-};
+struct IslandRequest {
+  using Ptr = std::shared_ptr<IslandRequest>;
 
-struct WriteMapMargMsg : WriteMessage {
-  std::set<FrameId> keyframes_to_marg;
-  void execute(MapDatabase& db) override;
-};
-
-struct ReadMessage {
-  typedef std::shared_ptr<ReadMessage> Ptr;
-
-  virtual ~ReadMessage() = default;
-  virtual void execute(MapDatabase& db) = 0;
-};
-
-struct ReadCovisibilityReqMsg : ReadMessage {
-  std::shared_ptr<std::vector<KeypointId>> keypoints;
-  void execute(MapDatabase& db) override;
-};
-
-struct Read3dPointsReqMsg : ReadMessage {
   FrameId keyframe;
   size_t neighbors_num;
-  void execute(MapDatabase& db) override;
 };
+
+struct LoopClosureDecision {
+  using Ptr = std::shared_ptr<LoopClosureDecision>;
+
+  std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>> keyframe_poses;
+  CovisibilityGraph covisibility_graph;
+  std::set<FrameId> active_keyframes;
+
+  bool close_loop;
+};
+
+struct IslandResponse {
+  using Ptr = std::shared_ptr<IslandResponse>;
+
+  std::vector<FrameId> keyframes;
+  std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Eigen::Matrix<double, 3, 1>>> landmarks_3d_map;
+};
+
+struct OptimizedPosesUpdate {
+  using Ptr = std::shared_ptr<OptimizedPosesUpdate>;
+
+  std::shared_ptr<Eigen::aligned_map<int64_t, Sophus::SE3f>> keyframe_poses;
+};
+
+struct StopMsg {};
+
+using MapWriteMessage = std::variant<MapStamp::Ptr, MarginalizationStamp::Ptr, LoopClosingResult::Ptr, StopMsg>;
+using MapReadMessage = std::variant<CovisibilityRequest::Ptr, IslandRequest::Ptr, StopMsg>;
 
 }  // namespace basalt

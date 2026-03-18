@@ -217,12 +217,12 @@ class LoopClosing {
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  tbb::concurrent_bounded_queue<LoopClosingVisualizationData::Ptr>* out_lc_vis_queue = nullptr;
-  tbb::concurrent_bounded_queue<MapResponse::Ptr> in_map_res_queue;
-  tbb::concurrent_bounded_queue<ReadMessage::Ptr>* out_map_req_queue = nullptr;
-  tbb::concurrent_bounded_queue<WriteMessage::Ptr>* out_map_update_queue = nullptr;
-  tbb::concurrent_bounded_queue<MapIslandResponse::Ptr> in_map_3d_points_queue;
+  tbb::concurrent_bounded_queue<MapReadMessage>* out_map_read_queue = nullptr;
+  tbb::concurrent_bounded_queue<MapWriteMessage>* out_map_write_queue = nullptr;
 
+  tbb::concurrent_bounded_queue<LoopClosingVisualizationData::Ptr>* out_lc_vis_queue = nullptr;
+  tbb::concurrent_bounded_queue<LoopClosureDecision::Ptr> in_lc_dec_res_queue;
+  tbb::concurrent_bounded_queue<IslandResponse::Ptr> in_island_res_queue;
   tbb::concurrent_bounded_queue<LoopClosingInput::Ptr> in_optical_flow_queue;
 
   SyncState* sync_lc_finished = nullptr;
@@ -294,9 +294,7 @@ class LoopClosing {
   std::unordered_map<TimeCamId, std::unordered_map<KeypointId, Vec2>> kpts_positions;
   std::shared_ptr<HashBow<256>> hash_bow_database;
 
-  LandmarkDatabase<Scalar>::Ptr map;
-
-  MapResponse::Ptr map_response;
+  LoopClosureDecision::Ptr loop_closure_decision;
   LCTimeStats lc_time_stats;
 
   bool close_loop = false;

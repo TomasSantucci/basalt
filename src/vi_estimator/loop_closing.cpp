@@ -88,17 +88,15 @@ void LoopClosing::initialize() {
 
       if (config.loop_closing_dump_times) lc_time_stats.loop_closed = true;
 
-      auto map_msg = std::make_shared<WriteMapUpdateMsg>();
       loop_closing_result->keyframe_poses = nullptr;
       loop_closing_result->candidate_kf_id = best_island[0];
       loop_closing_result->current_kf_id = loop_closing_input->t_ns;
       loop_closing_result->current_kf_corrected_pose = best_corrected_pose;
 
-      map_msg->loop_closing_result = loop_closing_result;
-      out_map_update_queue->push(map_msg);
-      in_map_res_queue.pop(map_response);
+      if (out_map_write_queue) out_map_write_queue->push(loop_closing_result);
+      in_lc_dec_res_queue.pop(loop_closure_decision);
 
-      if (!map_response->close_loop) {
+      if (!loop_closure_decision->close_loop) {
         if (out_lc_vis_queue) {
           loop_closing_visualization_data->loop_closed = false;
           out_lc_vis_queue->push(loop_closing_visualization_data);
@@ -154,10 +152,8 @@ bool LoopClosing::closeLoop(const FrameId curr_kf_id, const std::vector<FrameId>
 
   restorePosesFromCeres(map_of_poses);
 
-  auto map_update_msg = std::make_shared<WriteMapUpdateMsg>();
-  loop_closing_result->keyframe_poses = map_response->keyframe_poses;
-  map_update_msg->loop_closing_result = loop_closing_result;
-  if (out_map_update_queue) out_map_update_queue->push(map_update_msg);
+  loop_closing_result->keyframe_poses = loop_closure_decision->keyframe_poses;
+  if (out_map_write_queue) out_map_write_queue->push(loop_closing_result);
 
   return true;
 }
@@ -191,7 +187,7 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
   // Data needed for visualization after the loop
   std::unordered_map<FrameId, std::vector<KeyframesMatch>> matches;
   std::unordered_map<FrameId, std::vector<KeyframesMatch>> inlier_matches;
-  MapIslandResponse::Ptr map_island;
+  IslandResponse::Ptr map_island;
   std::vector<Keypoints> reprojected_keypoints(config.loop_closing_cameras_to_reproject.size());
   std::vector<std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>>> redetected_keypoints_map(
       config.loop_closing_cameras_to_reproject.size());
@@ -233,16 +229,16 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     }
     lc_time_stats.addTime(LCTimeStage::InitialMatch, true);
 
-    // get the 3d points from the map database
-    auto msg = std::make_shared<Read3dPointsReqMsg>();
+    // get the map island from the map database
+    auto msg = std::make_shared<IslandRequest>();
     msg->keyframe = candidate_kf;
     msg->neighbors_num = config.loop_closing_num_neighbors;
-    out_map_req_queue->push(msg);
+    out_map_read_queue->push(msg);
 
-    map_island = std::make_shared<MapIslandResponse>();
-    in_map_3d_points_queue.pop(map_island);
+    map_island = std::make_shared<IslandResponse>();
+    in_island_res_queue.pop(map_island);
     std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>& points_3d = map_island->landmarks_3d_map;
-    std::vector<FrameId>& kfs_island = map_island->island_keyframes;
+    std::vector<FrameId>& kfs_island = map_island->keyframes;
 
     lc_time_stats.addTime(LCTimeStage::LandmarksRequest, true);
 
@@ -632,19 +628,19 @@ void LoopClosing::buildPoseGraph(const TimeCamId& curr_kf_tcid, const std::vecto
   map_of_poses.clear();
   constraints.clear();
 
-  const Eigen::aligned_map<FrameId, Sophus::SE3f>& keyframe_poses = *map_response->keyframe_poses;
-  const CovisibilityGraph::Ptr& covisibility_graph = map_response->covisibility_graph;
+  const Eigen::aligned_map<FrameId, Sophus::SE3f>& keyframe_poses = *loop_closure_decision->keyframe_poses;
+  const CovisibilityGraph& covisibility_graph = loop_closure_decision->covisibility_graph;
 
   for (const auto& [kf_id, pose] : keyframe_poses) {
     map_of_poses[kf_id] = Pose3d{pose.translation().cast<double>(), pose.unit_quaternion().cast<double>()};
   }
 
   // add the constraints based on the relative poses of the spanning tree
-  FrameId spanning_tree_root = covisibility_graph->getRoot();
+  FrameId spanning_tree_root = covisibility_graph.getRoot();
   for (const auto& [kf_id, T_w_i] : keyframe_poses) {
     if (kf_id == spanning_tree_root) continue;
 
-    FrameId parent_kf_id = covisibility_graph->getParentId(kf_id);
+    FrameId parent_kf_id = covisibility_graph.getParentId(kf_id);
     Sophus::SE3f T_w_p = keyframe_poses.at(parent_kf_id);
     Sophus::SE3f T_p_i = T_w_p.inverse() * T_w_i;
     Constraint3d c;
@@ -659,7 +655,7 @@ void LoopClosing::buildPoseGraph(const TimeCamId& curr_kf_tcid, const std::vecto
   }
 
   // add the past loop closure constraints
-  for (const auto& [kf_id, loop_closures] : covisibility_graph->getLoopClosures()) {
+  for (const auto& [kf_id, loop_closures] : covisibility_graph.getLoopClosures()) {
     for (const auto& loop_kf_id : loop_closures) {
       if (kf_id < loop_kf_id) {
         Sophus::SE3f T_w_i = keyframe_poses.at(kf_id);
@@ -681,17 +677,17 @@ void LoopClosing::buildPoseGraph(const TimeCamId& curr_kf_tcid, const std::vecto
   // Add constraints for the most covisible keyframes
   for (const auto& [kf_id, T_w_i] : keyframe_poses) {
     std::vector<FrameId> most_covisible_kfs =
-        covisibility_graph->getCovisibleAbove(kf_id, config.loop_closing_pgo_min_covisibility_weight);
+        covisibility_graph.getCovisibleAbove(kf_id, config.loop_closing_pgo_min_covisibility_weight);
     for (const auto& covisible_kf_id : most_covisible_kfs) {
       if (kf_id >= covisible_kf_id) continue;
 
       if (kf_id != spanning_tree_root) {
-        if (covisibility_graph->getParentId(kf_id) == covisible_kf_id) {
+        if (covisibility_graph.getParentId(kf_id) == covisible_kf_id) {
           continue;  // already added as part of the spanning tree
         }
       }
       if (covisible_kf_id != spanning_tree_root) {
-        if (covisibility_graph->getParentId(covisible_kf_id) == kf_id) {
+        if (covisibility_graph.getParentId(covisible_kf_id) == kf_id) {
           continue;  // already added as part of the spanning tree
         }
       }
@@ -733,11 +729,11 @@ void LoopClosing::buildPoseGraph(const TimeCamId& curr_kf_tcid, const std::vecto
 
 void LoopClosing::restorePosesFromCeres(const MapOfPoses& map_of_poses) {
   for (const auto& [id, updated_pose] : map_of_poses) {
-    if (map_response->keyframe_poses->find(id) == map_response->keyframe_poses->end()) {
-      std::cerr << "Error: Keyframe ID " << id << " not found in map_response->keyframe_poses." << std::endl;
+    if (loop_closure_decision->keyframe_poses->find(id) == loop_closure_decision->keyframe_poses->end()) {
+      std::cerr << "Error: Keyframe ID " << id << " not found in loop_closure_decision->keyframe_poses." << std::endl;
       continue;
     }
-    Sophus::SE3f& pose = map_response->keyframe_poses->at(id);
+    Sophus::SE3f& pose = loop_closure_decision->keyframe_poses->at(id);
     pose.translation() = updated_pose.p.cast<float>();
     pose.so3() = Sophus::SO3f(updated_pose.q.cast<float>());
   }
@@ -964,8 +960,8 @@ void LoopClosing::buildOptimizationProblem(const VectorOfConstraints& constraint
   problem->SetParameterBlockConstant(pose_to_fix->second.p.data());
   problem->SetParameterBlockConstant(pose_to_fix->second.q.coeffs().data());
 
-  const std::set<FrameId>& not_marg_kfs = map_response->not_marg_kfs;
-  for (const auto& kf_id : not_marg_kfs) {
+  const std::set<FrameId>& active_keyframes = loop_closure_decision->active_keyframes;
+  for (const auto& kf_id : active_keyframes) {
     auto pose_iter = poses->find(kf_id);
     if (pose_iter != poses->end()) {
       problem->SetParameterBlockConstant(pose_iter->second.p.data());

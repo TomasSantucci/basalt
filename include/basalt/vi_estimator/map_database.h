@@ -2,7 +2,6 @@
 
 #include <basalt/hash_bow/hash_bow.h>
 #include <basalt/utils/sync_utils.h>
-#include <basalt/vi_estimator/covisibility_graph.h>
 #include <basalt/vi_estimator/landmark_database.h>
 #include <basalt/vi_estimator/map_interface.h>
 #include <basalt/vi_estimator/vio_estimator.h>
@@ -53,28 +52,6 @@ struct SpatialDistributionCube {
   Vec2 Cx, Cy, Cz;
 };
 
-struct MapUpdate {
-  using Ptr = std::shared_ptr<MapUpdate>;
-  Eigen::aligned_map<int64_t, Sophus::SE3f> keyframe_poses;
-};
-
-struct MapResponse {
-  using Ptr = std::shared_ptr<MapResponse>;
-
-  std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>> keyframe_poses;
-  CovisibilityGraph::Ptr covisibility_graph;
-  std::set<FrameId> not_marg_kfs;
-
-  bool close_loop;
-};
-
-struct MapIslandResponse {
-  using Ptr = std::shared_ptr<MapIslandResponse>;
-
-  std::vector<FrameId> island_keyframes;
-  std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Eigen::Matrix<double, 3, 1>>> landmarks_3d_map;
-};
-
 struct MapDatabaseVisualizationData {
   using Ptr = std::shared_ptr<MapDatabaseVisualizationData>;
 
@@ -119,9 +96,9 @@ class MapDatabase {
 
   void write_map_update(LoopClosingResult::Ptr& loop_closing_result);
 
-  void read_covisibility_req(std::shared_ptr<std::vector<KeypointId>>& keypoints_ptr);
+  void read_covisibility_req(std::vector<KeypointId>& keypoints);
 
-  void read_3d_points_req(FrameId keyframe, size_t neighbors_num);
+  void read_island_req(FrameId keyframe, size_t neighbors_num);
 
   void get_map_points(Eigen::aligned_vector<Vec3d>& points, std::vector<int>& ids);
 
@@ -160,17 +137,18 @@ class MapDatabase {
 
   basalt::Calibration<double> calib;
 
-  tbb::concurrent_bounded_queue<std::shared_ptr<WriteMessage>> write_queue;
-  tbb::concurrent_bounded_queue<std::shared_ptr<ReadMessage>> read_queue;
+  tbb::concurrent_bounded_queue<MapWriteMessage> write_queue;
+  tbb::concurrent_bounded_queue<MapReadMessage> read_queue;
 
-  tbb::concurrent_bounded_queue<MapUpdate::Ptr>* out_map_update_queue = nullptr;
+  tbb::concurrent_bounded_queue<OptimizedPosesUpdate::Ptr>* out_opt_poses_queue = nullptr;
   tbb::concurrent_bounded_queue<MapDatabaseVisualizationData::Ptr>* out_vis_queue = nullptr;
   tbb::concurrent_bounded_queue<LandmarkDatabase<Scalar>::Ptr>* out_covi_res_queue = nullptr;
-  tbb::concurrent_bounded_queue<MapResponse::Ptr>* out_map_res_queue;
-  tbb::concurrent_bounded_queue<MapIslandResponse::Ptr>* out_3d_points_res_queue = nullptr;
+  tbb::concurrent_bounded_queue<LoopClosureDecision::Ptr>* out_lc_dec_res_queue = nullptr;
+  tbb::concurrent_bounded_queue<IslandResponse::Ptr>* out_island_res_queue = nullptr;
 
   SyncState* sync_map_stamp = nullptr;
   SyncState* sync_lc_finished = nullptr;
+  SyncState* sync_map_marg = nullptr;
   bool deterministic;
 
   std::shared_ptr<std::unordered_map<TimeCamId, std::string>> frame_id_to_name;
@@ -186,7 +164,8 @@ class MapDatabase {
   LoopClosingResult::Ptr pending_loop_detection = nullptr;
   CovisibilityGraph::Ptr covisibility_graph;
 
-  std::set<FrameId> not_marg_kfs;
+  // These are the keyframes that have not been marginalized yet
+  std::set<FrameId> active_keyframes;
 
   // Covisibility
   Eigen::aligned_map<TimeCamId, SpatialDistributionCube<double>> keyframes_sdc;
