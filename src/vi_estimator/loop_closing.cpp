@@ -72,7 +72,7 @@ void LoopClosing::initialize() {
 
       if (config.loop_closing_dump_times) lc_time_stats.addTime(LCTimeStage::HashBowIndex, true);
 
-      loop_closing_result = std::make_shared<LoopClosingResult>();
+      loop_detection_result = std::make_shared<LoopDetectionResult>();
 
       TimeCamId best_candidate_tcid;
       Sophus::SE3f best_corrected_pose;
@@ -88,12 +88,11 @@ void LoopClosing::initialize() {
 
       if (config.loop_closing_dump_times) lc_time_stats.loop_closed = true;
 
-      loop_closing_result->keyframe_poses = nullptr;
-      loop_closing_result->candidate_kf_id = best_island[0];
-      loop_closing_result->current_kf_id = loop_closing_input->t_ns;
-      loop_closing_result->current_kf_corrected_pose = best_corrected_pose;
+      loop_detection_result->candidate_kf_id = best_island[0];
+      loop_detection_result->current_kf_id = loop_closing_input->t_ns;
+      loop_detection_result->current_kf_corrected_pose = best_corrected_pose;
 
-      if (out_map_write_queue) out_map_write_queue->push(loop_closing_result);
+      if (out_map_write_queue) out_map_write_queue->push(loop_detection_result);
       in_lc_dec_res_queue.pop(loop_closure_decision);
 
       if (!loop_closure_decision->close_loop) {
@@ -152,8 +151,10 @@ bool LoopClosing::closeLoop(const FrameId curr_kf_id, const std::vector<FrameId>
 
   restorePosesFromCeres(map_of_poses);
 
-  loop_closing_result->keyframe_poses = loop_closure_decision->keyframe_poses;
-  if (out_map_write_queue) out_map_write_queue->push(loop_closing_result);
+  auto loop_closure_result = std::make_shared<LoopClosureResult>();
+  loop_closure_result->keyframe_poses = loop_closure_decision->keyframe_poses;
+  loop_closure_result->loop_detection_result = loop_detection_result;
+  if (out_map_write_queue) out_map_write_queue->push(loop_closure_result);
 
   return true;
 }
@@ -360,8 +361,9 @@ bool LoopClosing::runLoopClosure(const LoopClosingInput::Ptr& loop_closing_input
     std::cout << std::endl;
 
     // Fuse the landmarks
-    std::unordered_map<LandmarkId, LandmarkId>& lm_fusions = loop_closing_result->lm_fusions;
-    std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>>& curr_kf_obs = loop_closing_result->curr_kf_obs;
+    std::unordered_map<LandmarkId, LandmarkId>& lm_fusions = loop_detection_result->lm_fusions;
+    std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>>& curr_kf_obs =
+        loop_detection_result->curr_kf_obs;
 
     for (const auto& [kf_id, inlier_matches_vec] : inlier_matches) {
       for (const auto& match : inlier_matches_vec) {

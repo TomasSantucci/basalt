@@ -94,7 +94,11 @@ class MapDatabase {
 
   void write_map_marg(std::set<FrameId>& keyframes_to_marg);
 
-  void write_map_update(LoopClosingResult::Ptr& loop_closing_result);
+  void handle_loop_detection(LoopDetectionResult::Ptr& loop_detection_result);
+
+  void handle_loop_closure(LoopClosureResult::Ptr& loop_closure_result);
+
+  void merge_loop_landmarks(const LoopDetectionResult::Ptr& loop_detection_result);
 
   void read_covisibility_req(std::vector<KeypointId>& keypoints);
 
@@ -161,7 +165,7 @@ class MapDatabase {
   MapDatabaseVisualizationData::Ptr map_visual_data;
   LandmarkDatabase<Scalar> map;
   std::mutex mutex;
-  LoopClosingResult::Ptr pending_loop_detection = nullptr;
+  LoopDetectionResult::Ptr pending_loop_detection = nullptr;
   CovisibilityGraph::Ptr covisibility_graph;
 
   // These are the keyframes that have not been marginalized yet

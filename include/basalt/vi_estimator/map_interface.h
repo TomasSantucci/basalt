@@ -6,17 +6,22 @@
 
 namespace basalt {
 
-struct LoopClosingResult {
+struct LoopDetectionResult {
   using Vec2 = Eigen::Matrix<float, 2, 1>;
-  using Ptr = std::shared_ptr<LoopClosingResult>;
-
-  std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>> keyframe_poses;
-  Sophus::SE3f current_kf_corrected_pose;
+  using Ptr = std::shared_ptr<LoopDetectionResult>;
 
   FrameId candidate_kf_id, current_kf_id;
+  Sophus::SE3f current_kf_corrected_pose;
 
   std::unordered_map<LandmarkId, LandmarkId> lm_fusions;
   std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>> curr_kf_obs;
+};
+
+struct LoopClosureResult {
+  using Ptr = std::shared_ptr<LoopClosureResult>;
+
+  std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3f>> keyframe_poses;
+  LoopDetectionResult::Ptr loop_detection_result;
 };
 
 struct MapStamp {
@@ -70,7 +75,8 @@ struct OptimizedPosesUpdate {
 
 struct StopMsg {};
 
-using MapWriteMessage = std::variant<MapStamp::Ptr, MarginalizationStamp::Ptr, LoopClosingResult::Ptr, StopMsg>;
+using MapWriteMessage =
+    std::variant<MapStamp::Ptr, MarginalizationStamp::Ptr, LoopDetectionResult::Ptr, LoopClosureResult::Ptr, StopMsg>;
 using MapReadMessage = std::variant<CovisibilityRequest::Ptr, IslandRequest::Ptr, StopMsg>;
 
 }  // namespace basalt
