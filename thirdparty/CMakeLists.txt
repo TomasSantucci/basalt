@@ -47,6 +47,10 @@ set_target_properties(opengv PROPERTIES CXX_STANDARD 17 DEBUG_POSTFIX "")
 
 # fix opengv: compile options (CMAKE_CXX_FLAGS is overwritten by Opengv)
 target_compile_options(opengv PRIVATE ${BASALT_MARCH_FLAGS} "SHELL:${BASALT_PASSED_CXX_FLAGS}")
+
+# fix opengv: opengv used cassert from Eigen3, with Eigen5 the include needs to be explicit
+target_compile_options(opengv PRIVATE "-include" "cassert") # only gcc and clang
+
 ignore_external_warnings(opengv)
 
 # Hack to disable CPack in Pangolin.
@@ -62,6 +66,8 @@ if(BASALT_BUILD_VISUALIZATION)
   add_subdirectory(Pangolin EXCLUDE_FROM_ALL)
 
   get_property(pangolin_targets DIRECTORY Pangolin PROPERTY BUILDSYSTEM_TARGETS)
+  list(REMOVE_ITEM pangolin_targets "uninstall") # uninstall is a UTILITY target
+
   foreach(_target ${pangolin_targets})
     ignore_external_warnings(${_target})
   endforeach()

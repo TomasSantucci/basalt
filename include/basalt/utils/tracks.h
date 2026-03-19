@@ -63,7 +63,7 @@ struct TrackBuilder {
     for (const auto& iter : map_pair_wise_matches) {
       const auto I = iter.first.first;
       const auto J = iter.first.second;
-      const MatchData& matchData = iter.second;
+      const MatchData& matchData = *iter.second;
 
       // Retrieve all shared features and add them to a set
       for (const auto& match : matchData.inliers) {
@@ -89,7 +89,7 @@ struct TrackBuilder {
     for (const auto& iter : map_pair_wise_matches) {
       const auto I = iter.first.first;
       const auto J = iter.first.second;
-      const MatchData& matchData = iter.second;
+      const MatchData& matchData = *iter.second;
       for (const auto& match : matchData.inliers) {
         const ImageFeaturePair pairI(I, match.first);
         const ImageFeaturePair pairJ(J, match.second);

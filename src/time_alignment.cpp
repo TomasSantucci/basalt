@@ -264,7 +264,7 @@ int main(int argc, char **argv) {
         err(i) = errors_vec[best_error_idx + idx];
       }
 
-      coeff = pol.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(err);
+      coeff = pol.jacobiSvd<Eigen::ComputeThinU | Eigen::ComputeThinV>().solve(err);
 
       double a = coeff[0];
       double b = coeff[1];

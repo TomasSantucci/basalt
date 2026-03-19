@@ -113,6 +113,7 @@ using Corners = tbb::concurrent_unordered_map<TimeCamId, KeypointsData, std::has
 
 /// feature matches for an image pair
 struct MatchData {
+  using Ptr = std::shared_ptr<MatchData>;
   /// estimated transformation (based on inliers or calibration) from the second
   /// image's coordinate system to the first image's corrdinate system
   Sophus::SE3d T_i_j;
@@ -125,10 +126,8 @@ struct MatchData {
 };
 
 /// feature matches is a collection of { (imageId, imageId) => MatchData }
-using Matches = tbb::concurrent_unordered_map<
-    std::pair<TimeCamId, TimeCamId>, MatchData, std::hash<std::pair<TimeCamId, TimeCamId>>,
-    std::equal_to<std::pair<TimeCamId, TimeCamId>>,
-    Eigen::aligned_allocator<std::pair<const std::pair<TimeCamId, TimeCamId>, MatchData>>>;
+using Matches = tbb::concurrent_unordered_map<std::pair<TimeCamId, TimeCamId>, MatchData::Ptr,
+                                              std::hash<std::pair<TimeCamId, TimeCamId>>>;
 
 /// pair of image and feature indices
 using ImageFeaturePair = std::pair<TimeCamId, FeatureId>;
