@@ -283,7 +283,7 @@ bool CalibHelper::initializeIntrinsics(const Eigen::aligned_vector<Eigen::Vector
         }
 
       }  // If this observation has enough valid corners
-    }    // For each row in the image.
+    }  // For each row in the image.
 
   if (success) init_intr << 0.5 * gamma0, 0.5 * gamma0, _cu, _cv;
 

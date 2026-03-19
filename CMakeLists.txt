@@ -430,8 +430,7 @@ target_compile_definitions(basalt_internal PUBLIC ${BASALT_COMPILE_DEFINITIONS})
 #target_compile_definitions(basalt_internal PUBLIC BASALT_DISABLE_ASSERTS)
 if(BASALT_BUILD_VISUALIZATION)
   target_sources(
-    basalt_internal
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/vis_utils.h
+    basalt_internal PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/vis_utils.h
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/vis_utils.cpp
   )
   target_link_libraries(basalt_internal PUBLIC pangolin)

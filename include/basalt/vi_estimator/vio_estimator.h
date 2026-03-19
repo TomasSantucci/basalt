@@ -131,8 +131,8 @@ class VioEstimatorBase {
     }
   }
 
-  virtual void scheduleResetState(){};
-  virtual void takeLongTermKeyframe(){};
+  virtual void scheduleResetState() {};
+  virtual void takeLongTermKeyframe() {};
 
   virtual inline void debug_finalize() {}
 

@@ -63,6 +63,27 @@ gcc-ubuntu-2404-wtest:
     reports:
       dotenv: release.env
 
+gcc-ubuntu-2604-wtest:
+  extends: .ccache
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2604
+  stage: build
+  when: manual
+  script:
+    - echo BUILD_UBUNTU_2604_JOB_ID=$CI_JOB_ID >> release.env
+    - cmake --preset=ci-test
+    - time cmake --build build
+    - ctest --output-on-failure --test-dir build
+    - cd build && cpack
+    - mv *.deb ../basalt-monado-ubuntu-26.04-haswell-amd64.deb
+  artifacts:
+    name: basalt-monado-ubuntu-26.04-haswell-amd64
+    expose_as: "basalt-monado-ubuntu-2604-haswell-amd64-deb"
+    paths:
+      - "basalt-monado-ubuntu-26.04-haswell-amd64.deb"
+    reports:
+      dotenv: release.env
+
+
 clang19-ubuntu-2404:
   extends: .ccache
   image: registry.freedesktop.org/mateosss/basalt:ubuntu2404
@@ -71,6 +92,17 @@ clang19-ubuntu-2404:
   script:
     - apt-get update && apt-get install -y clang-19
     - export CC=clang-19 CXX=clang++-19
+    - cmake --preset=ci
+    - time cmake --build build
+
+clang21-ubuntu-2604: # This tries to be the latest clang/ubuntu LTS combo
+  extends: .ccache
+  image: registry.freedesktop.org/mateosss/basalt:ubuntu2604
+  stage: build
+  when: manual
+  script:
+    - apt-get update && apt-get install -y clang-21
+    - export CC=clang-21 CXX=clang++-21
     - cmake --preset=ci
     - time cmake --build build
 
@@ -179,7 +211,7 @@ release:
     - echo "Releasing artifacts of previous jobs"
     - curl --location --output /usr/local/bin/release-cli "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64"
     - chmod +x /usr/local/bin/release-cli
-  needs: ["gcc-ubuntu-2204", "gcc-ubuntu-2404-wtest", "aarch64-raspberry-bookworm", "aarch64-radxa-jammy", "aarch64-radxa-bullseye"]
+  needs: ["gcc-ubuntu-2204", "gcc-ubuntu-2404-wtest", "gcc-ubuntu-2604-wtest", "aarch64-raspberry-bookworm", "aarch64-radxa-jammy", "aarch64-radxa-bullseye"]
   release:
     name: "Release of $CI_COMMIT_SHORT_SHA"
     tag_name: "release-$CI_COMMIT_SHORT_SHA"
@@ -191,6 +223,9 @@ release:
           link_type: package
         - name: "Ubuntu 24.04 .deb (lib only, amd64, -march=haswell)"
           url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_UBUNTU_2404_JOB_ID}/artifacts/raw/basalt-monado-ubuntu-24.04-haswell-amd64.deb"
+          link_type: package
+        - name: "Ubuntu 26.04 .deb (lib only, amd64, -march=haswell)"
+          url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_UBUNTU_2604_JOB_ID}/artifacts/raw/basalt-monado-ubuntu-26.04-haswell-amd64.deb"
           link_type: package
         - name: "Raspberry Pi 4: Raspberry OS Bookworm 12.5 .deb (aarch64, -mcpu=cortex-a72)"
           url: "https://gitlab.freedesktop.org/mateosss/basalt/-/jobs/${BUILD_RASPBERRY_BOOKWORM_JOB_ID}/artifacts/raw/basalt-monado-raspberry-bookworm-pi4-aarch64.deb"

@@ -62,7 +62,7 @@ class LandmarkBlock {
 
   using RowMat3 = Eigen::Matrix<Scalar, 3, 3, Eigen::RowMajor>;
 
-  virtual ~LandmarkBlock(){};
+  virtual ~LandmarkBlock() {};
 
   virtual bool isNumericalFailure() const = 0;
   virtual void allocateLandmark(

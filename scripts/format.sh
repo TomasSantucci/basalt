@@ -18,7 +18,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 FOLDER="${1:-$SCRIPT_DIR/../include $SCRIPT_DIR/../src $SCRIPT_DIR/../test/src}"
 
-CLANG_FORMAT_COMMANDS="clang-format-15"
+CLANG_FORMAT_COMMANDS="clang-format-20"
 
 # find the first available command:
 for CMD in $CLANG_FORMAT_COMMANDS; do

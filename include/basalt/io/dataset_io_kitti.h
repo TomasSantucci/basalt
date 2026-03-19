@@ -64,7 +64,7 @@ class KittiVioDataset : public VioDataset {
   int64_t mocap_to_imu_offset_ns;
 
  public:
-  ~KittiVioDataset(){};
+  ~KittiVioDataset() {};
 
   size_t get_num_cams() const { return num_cams; }
 

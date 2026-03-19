@@ -13,4 +13,6 @@ ColumnLimit:    120
 # AllowShortLambdasOnASingleLine: All
 # AllowShortLoopsOnASingleLine: true
 # AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+# AllowShortCaseExpressionOnASingleLine: true
+# AllowShortNamespacesOnASingleLine: true
 ...

@@ -112,7 +112,7 @@ struct AprilgridCornersData {
 
 class VioDataset {
  public:
-  virtual ~VioDataset(){};
+  virtual ~VioDataset() {};
 
   virtual size_t get_num_cams() const = 0;
 
@@ -136,7 +136,7 @@ class DatasetIoInterface {
   virtual void reset() = 0;
   virtual VioDatasetPtr get_data() = 0;
 
-  virtual ~DatasetIoInterface(){};
+  virtual ~DatasetIoInterface() {};
 };
 
 typedef std::shared_ptr<DatasetIoInterface> DatasetIoInterfacePtr;

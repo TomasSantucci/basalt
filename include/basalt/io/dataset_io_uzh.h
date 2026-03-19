@@ -67,7 +67,7 @@ class UzhVioDataset : public VioDataset {
   std::vector<std::unordered_map<int64_t, double>> exposure_times;
 
  public:
-  ~UzhVioDataset(){};
+  ~UzhVioDataset() {};
 
   size_t get_num_cams() const { return num_cams; }
 
