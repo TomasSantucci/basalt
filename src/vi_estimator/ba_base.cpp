@@ -134,9 +134,7 @@ void BundleAdjustmentBase<Scalar_>::computeError(Scalar& error,
                                                  std::map<int, std::vector<std::pair<TimeCamId, Scalar>>>* outliers,
                                                  Scalar outlier_threshold) const {
   std::vector<TimeCamId> host_frames;
-  for (const auto& [tcid, _] : lmdb.getObservations()) {
-    host_frames.push_back(tcid);
-  }
+  for (const auto& [tcid, _] : lmdb.getObservations()) { host_frames.push_back(tcid); }
 
   tbb::concurrent_unordered_map<int, std::vector<std::pair<TimeCamId, Scalar>>> outliers_concurrent;
 
@@ -183,9 +181,7 @@ void BundleAdjustmentBase<Scalar_>::computeError(Scalar& error,
 
                   local_error += Scalar(0.5) * (2 - huber_weight) * obs_weight * res.transpose() * res;
                 } else {
-                  if (outliers) {
-                    outliers_concurrent[kpt_id].emplace_back(tcid_t, tcid_h != tcid_t ? -1 : -2);
-                  }
+                  if (outliers) { outliers_concurrent[kpt_id].emplace_back(tcid_t, tcid_h != tcid_t ? -1 : -2); }
                 }
               }
             },
@@ -203,9 +199,7 @@ void BundleAdjustmentBase<Scalar_>::computeError(Scalar& error,
 
   if (outliers) {
     outliers->clear();
-    for (auto& [k, v] : outliers_concurrent) {
-      outliers->emplace(k, std::move(v));
-    }
+    for (auto& [k, v] : outliers_concurrent) { outliers->emplace(k, std::move(v)); }
   }
 }
 

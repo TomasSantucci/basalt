@@ -113,9 +113,7 @@ void detectKeypointsMapping(const basalt::Image<const uint16_t>& img_raw, Keypoi
   uint8_t* dst = image.ptr();
   const uint16_t* src = img_raw.ptr;
 
-  for (size_t i = 0; i < img_raw.size(); i++) {
-    dst[i] = (src[i] >> 8);
-  }
+  for (size_t i = 0; i < img_raw.size(); i++) { dst[i] = (src[i] >> 8); }
 
   std::vector<cv::Point2f> points;
   goodFeaturesToTrack(image, points, num_features, 0.01, 8);
@@ -155,9 +153,7 @@ void detectKeypointsWithCells(const basalt::Image<const uint16_t>& img_raw, Keyp
 
       for (int y = 0; y < PATCH_SIZE; y++) {
         uchar* sub_ptr = subImg.ptr(y);
-        for (int x = 0; x < PATCH_SIZE; x++) {
-          sub_ptr[x] = (sub_img_raw(x, y) >> 8);
-        }
+        for (int x = 0; x < PATCH_SIZE; x++) { sub_ptr[x] = (sub_img_raw(x, y) >> 8); }
       }
 
       int points_added = 0;
@@ -317,9 +313,7 @@ void matchFastHelper(const std::vector<std::bitset<256>>& corner_descriptors_1,
       }
     }
 
-    if (best_dist < threshold && best_dist * test_dist <= best2_dist) {
-      matches.emplace(i, best_idx);
-    }
+    if (best_dist < threshold && best_dist * test_dist <= best2_dist) { matches.emplace(i, best_idx); }
   }
 }
 
@@ -333,9 +327,7 @@ void matchDescriptors(const std::vector<std::bitset<256>>& corner_descriptors_1,
   matchFastHelper(corner_descriptors_2, corner_descriptors_1, matches_2_1, threshold, dist_2_best);
 
   for (const auto& kv : matches_1_2) {
-    if (matches_2_1[kv.second] == kv.first) {
-      matches.emplace_back(kv.first, kv.second);
-    }
+    if (matches_2_1[kv.second] == kv.first) { matches.emplace_back(kv.first, kv.second); }
   }
 }
 

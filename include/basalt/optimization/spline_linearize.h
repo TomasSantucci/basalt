@@ -199,9 +199,7 @@ struct LinearizeSplineOpt : public LinearizeBase<Scalar> {
       Vector3 residual = spline->accelResidual(t, pm.data, this->common_data.calibration->calib_accel_bias,
                                                *(this->common_data.g), &J, &J_bias, &J_g);
 
-      if (!this->common_data.opt_imu_scale) {
-        J_bias.template block<3, 6>(0, 3).setZero();
-      }
+      if (!this->common_data.opt_imu_scale) { J_bias.template block<3, 6>(0, 3).setZero(); }
 
       //      std::cerr << "================================" << std::endl;
       //      std::cerr << "accel res: " << residual.transpose() << std::endl;
@@ -283,9 +281,7 @@ struct LinearizeSplineOpt : public LinearizeBase<Scalar> {
       Vector3 residual =
           spline->gyroResidual(t_ns, pm.data, this->common_data.calibration->calib_gyro_bias, &J, &J_bias);
 
-      if (!this->common_data.opt_imu_scale) {
-        J_bias.template block<3, 9>(0, 3).setZero();
-      }
+      if (!this->common_data.opt_imu_scale) { J_bias.template block<3, 9>(0, 3).setZero(); }
 
       //      std::cerr << "==============================" << std::endl;
       //      std::cerr << "residual " << residual.transpose() << std::endl;

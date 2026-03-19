@@ -300,9 +300,7 @@ class vit_tracker_ui : public vis::VIOUIBase {
 
       img_view_display->Activate();
 
-      if (fixed_depth.GuiChanged() && opt_flow_depth_queue != nullptr) {
-        opt_flow_depth_queue->push(fixed_depth);
-      }
+      if (fixed_depth.GuiChanged() && opt_flow_depth_queue != nullptr) { opt_flow_depth_queue->push(fixed_depth); }
       depth_guess = opt_flow->depth_guess;
 
       pangolin::GlPixFormat fmt;

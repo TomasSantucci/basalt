@@ -311,9 +311,7 @@ class MultiscaleFrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, 
 
         t2 -= off;  // This modifies transform_2
 
-        if (show_gui) {
-          guesses_tbb[id] = transform_2;
-        }
+        if (show_gui) { guesses_tbb[id] = transform_2; }
 
         valid = t2(0) >= 0 && t2(1) >= 0 && t2(0) < pyr_2.lvl(0).w && t2(1) < pyr_2.lvl(0).h;
         if (!valid) continue;
@@ -373,15 +371,11 @@ class MultiscaleFrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, 
         patch_valid &= trackPointAtLevel(pyr.lvl(level), p, transform_tmp);
       }
 
-      if (level == int(pyramid_level) + 1 && !patch_valid) {
-        return false;
-      }
+      if (level == int(pyramid_level) + 1 && !patch_valid) { return false; }
 
       transform_tmp.translation() *= scale;
 
-      if (patch_valid) {
-        transform = transform_tmp;
-      }
+      if (patch_valid) { transform = transform_tmp; }
     }
 
     transform.linear() = old_transform.linear() * transform.linear();
@@ -556,23 +550,17 @@ class MultiscaleFrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, 
         const double epipolar_error = std::abs(p3d0[i].transpose() * E[cam_id] * p3d1[i]);
 
         const Scalar scale = 1 << transforms->pyramid_levels.at(cam_id).at(kpids[i]);
-        if (epipolar_error > config.optical_flow_epipolar_error * scale) {
-          kp_to_remove.emplace(kpids[i]);
-        }
+        if (epipolar_error > config.optical_flow_epipolar_error * scale) { kp_to_remove.emplace(kpids[i]); }
       } else {
         kp_to_remove.emplace(kpids[i]);
       }
     }
 
-    for (int id : kp_to_remove) {
-      transforms->keypoints.at(cam_id).erase(id);
-    }
+    for (int id : kp_to_remove) { transforms->keypoints.at(cam_id).erase(id); }
   }
 
   void filterPoints() {
-    for (size_t i = 1; i < getNumCams(); i++) {
-      filterPointsForCam(i);
-    }
+    for (size_t i = 1; i < getNumCams(); i++) { filterPointsForCam(i); }
   }
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW

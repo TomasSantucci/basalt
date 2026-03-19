@@ -211,9 +211,7 @@ int main(int argc, char** argv) {
 
   try {
     app.parse(argc, argv);
-  } catch (const CLI::ParseError& e) {
-    return app.exit(e);
-  }
+  } catch (const CLI::ParseError& e) { return app.exit(e); }
 
   // global thread limit is in effect until global_control object is destroyed
   std::unique_ptr<tbb::global_control> tbb_global_control;
@@ -422,9 +420,7 @@ int main(int argc, char** argv) {
       img_view_display.Activate();
 
       if (show_frame.GuiChanged()) {
-        for (size_t i = 0; i < calib.intrinsics.size(); i++) {
-          img_view[i]->SetImage(images[i]);
-        }
+        for (size_t i = 0; i < calib.intrinsics.size(); i++) { img_view[i]->SetImage(images[i]); }
         draw_plots();
       }
 
@@ -751,9 +747,7 @@ void gen_data() {
       int64_t t_ns = gt_spline.getDtNs();
 
       Eigen::aligned_vector<Sophus::SE3d> knots;
-      for (size_t i = 0; i < gt_spline.numKnots(); i++) {
-        knots.push_back(gt_spline.getKnot(i));
-      }
+      for (size_t i = 0; i < gt_spline.numKnots(); i++) { knots.push_back(gt_spline.getKnot(i)); }
 
       archive(cereal::make_nvp("t_ns", t_ns));
       archive(cereal::make_nvp("knots", knots));
@@ -870,9 +864,7 @@ void setup_vio(const std::string& config_path) {
   std::cout << "vel_w_i " << vel_w_i_init.transpose() << std::endl;
 
   basalt::VioConfig config;
-  if (!config_path.empty()) {
-    config.load(config_path);
-  }
+  if (!config_path.empty()) { config.load(config_path); }
 
   vio = basalt::VioEstimatorFactory::getVioEstimator(config, calib, basalt::constants::g, use_imu, use_double);
   vio->initialize(t_init_ns, T_w_i_init, vel_w_i_init, gt_gyro_bias.front(), gt_accel_bias.front());

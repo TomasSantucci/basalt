@@ -264,9 +264,7 @@ Scalar LinearizationAbsQR<Scalar, POSE_SIZE>::linearizeProblem(bool* numerically
   if (numerically_valid) *numerically_valid = reduction_res.second;
 
   if (imu_lin_data) {
-    for (auto& imu_block : imu_blocks) {
-      reduction_res.first += imu_block->linearizeImu(estimator->frame_states);
-    }
+    for (auto& imu_block : imu_blocks) { reduction_res.first += imu_block->linearizeImu(estimator->frame_states); }
   }
 
   if (marg_lin_data) {
@@ -281,9 +279,7 @@ Scalar LinearizationAbsQR<Scalar, POSE_SIZE>::linearizeProblem(bool* numerically
 template <typename Scalar, int POSE_SIZE>
 void LinearizationAbsQR<Scalar, POSE_SIZE>::performQR() {
   auto body = [&](const tbb::blocked_range<size_t>& range) {
-    for (size_t r = range.begin(); r != range.end(); ++r) {
-      landmark_blocks[r]->performQR();
-    }
+    for (size_t r = range.begin(); r != range.end(); ++r) { landmark_blocks[r]->performQR(); }
   };
 
   tbb::blocked_range<size_t> range(0, landmark_block_idx.size());
@@ -303,9 +299,7 @@ Scalar LinearizationAbsQR<Scalar, POSE_SIZE>::backSubstitute(const VecX& pose_in
   BASALT_ASSERT(pose_inc.size() == signed_cast(aom.total_size));
 
   auto body = [&](const tbb::blocked_range<size_t>& range, Scalar l_diff) {
-    for (size_t r = range.begin(); r != range.end(); ++r) {
-      landmark_blocks[r]->backSubstitute(pose_inc, l_diff);
-    }
+    for (size_t r = range.begin(); r != range.end(); ++r) { landmark_blocks[r]->backSubstitute(pose_inc, l_diff); }
     return l_diff;
   };
 
@@ -313,9 +307,7 @@ Scalar LinearizationAbsQR<Scalar, POSE_SIZE>::backSubstitute(const VecX& pose_in
   Scalar l_diff = tbb::parallel_deterministic_reduce(range, Scalar(0), body, std::plus<Scalar>());
 
   if (imu_lin_data) {
-    for (auto& imu_block : imu_blocks) {
-      imu_block->backSubstitute(pose_inc, l_diff);
-    }
+    for (auto& imu_block : imu_blocks) { imu_block->backSubstitute(pose_inc, l_diff); }
   }
 
   if (marg_lin_data) {
@@ -362,9 +354,7 @@ typename LinearizationAbsQR<Scalar, POSE_SIZE>::VecX LinearizationAbsQR<Scalar, 
   tbb::parallel_deterministic_reduce(range, r);
 
   if (imu_lin_data) {
-    for (auto& imu_block : imu_blocks) {
-      imu_block->addJp_diag2(r.res_);
-    }
+    for (auto& imu_block : imu_blocks) { imu_block->addJp_diag2(r.res_); }
   }
 
   // TODO: We don't include pose damping here, b/c we use this to compute
@@ -392,9 +382,7 @@ typename LinearizationAbsQR<Scalar, POSE_SIZE>::VecX LinearizationAbsQR<Scalar, 
 template <typename Scalar, int POSE_SIZE>
 void LinearizationAbsQR<Scalar, POSE_SIZE>::scaleJl_cols() {
   auto body = [&](const tbb::blocked_range<size_t>& range) {
-    for (size_t r = range.begin(); r != range.end(); ++r) {
-      landmark_blocks[r]->scaleJl_cols();
-    }
+    for (size_t r = range.begin(); r != range.end(); ++r) { landmark_blocks[r]->scaleJl_cols(); }
   };
 
   tbb::blocked_range<size_t> range(0, landmark_block_idx.size());
@@ -416,9 +404,7 @@ void LinearizationAbsQR<Scalar, POSE_SIZE>::scaleJp_cols(const VecX& jacobian_sc
     // In case of absolute poses, we scale Jp in the LMB.
 
     auto body = [&](const tbb::blocked_range<size_t>& range) {
-      for (size_t r = range.begin(); r != range.end(); ++r) {
-        landmark_blocks[r]->scaleJp_cols(jacobian_scaling);
-      }
+      for (size_t r = range.begin(); r != range.end(); ++r) { landmark_blocks[r]->scaleJp_cols(jacobian_scaling); }
     };
 
     tbb::blocked_range<size_t> range(0, landmark_block_idx.size());
@@ -450,9 +436,7 @@ void LinearizationAbsQR<Scalar, POSE_SIZE>::scaleJp_cols(const VecX& jacobian_sc
   }
 
   if (imu_lin_data) {
-    for (auto& imu_block : imu_blocks) {
-      imu_block->scaleJp_cols(jacobian_scaling);
-    }
+    for (auto& imu_block : imu_blocks) { imu_block->scaleJp_cols(jacobian_scaling); }
   }
 
   // Add marginalization scaling
@@ -468,9 +452,7 @@ void LinearizationAbsQR<Scalar, POSE_SIZE>::scaleJp_cols(const VecX& jacobian_sc
 template <typename Scalar, int POSE_SIZE>
 void LinearizationAbsQR<Scalar, POSE_SIZE>::setLandmarkDamping(Scalar lambda) {
   auto body = [&](const tbb::blocked_range<size_t>& range) {
-    for (size_t r = range.begin(); r != range.end(); ++r) {
-      landmark_blocks[r]->setLandmarkDamping(lambda);
-    }
+    for (size_t r = range.begin(); r != range.end(); ++r) { landmark_blocks[r]->setLandmarkDamping(lambda); }
   };
 
   tbb::blocked_range<size_t> range(0, landmark_block_idx.size());
@@ -486,15 +468,11 @@ void LinearizationAbsQR<Scalar, POSE_SIZE>::get_dense_Q2Jp_Q2r(MatX& Q2Jp, VecX&
 
   // Space for IMU data if present
   size_t imu_start_idx = total_size;
-  if (imu_lin_data) {
-    total_size += imu_lin_data->imu_meas.size() * POSE_VEL_BIAS_SIZE;
-  }
+  if (imu_lin_data) { total_size += imu_lin_data->imu_meas.size() * POSE_VEL_BIAS_SIZE; }
 
   // Space for damping if present
   size_t damping_start_idx = total_size;
-  if (hasPoseDamping()) {
-    total_size += poses_size;
-  }
+  if (hasPoseDamping()) { total_size += poses_size; }
 
   // Space for marg-prior if present
   size_t marg_start_idx = total_size;
@@ -616,9 +594,7 @@ void LinearizationAbsQR<Scalar, POSE_SIZE>::get_dense_Q2Jp_Q2r_marg_prior(MatX& 
 
 template <typename Scalar, int POSE_SIZE>
 void LinearizationAbsQR<Scalar, POSE_SIZE>::add_dense_H_b_pose_damping(MatX& H) const {
-  if (hasPoseDamping()) {
-    H.diagonal().array() += pose_damping_diagonal;
-  }
+  if (hasPoseDamping()) { H.diagonal().array() += pose_damping_diagonal; }
 }
 
 template <typename Scalar, int POSE_SIZE>
@@ -658,9 +634,7 @@ template <typename Scalar, int POSE_SIZE>
 void LinearizationAbsQR<Scalar, POSE_SIZE>::add_dense_H_b_imu(DenseAccumulator<Scalar>& accum) const {
   if (!imu_lin_data) return;
 
-  for (const auto& imu_block : imu_blocks) {
-    imu_block->add_dense_H_b(accum);
-  }
+  for (const auto& imu_block : imu_blocks) { imu_block->add_dense_H_b(accum); }
 }
 
 template <typename Scalar, int POSE_SIZE>
@@ -672,9 +646,7 @@ void LinearizationAbsQR<Scalar, POSE_SIZE>::add_dense_H_b_imu(MatX& H, VecX& b) 
   DenseAccumulator<Scalar> accum;
   accum.reset(b.size());
 
-  for (const auto& imu_block : imu_blocks) {
-    imu_block->add_dense_H_b(accum);
-  }
+  for (const auto& imu_block : imu_blocks) { imu_block->add_dense_H_b(accum); }
 
   H += accum.getH();
   b += accum.getB();

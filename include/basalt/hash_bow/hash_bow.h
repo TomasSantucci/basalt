@@ -24,9 +24,7 @@ class HashBow {
 
   inline FeatureHash compute_hash(const std::bitset<N>& descriptor) const {
     FeatureHash res;
-    for (size_t i = 0; i < num_bits; ++i) {
-      res[i] = descriptor[word_bit_permutation[i]];
-    }
+    for (size_t i = 0; i < num_bits; ++i) { res[i] = descriptor[word_bit_permutation[i]]; }
     return res;
   }
 
@@ -52,9 +50,7 @@ class HashBow {
       l1_sum += std::abs(kv.second);
     }
 
-    for (auto& kv : bow_vector) {
-      kv.second /= l1_sum;
-    }
+    for (auto& kv : bow_vector) { kv.second /= l1_sum; }
   }
 
   inline void add_to_database(const TimeCamId& tcid, const HashBowVector& bow_vector) {

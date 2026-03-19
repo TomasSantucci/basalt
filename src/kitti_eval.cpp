@@ -165,9 +165,7 @@ int main(int argc, char** argv) {
 
   try {
     app.parse(argc, argv);
-  } catch (const CLI::ParseError& e) {
-    return app.exit(e);
-  }
+  } catch (const CLI::ParseError& e) { return app.exit(e); }
 
   const Eigen::aligned_vector<Sophus::SE3d> poses_gt = load_poses(gt_path);
   const Eigen::aligned_vector<Sophus::SE3d> poses_result = load_poses(traj_path);

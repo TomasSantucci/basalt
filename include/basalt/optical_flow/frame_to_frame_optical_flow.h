@@ -341,9 +341,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
 
         t2 -= off;  // This modifies transform_2
 
-        if (show_gui) {
-          guesses_tbb[id] = transform_2;
-        }
+        if (show_gui) { guesses_tbb[id] = transform_2; }
 
         valid = t2(0) >= 0 && t2(1) >= 0 && t2(0) < w && t2(1) < h;
         if (!valid) continue;
@@ -363,9 +361,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
 
         Scalar dist2 = (t1 - t1_recovered).squaredNorm();
 
-        if (dist2 < config.optical_flow_max_recovered_dist2) {
-          result[id] = transform_2;
-        }
+        if (dist2 < config.optical_flow_max_recovered_dist2) { result[id] = transform_2; }
       }
     };
 
@@ -695,9 +691,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
       if (p3d0_success[i] && p3d1_success[i]) {
         const double epipolar_error = std::abs(p3d0[i].transpose() * E[cam_id] * p3d1[i]);
 
-        if (epipolar_error > config.optical_flow_epipolar_error) {
-          kp_to_remove.emplace(kpids[i]);
-        }
+        if (epipolar_error > config.optical_flow_epipolar_error) { kp_to_remove.emplace(kpids[i]); }
       } else {
         kp_to_remove.emplace(kpids[i]);
       }
@@ -707,9 +701,7 @@ class FrameToFrameOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
   }
 
   void filterPoints() {
-    for (size_t i = 1; i < getNumCams(); i++) {
-      filterPointsForCam(i);
-    }
+    for (size_t i = 1; i < getNumCams(); i++) { filterPointsForCam(i); }
   }
 
   void updateCellCounts(size_t cam_id) {

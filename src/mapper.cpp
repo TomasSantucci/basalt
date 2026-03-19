@@ -164,19 +164,13 @@ int main(int argc, char** argv) {
 
   try {
     app.parse(argc, argv);
-  } catch (const CLI::ParseError& e) {
-    return app.exit(e);
-  }
+  } catch (const CLI::ParseError& e) { return app.exit(e); }
 
-  if (!config_path.empty()) {
-    vio_config.load(config_path);
-  }
+  if (!config_path.empty()) { vio_config.load(config_path); }
 
   load_data(cam_calib_path, marg_data_path);
 
-  for (auto& kv : marg_data) {
-    nrf_mapper->addMargData(kv.second);
-  }
+  for (auto& kv : marg_data) { nrf_mapper->addMargData(kv.second); }
 
   computeEdgeVis();
 
@@ -192,9 +186,7 @@ int main(int argc, char** argv) {
     show_cam2.Meta().range[1] = calib.intrinsics.size() - 1;
     if (calib.intrinsics.size() > 1) show_cam2 = 1;
 
-    for (const auto& kv : nrf_mapper->img_data) {
-      image_t_ns.emplace_back(kv.first);
-    }
+    for (const auto& kv : nrf_mapper->img_data) { image_t_ns.emplace_back(kv.first); }
 
     std::sort(image_t_ns.begin(), image_t_ns.end());
   }
@@ -280,13 +272,9 @@ int main(int argc, char** argv) {
         }
       }
 
-      if (euroc_fmt.GuiChanged()) {
-        tum_rgbd_fmt = !euroc_fmt;
-      }
+      if (euroc_fmt.GuiChanged()) { tum_rgbd_fmt = !euroc_fmt; }
 
-      if (tum_rgbd_fmt.GuiChanged()) {
-        euroc_fmt = !tum_rgbd_fmt;
-      }
+      if (tum_rgbd_fmt.GuiChanged()) { euroc_fmt = !tum_rgbd_fmt; }
 
       if (show_frame2.GuiChanged() || show_cam2.GuiChanged()) {
         size_t frame_id = static_cast<size_t>(show_frame2);
@@ -407,9 +395,7 @@ void draw_image_overlay(pangolin::View& v, size_t view_id) {
       idx = 0;
     } else {
       it = nrf_mapper->feature_matches.find(std::make_pair(o_tcid, tcid));
-      if (it != nrf_mapper->feature_matches.end()) {
-        idx = 1;
-      }
+      if (it != nrf_mapper->feature_matches.end()) { idx = 1; }
     }
 
     if (idx >= 0 && show_matches) {
@@ -429,9 +415,7 @@ void draw_image_overlay(pangolin::View& v, size_t view_id) {
 
           pangolin::glDrawLine(c, c + r);
 
-          if (show_ids) {
-            FONT.Text("%d", i).Draw(c[0], c[1]);
-          }
+          if (show_ids) { FONT.Text("%d", i).Draw(c[0], c[1]); }
         }
 
         FONT.Text("Detected %d matches", it->second->matches.size()).Draw(5, text_row);
@@ -458,9 +442,7 @@ void draw_image_overlay(pangolin::View& v, size_t view_id) {
 
           pangolin::glDrawLine(c, c + r);
 
-          if (show_ids) {
-            FONT.Text("%d", i).Draw(c[0], c[1]);
-          }
+          if (show_ids) { FONT.Text("%d", i).Draw(c[0], c[1]); }
         }
 
         FONT.Text("Detected %d inliers", it->second->inliers.size()).Draw(5, text_row);
@@ -493,9 +475,7 @@ void draw_scene() {
   glColor3f(1.0, 0.0, 0.0);
   if (show_edges) pangolin::glDrawLines(rel_edges_vis);
 
-  for (const auto& kv : nrf_mapper->getFramePoses()) {
-    pangolin::glDrawAxis(kv.second.getPose().matrix(), 0.1);
-  }
+  for (const auto& kv : nrf_mapper->getFramePoses()) { pangolin::glDrawAxis(kv.second.getPose().matrix(), 0.1); }
 
   pangolin::glDrawAxis(Sophus::SE3d().matrix(), 1.0);
 }

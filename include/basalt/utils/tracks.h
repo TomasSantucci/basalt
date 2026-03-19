@@ -130,9 +130,7 @@ struct TrackBuilder {
 
     // - track that are too short,
     for (const auto& val : tracks) {
-      if (val.second.size() < minimumTrackLength) {
-        problematic_track_id.insert(val.first);
-      }
+      if (val.second.size() < minimumTrackLength) { problematic_track_id.insert(val.first); }
     }
 
     for (uint32_t& root_index : uf_tree.m_cc_parent) {
@@ -163,9 +161,7 @@ struct TrackBuilder {
       const TrackId track_id = uf_tree.Find(iter.second);
       const ImageFeaturePair& feat = iter.first;
       // ensure never add rejected elements (track marked as invalid)
-      if (track_id != UnionFind::InvalidIndex()) {
-        tracks[track_id].emplace(feat);
-      }
+      if (track_id != UnionFind::InvalidIndex()) { tracks[track_id].emplace(feat); }
     }
   }
 };
@@ -187,9 +183,7 @@ bool GetTracksInImages(const std::set<TimeCamId>& image_ids, const FeatureTracks
       }
     }
 
-    if (observed_image_count == image_ids.size()) {
-      shared_track_ids.push_back(kv_track.first);
-    }
+    if (observed_image_count == image_ids.size()) { shared_track_ids.push_back(kv_track.first); }
   }
   return !shared_track_ids.empty();
 }
@@ -207,9 +201,7 @@ bool GetSharedTracks(const TimeCamId& image_id, const FeatureTracks& all_tracks,
   track_ids.clear();
   for (const auto& kv : landmarks) {
     const TrackId trackId = kv.first;
-    if (all_tracks.at(trackId).count(image_id) > 0) {
-      track_ids.push_back(trackId);
-    }
+    if (all_tracks.at(trackId).count(image_id) > 0) { track_ids.push_back(trackId); }
   }
   return !track_ids.empty();
 }

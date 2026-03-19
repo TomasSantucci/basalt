@@ -128,9 +128,7 @@ class KittiIO : public DatasetIoInterface {
 
     read_image_timestamps(path + "/times.txt");
 
-    if (fs::exists(path + "/poses.txt")) {
-      read_gt_data_pose(path + "/poses.txt");
-    }
+    if (fs::exists(path + "/poses.txt")) { read_gt_data_pose(path + "/poses.txt"); }
   }
 
   void reset() { data.reset(); }

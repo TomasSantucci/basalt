@@ -135,9 +135,7 @@ void NfrMapper::processMargData(MargData& m) {
 
   // save image data
   {
-    for (const auto& v : m.opt_flow_res) {
-      img_data[v->t_ns] = v->input_images;
-    }
+    for (const auto& v : m.opt_flow_res) { img_data[v->t_ns] = v->input_images; }
   }
 }
 
@@ -189,15 +187,11 @@ bool NfrMapper::extractNonlinearFactors(MargData& m) {
       rpf.cov_inv.setIdentity();
     }
 
-    if (m.use_imu) {
-      roll_pitch_factors.emplace_back(rpf);
-    }
+    if (m.use_imu) { roll_pitch_factors.emplace_back(rpf); }
   }
 
   for (int64_t other_id : m.kfs_all) {
-    if (m.frame_poses.count(other_id) == 0 || other_id == kf_id) {
-      continue;
-    }
+    if (m.frame_poses.count(other_id) == 0 || other_id == kf_id) { continue; }
 
     auto state_o = m.frame_poses.at(other_id);
 
@@ -221,9 +215,7 @@ bool NfrMapper::extractNonlinearFactors(MargData& m) {
     rpf.T_i_j = T_kf_o;
     rpf.cov_inv.setIdentity();
 
-    if (!config.mapper_no_factor_weights) {
-      cov_new.ldlt().solveInPlace(rpf.cov_inv);
-    }
+    if (!config.mapper_no_factor_weights) { cov_new.ldlt().solveInPlace(rpf.cov_inv); }
 
     // std::cout << "rpf.cov_inv\n" << rpf.cov_inv << std::endl;
 
@@ -355,9 +347,7 @@ void NfrMapper::optimize(int num_iterations) {
 
         max_iter--;
 
-        if (after_error_total > error_total) {
-          std::cout << "increased error after update!!!" << std::endl;
-        }
+        if (after_error_total > error_total) { std::cout << "increased error after update!!!" << std::endl; }
       }
     } else {  // Use Gauss-Newton
       Eigen::VectorXd Hdiag_lambda = Hdiag * min_lambda;
@@ -429,9 +419,7 @@ void NfrMapper::computeRollPitch(double& roll_pitch_error) {
 void NfrMapper::detect_keypoints() {
   std::vector<int64_t> keys;
   for (const auto& kv : img_data) {
-    if (frame_poses.count(kv.first) > 0) {
-      keys.emplace_back(kv.first);
-    }
+    if (frame_poses.count(kv.first) > 0) { keys.emplace_back(kv.first); }
   }
 
   auto t1 = std::chrono::high_resolution_clock::now();
@@ -631,14 +619,10 @@ void NfrMapper::build_tracks() {
 
   // info
   size_t inlier_match_count = 0;
-  for (const auto& it : feature_matches) {
-    inlier_match_count += it.second->inliers.size();
-  }
+  for (const auto& it : feature_matches) { inlier_match_count += it.second->inliers.size(); }
 
   size_t total_track_obs_count = 0;
-  for (const auto& it : feature_tracks) {
-    total_track_obs_count += it.second.size();
-  }
+  for (const auto& it : feature_tracks) { total_track_obs_count += it.second.size(); }
 
   std::cout << "Built " << feature_tracks.size() << " feature tracks from " << inlier_match_count
             << " matches. Average track length is " << total_track_obs_count / (double)feature_tracks.size() << "."

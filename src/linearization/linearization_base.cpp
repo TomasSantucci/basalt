@@ -44,14 +44,10 @@ namespace basalt {
 
 bool isLinearizationSqrt(const LinearizationType& type) {
   switch (type) {
-    case LinearizationType::ABS_QR:
-      return true;
+    case LinearizationType::ABS_QR: return true;
     case LinearizationType::ABS_SC:
-    case LinearizationType::REL_SC:
-      return false;
-    default:
-      BASALT_ASSERT_STREAM(false, "Linearization type is not supported.");
-      return false;
+    case LinearizationType::REL_SC: return false;
+    default: BASALT_ASSERT_STREAM(false, "Linearization type is not supported."); return false;
   }
 }
 
@@ -81,9 +77,7 @@ std::unique_ptr<LinearizationBase<Scalar_, POSE_SIZE_>> LinearizationBase<Scalar
                                                                      imu_lin_data, used_frames, lost_landmarks,
                                                                      last_state_to_marg, fixed_frames);
 
-    default:
-      std::cerr << "Could not select a valid linearization." << std::endl;
-      std::abort();
+    default: std::cerr << "Could not select a valid linearization." << std::endl; std::abort();
   }
 }
 

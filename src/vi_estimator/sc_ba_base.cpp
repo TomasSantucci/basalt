@@ -647,13 +647,9 @@ Eigen::VectorXd ScBundleAdjustmentBase<Scalar_>::checkEigenvalues(const MatX& H,
   // come from the squaring.
 
   Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigensolver(H.template cast<double>());
-  if (eigensolver.info() != Eigen::Success) {
-    BASALT_LOG_FATAL("eigen solver failed");
-  }
+  if (eigensolver.info() != Eigen::Success) { BASALT_LOG_FATAL("eigen solver failed"); }
 
-  if (verbose) {
-    std::cout << "EV:\n" << eigensolver.eigenvalues() << std::endl;
-  }
+  if (verbose) { std::cout << "EV:\n" << eigensolver.eigenvalues() << std::endl; }
 
   return eigensolver.eigenvalues();
 }

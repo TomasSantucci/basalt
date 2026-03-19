@@ -56,9 +56,7 @@ template <class M1, class M2>
 void assign_cast_map_values(M1& a, const M2& b) {
   using Scalar = typename M1::mapped_type::Scalar;
   a.clear();
-  for (const auto& [k, v] : b) {
-    a.try_emplace(k, v.template cast<Scalar>());
-  }
+  for (const auto& [k, v] : b) { a.try_emplace(k, v.template cast<Scalar>()); }
 }
 
 }  // namespace basalt

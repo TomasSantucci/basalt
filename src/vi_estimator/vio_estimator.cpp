@@ -92,9 +92,7 @@ double alignSVD(const std::vector<int64_t>& filter_t_ns, const Eigen::aligned_ve
     }
     j--;
 
-    if (j >= gt_t_ns.size() - 1) {
-      continue;
-    }
+    if (j >= gt_t_ns.size() - 1) { continue; }
 
     double dt_ns = t_ns - gt_t_ns.at(j);
     double int_t_ns = gt_t_ns.at(j + 1) - gt_t_ns.at(j);

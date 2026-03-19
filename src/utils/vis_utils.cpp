@@ -448,9 +448,7 @@ void VIOUIBase::do_show_cam0_proj(size_t cam_id, double depth_guess) {
     glColor4fv(color);
 
     // Press L key twice in viewer to be able to see out-of-bounds points
-    if (projected) {
-      points.push_back(c0_uv);
-    }
+    if (projected) { points.push_back(c0_uv); }
 
     if (draw_c0_uv) {
       pangolin::glDrawCircle(c0_uv.x(), c0_uv.y(), 2);
@@ -472,9 +470,7 @@ void VIOUIBase::do_show_cam0_proj(size_t cam_id, double depth_guess) {
 
 #else  // Draw full projected-to-cam0 grid
       for (int y = x_first; y <= y_last; y += C) {
-        for (int x = y_first; x <= x_last; x += C) {
-          drawPoint(x, y, target_cam, true);
-        }
+        for (int x = y_first; x <= x_last; x += C) { drawPoint(x, y, target_cam, true); }
       }
 #endif
 
@@ -483,9 +479,7 @@ void VIOUIBase::do_show_cam0_proj(size_t cam_id, double depth_guess) {
     }
   } else {
     for (int y = y_first; y < h; y += C) {
-      for (int x = x_first; x < w; x += C) {
-        drawPoint(x, y, cam_id, false);
-      }
+      for (int x = x_first; x < w; x += C) { drawPoint(x, y, cam_id, false); }
     }
   }
 }
@@ -1037,9 +1031,7 @@ Selection parse_selection(const string& str) {
       size_t b = is_range ? stoull(token.substr(dash_pos + 1)) : -1;
       nodes.emplace_back(is_range, a, b);
     }
-  } catch (...) {
-    std::cout << "Invalid selection string: " << str << std::endl;
-  }
+  } catch (...) { std::cout << "Invalid selection string: " << str << std::endl; }
 
   return nodes;
 }
@@ -1176,10 +1168,8 @@ bool VIOUIBase::do_follow_highlight(bool follow, bool smooth_zoom) {
     b += pad_h / 2;
     pangolin::XYRangef zoomed_range = {{l, r}, {t, b}};
 
-    if (smooth_zoom)
-      v->SetViewSmooth(zoomed_range);
-    else
-      v->SetView(zoomed_range);
+    if (smooth_zoom) v->SetViewSmooth(zoomed_range);
+    else v->SetView(zoomed_range);
   }
   return true;
 }

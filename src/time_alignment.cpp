@@ -117,9 +117,7 @@ int main(int argc, char **argv) {
 
   try {
     app.parse(argc, argv);
-  } catch (const CLI::ParseError &e) {
-    return app.exit(e);
-  }
+  } catch (const CLI::ParseError &e) { return app.exit(e); }
 
   basalt::VioDatasetPtr vio_dataset;
 
@@ -269,9 +267,7 @@ int main(int argc, char **argv) {
       double a = coeff[0];
       double b = coeff[1];
 
-      if (a > 1e-9) {
-        best_offset_refined_ns -= offset_inc_ns * b / (2 * a);
-      }
+      if (a > 1e-9) { best_offset_refined_ns -= offset_inc_ns * b / (2 * a); }
     }
 
     for (size_t i = 0; i < errors_vec.size(); i++) {
@@ -366,9 +362,7 @@ int main(int argc, char **argv) {
 
     std::string save_button_name = "ui.save_aligned_dataset";
     // Disable save_aligned_dataset button if GT data already exists
-    if (basalt::fs::exists(basalt::fs::path(dataset_path + "/mav0/gt/data.csv"))) {
-      save_button_name += "(disabled)";
-    }
+    if (basalt::fs::exists(basalt::fs::path(dataset_path + "/mav0/gt/data.csv"))) { save_button_name += "(disabled)"; }
 
     pangolin::Var<std::function<void(void)>> save_aligned_dataset(save_button_name, [&]() {
       if (basalt::fs::exists(basalt::fs::path(dataset_path + "/mav0/gt/data.csv"))) {
@@ -444,9 +438,7 @@ int main(int argc, char **argv) {
     while (!pangolin::ShouldQuit()) {
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-      if (show_gyro.GuiChanged() || show_mocap_rot_vel.GuiChanged() || show_error.GuiChanged()) {
-        drawPlots();
-      }
+      if (show_gyro.GuiChanged() || show_mocap_rot_vel.GuiChanged() || show_error.GuiChanged()) { drawPlots(); }
 
       pangolin::FinishFrame();
     }

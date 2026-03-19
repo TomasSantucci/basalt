@@ -226,10 +226,8 @@ void MargHelper<Scalar_>::marginalizeHelperSqToSqrt(MatX& abs_H, VecX& abs_b, co
   // We already clamped negative values in D_sqrt to 0 above, but for values
   // close to 0 we set b to 0.
   for (int i = 0; i < marg_sqrt_b.size(); ++i) {
-    if (D_sqrt(i) > std::sqrt(std::numeric_limits<Scalar>::min()))
-      marg_sqrt_b(i) /= D_sqrt(i);
-    else
-      marg_sqrt_b(i) = 0;
+    if (D_sqrt(i) > std::sqrt(std::numeric_limits<Scalar>::min())) marg_sqrt_b(i) /= D_sqrt(i);
+    else marg_sqrt_b(i) = 0;
   }
 
   //  std::cout << "marg_sqrt_H diff: "
@@ -315,9 +313,7 @@ void MargHelper<Scalar_>::marginalizeHelperSqrtToSqrt(MatX& Q2Jp, VecX& Q2r, con
       Q2Jp.col(k).tail(remainingRows - 1).setZero();
 
       // Save the rank of marginalize-out part
-      if (k == marg_size - 1) {
-        marg_rank = total_rank;
-      }
+      if (k == marg_size - 1) { marg_rank = total_rank; }
     }
   }
 

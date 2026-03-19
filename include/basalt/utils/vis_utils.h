@@ -51,9 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <tuple>
 
-namespace basalt::vis {
-extern pangolin::GlFont FONT;
-}
+namespace basalt::vis { extern pangolin::GlFont FONT; }
 using basalt::vis::FONT;
 
 const uint8_t cam_color[3]{255, 193, 7};                // amber
@@ -113,26 +111,17 @@ inline void getcolor(float p, float np, float& r, float& g, float& b) {
   g = 0.0f;
   b = 0.0f;
 
-  if ((0 <= x && x <= 1) || (5 <= x && x <= 6))
-    r = 1.0f;
-  else if (4 <= x && x <= 5)
-    r = x - 4;
-  else if (1 <= x && x <= 2)
-    r = 1.0f - (x - 1);
+  if ((0 <= x && x <= 1) || (5 <= x && x <= 6)) r = 1.0f;
+  else if (4 <= x && x <= 5) r = x - 4;
+  else if (1 <= x && x <= 2) r = 1.0f - (x - 1);
 
-  if (1 <= x && x <= 3)
-    g = 1.0f;
-  else if (0 <= x && x <= 1)
-    g = x - 0;
-  else if (3 <= x && x <= 4)
-    g = 1.0f - (x - 3);
+  if (1 <= x && x <= 3) g = 1.0f;
+  else if (0 <= x && x <= 1) g = x - 0;
+  else if (3 <= x && x <= 4) g = 1.0f - (x - 3);
 
-  if (3 <= x && x <= 5)
-    b = 1.0f;
-  else if (2 <= x && x <= 3)
-    b = x - 2;
-  else if (5 <= x && x <= 6)
-    b = 1.0f - (x - 5);
+  if (3 <= x && x <= 5) b = 1.0f;
+  else if (2 <= x && x <= 3) b = x - 2;
+  else if (5 <= x && x <= 6) b = 1.0f - (x - 5);
 }
 
 inline std::tuple<float, float, float> color_lerp(float t,                               //
@@ -156,9 +145,7 @@ inline std::tuple<uint8_t, uint8_t, uint8_t> color_lerp_ub(float t,             
 
 template <typename P, int N, class Allocator>
 void glDrawCirclePerimeters(const std::vector<Eigen::Matrix<P, N, 1>, Allocator>& points, float radius = 5.0) {
-  for (auto& p : points) {
-    pangolin::glDrawCirclePerimeter((GLfloat)p(0), (GLfloat)p(1), (GLfloat)radius);
-  }
+  for (auto& p : points) { pangolin::glDrawCirclePerimeter((GLfloat)p(0), (GLfloat)p(1), (GLfloat)radius); }
 }
 
 namespace basalt::vis {

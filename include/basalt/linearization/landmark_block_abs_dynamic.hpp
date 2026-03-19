@@ -85,9 +85,7 @@ class LandmarkBlockAbsDynamic : public LandmarkBlock<Scalar> {
     num_rows = pose_lin_vec.size() * 2 + 3;  // residuals and lm damping
 
     size_t pad = padding_idx % 4;
-    if (pad != 0) {
-      padding_size = 4 - pad;
-    }
+    if (pad != 0) { padding_size = 4 - pad; }
 
     lm_idx = padding_idx + padding_size;
     res_idx = lm_idx + 3;

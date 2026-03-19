@@ -120,9 +120,7 @@ Scalar LinearizationAbsSC<Scalar, POSE_SIZE>::linearizeProblem(bool* numerically
               }
             }
           }
-          if (!lost_obs_map.empty()) {
-            obs_to_lin[it->first] = lost_obs_map;
-          }
+          if (!lost_obs_map.empty()) { obs_to_lin[it->first] = lost_obs_map; }
         }
       }
 
@@ -147,9 +145,7 @@ Scalar LinearizationAbsSC<Scalar, POSE_SIZE>::linearizeProblem(bool* numerically
   if (numerically_valid) *numerically_valid = true;
 
   if (imu_lin_data) {
-    for (auto& imu_block : imu_blocks) {
-      error += imu_block->linearizeImu(estimator->frame_states);
-    }
+    for (auto& imu_block : imu_blocks) { error += imu_block->linearizeImu(estimator->frame_states); }
   }
 
   if (marg_lin_data) {
@@ -189,9 +185,7 @@ Scalar LinearizationAbsSC<Scalar, POSE_SIZE>::backSubstitute(const VecX& pose_in
   Scalar l_diff = tbb::parallel_reduce(keys_range, Scalar(0), update_points_func, std::plus<Scalar>());
 
   if (imu_lin_data) {
-    for (auto& imu_block : imu_blocks) {
-      imu_block->backSubstitute(pose_inc, l_diff);
-    }
+    for (auto& imu_block : imu_blocks) { imu_block->backSubstitute(pose_inc, l_diff); }
   }
 
   if (marg_lin_data) {
@@ -261,10 +255,8 @@ void LinearizationAbsSC<Scalar, POSE_SIZE>::get_dense_Q2Jp_Q2r(MatX& Q2Jp, VecX&
   // We already clamped negative values in D_sqrt to 0 above, but for values
   // close to 0 we set b to 0.
   for (int i = 0; i < Q2r.size(); ++i) {
-    if (D_sqrt(i) > std::sqrt(std::numeric_limits<Scalar>::min()))
-      Q2r(i) /= D_sqrt(i);
-    else
-      Q2r(i) = 0;
+    if (D_sqrt(i) > std::sqrt(std::numeric_limits<Scalar>::min())) Q2r(i) /= D_sqrt(i);
+    else Q2r(i) = 0;
   }
 }
 
@@ -319,9 +311,7 @@ void LinearizationAbsSC<Scalar, POSE_SIZE>::get_dense_Q2Jp_Q2r_marg_prior(MatX& 
 
 template <typename Scalar, int POSE_SIZE>
 void LinearizationAbsSC<Scalar, POSE_SIZE>::add_dense_H_b_pose_damping(MatX& H) const {
-  if (hasPoseDamping()) {
-    H.diagonal().array() += pose_damping_diagonal;
-  }
+  if (hasPoseDamping()) { H.diagonal().array() += pose_damping_diagonal; }
 }
 
 template <typename Scalar, int POSE_SIZE>
@@ -362,9 +352,7 @@ template <typename Scalar, int POSE_SIZE>
 void LinearizationAbsSC<Scalar, POSE_SIZE>::add_dense_H_b_imu(DenseAccumulator<Scalar>& accum) const {
   if (!imu_lin_data) return;
 
-  for (const auto& imu_block : imu_blocks) {
-    imu_block->add_dense_H_b(accum);
-  }
+  for (const auto& imu_block : imu_blocks) { imu_block->add_dense_H_b(accum); }
 }
 
 template <typename Scalar, int POSE_SIZE>
@@ -376,9 +364,7 @@ void LinearizationAbsSC<Scalar, POSE_SIZE>::add_dense_H_b_imu(MatX& H, VecX& b) 
   DenseAccumulator<Scalar> accum;
   accum.reset(b.size());
 
-  for (const auto& imu_block : imu_blocks) {
-    imu_block->add_dense_H_b(accum);
-  }
+  for (const auto& imu_block : imu_blocks) { imu_block->add_dense_H_b(accum); }
 
   H += accum.getH();
   b += accum.getB();

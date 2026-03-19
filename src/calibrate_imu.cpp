@@ -72,9 +72,7 @@ int main(int argc, char **argv) {
 
   try {
     app.parse(argc, argv);
-  } catch (const CLI::ParseError &e) {
-    return app.exit(e);
-  }
+  } catch (const CLI::ParseError &e) { return app.exit(e); }
 
   basalt::CamImuCalib cv(dataset_path, dataset_type, aprilgrid_path, result_path, cache_dataset_name, skip_images,
                          {accel_noise_std, gyro_noise_std, accel_bias_std, gyro_bias_std});

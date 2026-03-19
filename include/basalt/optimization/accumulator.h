@@ -177,9 +177,7 @@ class SparseHashAccumulator {
       }
     }
 
-    for (int i = 0; i < b.rows(); i++) {
-      triplets.emplace_back(i, i, std::numeric_limits<double>::min());
-    }
+    for (int i = 0; i < b.rows(); i++) { triplets.emplace_back(i, i, std::numeric_limits<double>::min()); }
 
     smm = SparseMatrix(b.rows(), b.rows());
     smm.setFromTriplets(triplets.begin(), triplets.end());
@@ -216,9 +214,7 @@ class SparseHashAccumulator {
 
     auto elapsed2 = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2);
 
-    if (print_info) {
-      std::cout << "Solving linear system: " << elapsed2.count() * 1e-6 << "s." << std::endl;
-    }
+    if (print_info) { std::cout << "Solving linear system: " << elapsed2.count() * 1e-6 << "s." << std::endl; }
 
     return res;
   }
@@ -253,9 +249,7 @@ class SparseHashAccumulator {
   struct KeyHash {
     inline size_t operator()(const KeyT& c) const {
       size_t seed = 0;
-      for (int i = 0; i < 4; i++) {
-        hash_combine(seed, c[i]);
-      }
+      for (int i = 0; i < 4; i++) { hash_combine(seed, c[i]); }
       return seed;
     }
   };

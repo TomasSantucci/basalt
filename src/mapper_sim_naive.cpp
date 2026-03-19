@@ -161,9 +161,7 @@ int main(int argc, char** argv) {
 
   try {
     app.parse(argc, argv);
-  } catch (const CLI::ParseError& e) {
-    return app.exit(e);
-  }
+  } catch (const CLI::ParseError& e) { return app.exit(e); }
 
   load_data(cam_calib_path);
 
@@ -512,9 +510,7 @@ void gen_data() {
 
       gt_spline = basalt::Se3Spline<5>(t_ns);
 
-      for (size_t i = 0; i < knots.size(); i++) {
-        gt_spline.knotsPushBack(knots[i]);
-      }
+      for (size_t i = 0; i < knots.size(); i++) { gt_spline.knotsPushBack(knots[i]); }
 
       archive(cereal::make_nvp("noisy_accel", noisy_accel));
       archive(cereal::make_nvp("noisy_gyro", noisy_gyro));
@@ -535,9 +531,7 @@ void gen_data() {
     }
 
     gt_frame_t_w_i.clear();
-    for (int64_t t_ns : gt_frame_t_ns) {
-      gt_frame_t_w_i.emplace_back(gt_spline.pose(t_ns).translation());
-    }
+    for (int64_t t_ns : gt_frame_t_ns) { gt_frame_t_w_i.emplace_back(gt_spline.pose(t_ns).translation()); }
 
     is.close();
   }
@@ -555,14 +549,10 @@ void gen_data() {
     marg_queue.pop(data);
 
     if (data.get()) {
-      for (const auto& kv : data->frame_poses) {
-        tmp_poses[kv.first] = kv.second.getPose();
-      }
+      for (const auto& kv : data->frame_poses) { tmp_poses[kv.first] = kv.second.getPose(); }
 
       for (const auto& kv : data->frame_states) {
-        if (data->kfs_all.count(kv.first) > 0) {
-          tmp_poses[kv.first] = kv.second.getState().T_w_i;
-        }
+        if (data->kfs_all.count(kv.first) > 0) { tmp_poses[kv.first] = kv.second.getState().T_w_i; }
       }
 
     } else {
@@ -570,9 +560,7 @@ void gen_data() {
     }
   }
 
-  for (const auto& kv : tmp_poses) {
-    kf_t_ns.emplace_back(kv.first);
-  }
+  for (const auto& kv : tmp_poses) { kf_t_ns.emplace_back(kv.first); }
 
   show_frame.Meta().range[1] = kf_t_ns.size() - 1;
 }

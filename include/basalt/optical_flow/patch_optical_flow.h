@@ -326,9 +326,7 @@ class PatchOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
 
         Scalar dist2 = (t1 - t1_recovered).squaredNorm();
 
-        if (dist2 < config.optical_flow_max_recovered_dist2) {
-          result[id] = transform_2;
-        }
+        if (dist2 < config.optical_flow_max_recovered_dist2) { result[id] = transform_2; }
       }
     };
 
@@ -521,23 +519,17 @@ class PatchOpticalFlow final : public OpticalFlowTyped<Scalar, Pattern> {
       if (p3d0_success[i] && p3d1_success[i]) {
         const double epipolar_error = std::abs(p3d0[i].transpose() * E[cam_id] * p3d1[i]);
 
-        if (epipolar_error > config.optical_flow_epipolar_error) {
-          kp_to_remove.emplace(kpids[i]);
-        }
+        if (epipolar_error > config.optical_flow_epipolar_error) { kp_to_remove.emplace(kpids[i]); }
       } else {
         kp_to_remove.emplace(kpids[i]);
       }
     }
 
-    for (int id : kp_to_remove) {
-      transforms->keypoints.at(cam_id).erase(id);
-    }
+    for (int id : kp_to_remove) { transforms->keypoints.at(cam_id).erase(id); }
   }
 
   void filterPoints() {
-    for (size_t i = 1; i < getNumCams(); i++) {
-      filterPointsForCam(i);
-    }
+    for (size_t i = 1; i < getNumCams(); i++) { filterPointsForCam(i); }
   }
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW

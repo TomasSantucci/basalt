@@ -73,9 +73,7 @@ RsT265Device::RsT265Device(bool is_d455, RsD455Config d455, bool manual_exposure
   for (auto& s : context.query_devices()[0].query_sensors()) {
     std::cout << "Sensor " << s.get_info(RS2_CAMERA_INFO_NAME) << ". Supported options:" << std::endl;
 
-    for (const auto& o : s.get_supported_options()) {
-      std::cout << "\t" << rs2_option_to_string(o) << std::endl;
-    }
+    for (const auto& o : s.get_supported_options()) { std::cout << "\t" << rs2_option_to_string(o) << std::endl; }
   }
 
   auto device = context.query_devices()[0];
@@ -101,9 +99,7 @@ RsT265Device::RsT265Device(bool is_d455, RsD455Config d455, bool manual_exposure
 void RsT265Device::disableLaserEmitters() {
   std::vector<rs2::sensor> sensors = pipe.get_active_profile().get_device().query_sensors();
   for (auto&& sensor : sensors) {
-    if (sensor.is<rs2::depth_stereo_sensor>()) {
-      sensor.set_option(RS2_OPTION_EMITTER_ENABLED, 0);
-    }
+    if (sensor.is<rs2::depth_stereo_sensor>()) { sensor.set_option(RS2_OPTION_EMITTER_ENABLED, 0); }
   }
 }
 
@@ -179,15 +175,11 @@ void RsT265Device::start() {
       // timestamp. So we only process framesets where both images are valid and
       // have the same timestamp.
       for (int i = 1; i < NUM_CAMS; ++i) {
-        if (vfs[0].get_timestamp() != vfs[i].get_timestamp()) {
-          return;
-        }
+        if (vfs[0].get_timestamp() != vfs[i].get_timestamp()) { return; }
       }
 
       // skip frames if configured
-      if (frame_counter++ % skip_frames != 0) {
-        return;
-      }
+      if (frame_counter++ % skip_frames != 0) { return; }
 
       OpticalFlowInput::Ptr data(new OpticalFlowInput(NUM_CAMS));
 

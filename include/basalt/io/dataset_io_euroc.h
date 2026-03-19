@@ -124,9 +124,7 @@ class EurocVioDataset : public VioDataset {
       }
 
       auto exp_it = exposure_times[i].find(t_ns);
-      if (exp_it != exposure_times[i].end()) {
-        res[i].exposure = exp_it->second;
-      }
+      if (exp_it != exposure_times[i].end()) { res[i].exposure = exp_it->second; }
     }
 
     return res;
@@ -148,9 +146,7 @@ class EurocIO : public DatasetIoInterface {
 
     // Detect camera count
     int i = 0;
-    while (fs::exists(path + "/mav0/cam" + std::to_string(i))) {
-      i++;
-    }
+    while (fs::exists(path + "/mav0/cam" + std::to_string(i))) { i++; }
 
     data->num_cams = i;
     data->path = path;

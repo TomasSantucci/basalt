@@ -225,13 +225,9 @@ Eigen::VectorXd SqrtBundleAdjustmentBase<Scalar_>::checkEigenvalues(const MargLi
   }
 
   Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigensolver(H);
-  if (eigensolver.info() != Eigen::Success) {
-    BASALT_LOG_FATAL("eigen solver failed");
-  }
+  if (eigensolver.info() != Eigen::Success) { BASALT_LOG_FATAL("eigen solver failed"); }
 
-  if (verbose) {
-    std::cout << "EV:\n" << eigensolver.eigenvalues() << std::endl;
-  }
+  if (verbose) { std::cout << "EV:\n" << eigensolver.eigenvalues() << std::endl; }
 
   return eigensolver.eigenvalues();
 }

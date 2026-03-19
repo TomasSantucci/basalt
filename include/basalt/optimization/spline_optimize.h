@@ -411,13 +411,9 @@ class SplineOptimization {
       applyInc(inc_full, offset_cam_intrinsics);
 
       ComputeErrorSplineOpt eopt(opt_size, &spline, ccd);
-      if (use_poses) {
-        tbb::parallel_reduce(pose_range, eopt);
-      }
+      if (use_poses) { tbb::parallel_reduce(pose_range, eopt); }
 
-      if (use_april_corners) {
-        tbb::parallel_reduce(april_range, eopt);
-      }
+      if (use_april_corners) { tbb::parallel_reduce(april_range, eopt); }
 
       if (use_mocap && mocap_initialized) {
         tbb::parallel_reduce(mocap_pose_range, eopt);
@@ -464,9 +460,7 @@ class SplineOptimization {
       max_iter--;
     }
 
-    if (converged && print_info) {
-      std::cout << "[CONVERGED]" << std::endl;
-    }
+    if (converged && print_info) { std::cout << "[CONVERGED]" << std::endl; }
 
     return converged;
   }

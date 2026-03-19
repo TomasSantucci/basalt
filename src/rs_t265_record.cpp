@@ -129,9 +129,7 @@ void image_save_worker() {
         uint8_t *dst = image.ptr();
         const uint16_t *src = image_raw->ptr;
 
-        for (size_t i = 0; i < image_raw->size(); i++) {
-          dst[i] = (src[i] >> 8);
-        }
+        for (size_t i = 0; i < image_raw->size(); i++) { dst[i] = (src[i] >> 8); }
 
 #if CV_MAJOR_VERSION >= 3
         std::string filename =
@@ -210,9 +208,7 @@ inline std::string get_date() {
 
   now = time(nullptr);
 
-  if (now != -1) {
-    strftime(the_date, MAX_DATE, "%Y_%m_%d_%H_%M_%S", gmtime(&now));
-  }
+  if (now != -1) { strftime(the_date, MAX_DATE, "%Y_%m_%d_%H_%M_%S", gmtime(&now)); }
 
   return std::string(the_date);
 }
@@ -321,21 +317,15 @@ int main(int argc, char *argv[]) {
 
   try {
     app.parse(argc, argv);
-  } catch (const CLI::ParseError &e) {
-    return app.exit(e);
-  }
+  } catch (const CLI::ParseError &e) { return app.exit(e); }
 
-  if (!dataset_path.empty() && dataset_path[dataset_path.length() - 1] != '/') {
-    dataset_path += '/';
-  }
+  if (!dataset_path.empty() && dataset_path[dataset_path.length() - 1] != '/') { dataset_path += '/'; }
 
   bool show_gui = true;
 
   stop_workers = false;
   if (worker_threads.empty()) {
-    for (int i = 0; i < NUM_WORKERS; i++) {
-      worker_threads.emplace_back(image_save_worker);
-    }
+    for (int i = 0; i < NUM_WORKERS; i++) { worker_threads.emplace_back(image_save_worker); }
   }
 
   exposure_save_thread = std::thread(exposure_save_worker);
@@ -389,13 +379,9 @@ int main(int argc, char *argv[]) {
         if (t265_device->last_img_data.get())
           FONT.Text("Exposure: %.3f ms.", t265_device->last_img_data->img_data[idx].exposure * 1000.0).Draw(30, 30);
 
-        if (idx == 0) {
-          FONT.Text("Queue: %d.", image_data_queue2.size()).Draw(30, 60);
-        }
+        if (idx == 0) { FONT.Text("Queue: %d.", image_data_queue2.size()).Draw(30, 60); }
 
-        if (idx == 0 && recording) {
-          FONT.Text("Recording").Draw(30, 90);
-        }
+        if (idx == 0 && recording) { FONT.Text("Recording").Draw(30, 90); }
       };
 
       iv->OnSelectionCallback = [&](pangolin::ImageView::OnSelectionEventData o) {
@@ -449,17 +435,11 @@ int main(int argc, char *argv[]) {
           }
       }
 
-      if (manual_exposure && exposure.GuiChanged()) {
-        t265_device->setExposure(exposure);
-      }
+      if (manual_exposure && exposure.GuiChanged()) { t265_device->setExposure(exposure); }
 
-      if (webp_quality.GuiChanged()) {
-        t265_device->setWebpQuality(webp_quality);
-      }
+      if (webp_quality.GuiChanged()) { t265_device->setWebpQuality(webp_quality); }
 
-      if (skip_frames.GuiChanged()) {
-        t265_device->setSkipFrames(skip_frames);
-      }
+      if (skip_frames.GuiChanged()) { t265_device->setSkipFrames(skip_frames); }
 
       pangolin::FinishFrame();
 

@@ -73,9 +73,7 @@ bool get_memory_info(MemoryInfo& info) {
   std::size_t resident_size = 0;
 
   std::ifstream fs("/proc/self/statm");
-  if (fs.fail()) {
-    return false;
-  }
+  if (fs.fail()) { return false; }
   fs >> program_size;
   fs >> resident_size;
 

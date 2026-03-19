@@ -123,9 +123,7 @@ class UzhVioDataset : public VioDataset {
         }
 
         auto exp_it = exposure_times[i].find(t_ns);
-        if (exp_it != exposure_times[i].end()) {
-          res[i].exposure = exp_it->second;
-        }
+        if (exp_it != exposure_times[i].end()) { res[i].exposure = exp_it->second; }
       }
     }
 
@@ -164,9 +162,7 @@ class UzhIO : public DatasetIoInterface {
 
     std::cout << "Loaded " << data->get_gyro_data().size() << " imu msgs." << std::endl;
 
-    if (fs::exists(path + "/groundtruth.txt")) {
-      read_gt_data_pose(path + "/groundtruth.txt");
-    }
+    if (fs::exists(path + "/groundtruth.txt")) { read_gt_data_pose(path + "/groundtruth.txt"); }
 
     data->exposure_times.resize(data->num_cams);
   }

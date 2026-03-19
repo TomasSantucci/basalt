@@ -266,9 +266,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
     try {
       app.parse(argc, argv);
-    } catch (const CLI::ParseError& e) {
-      return app.exit(e);
-    }
+    } catch (const CLI::ParseError& e) { return app.exit(e); }
 
     // global thread limit is in effect until global_control object is destroyed
     std::unique_ptr<tbb::global_control> tbb_global_control;
@@ -761,9 +759,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
       {
         basalt::MemoryInfo mi;
-        if (get_memory_info(mi)) {
-          stats.add("resident_memory_peak", mi.resident_memory_peak);
-        }
+        if (get_memory_info(mi)) { stats.add("resident_memory_peak", mi.resident_memory_peak); }
       }
 
       stats.save_json("stats_vio.json");
@@ -903,9 +899,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
   void feed_imu() {
     for (size_t i = 0; i < vio_dataset->get_gyro_data().size(); i++) {
-      if (vio->finished || terminate) {
-        break;
-      }
+      if (vio->finished || terminate) { break; }
 
       basalt::ImuData<double>::Ptr data(new basalt::ImuData<double>);
       data->t_ns = vio_dataset->get_gyro_data()[i].timestamp_ns;
@@ -959,8 +953,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     }
 
     glColor3ubv(gt_color);
-    if (show_gt && show_full_gt)
-      pangolin::glDrawLineStrip(gt_t_w_i);
+    if (show_gt && show_full_gt) pangolin::glDrawLineStrip(gt_t_w_i);
     else if (show_gt) {
       int64_t curr_ts = vio_dataset->get_image_timestamps().at(show_frame);
       auto it = std::lower_bound(gt_t_ns.begin(), gt_t_ns.end(), curr_ts);

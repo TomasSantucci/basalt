@@ -65,9 +65,7 @@ bool estimateTransformation(const CamT &cam_calib, const Eigen::aligned_vector<E
 
   for (size_t i = 0; i < corners.size(); i++) {
     Eigen::Vector4d tmp;
-    if (!cam_calib.unproject(corners[i], tmp)) {
-      continue;
-    }
+    if (!cam_calib.unproject(corners[i], tmp)) { continue; }
     Eigen::Vector3d bearing = tmp.head<3>();
     Eigen::Vector3d point = aprilgrid_corner_pos_3d[corner_ids[i]].head<3>();
     bearing.normalize();
@@ -145,9 +143,7 @@ void CalibHelper::initCamPoses(const Calibration<double>::Ptr &calib,
 
   std::vector<TimeCamId> corners;
   corners.reserve(calib_corners.size());
-  for (const auto &kv : calib_corners) {
-    corners.emplace_back(kv.first);
-  }
+  for (const auto &kv : calib_corners) { corners.emplace_back(kv.first); }
 
   tbb::parallel_for(tbb::blocked_range<size_t>(0, corners.size()), [&](const tbb::blocked_range<size_t> &r) {
     for (size_t j = r.begin(); j != r.end(); ++j) {
@@ -169,9 +165,7 @@ bool CalibHelper::initializeIntrinsics(const Eigen::aligned_vector<Eigen::Vector
   // First, initialize the image center at the center of the image.
 
   Eigen::aligned_map<int, Eigen::Vector2d> id_to_corner;
-  for (size_t i = 0; i < corner_ids.size(); i++) {
-    id_to_corner[corner_ids[i]] = corners[i];
-  }
+  for (size_t i = 0; i < corner_ids.size(); i++) { id_to_corner[corner_ids[i]] = corners[i]; }
 
   const double _xi = 1.0;
   const double _cu = cols / 2.0 - 0.5;
@@ -236,9 +230,7 @@ bool CalibHelper::initializeIntrinsics(const Eigen::aligned_vector<Eigen::Vector
         // std::cerr << "P*res\n" << P_mat.transpose() * C << std::endl;
 
         double t = square(C(0)) + square(C(1)) + C(2) * C(3);
-        if (t < 0) {
-          continue;
-        }
+        if (t < 0) { continue; }
 
         // check that line image is not radial
         double d = sqrt(1.0 / t);

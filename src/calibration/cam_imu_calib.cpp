@@ -95,9 +95,7 @@ CamImuCalib::CamImuCalib(const std::string &dataset_path, const std::string &dat
 }
 
 CamImuCalib::~CamImuCalib() {
-  if (processing_thread) {
-    processing_thread->join();
-  }
+  if (processing_thread) { processing_thread->join(); }
 }
 
 void CamImuCalib::initGui() {
@@ -209,18 +207,14 @@ void CamImuCalib::renderingLoop() {
         drawPlots();
       }
 
-      if (show_tweak_menu.GuiChanged()) {
-        pangolin::Display("tweak").Show(show_tweak_menu);
-      }
+      if (show_tweak_menu.GuiChanged()) { pangolin::Display("tweak").Show(show_tweak_menu); }
 
       if (px.GuiChanged() || py.GuiChanged() || pz.GuiChanged() || qx.GuiChanged() || qy.GuiChanged() ||
           qz.GuiChanged() || qw.GuiChanged()) {
         saveCamImuTransform();
       }
 
-      if (show_tweak_menu.GuiChanged() || cam_index.GuiChanged()) {
-        loadCamImuTransform();
-      }
+      if (show_tweak_menu.GuiChanged() || cam_index.GuiChanged()) { loadCamImuTransform(); }
     }
 
     if (opt_until_convg) {

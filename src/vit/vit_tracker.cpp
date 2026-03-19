@@ -253,9 +253,7 @@ struct Tracker::Implementation {
       cout << "Loaded camera with " << calib_cam_count << " cameras\n";
       ASSERT_(calib_cam_count == cam_count);
       calib_data_ready.imu = true;
-      for (uint32_t i = 0; i < calib_cam_count; i++) {
-        calib_data_ready.cam.at(i) = true;
-      }
+      for (uint32_t i = 0; i < calib_cam_count; i++) { calib_data_ready.cam.at(i) = true; }
     } else {
       std::cerr << "could not load camera calibration " << calib_path << "\n";
       std::abort();
@@ -371,14 +369,10 @@ struct Tracker::Implementation {
 
   void initialize() {
     // Overwrite camera calibration data
-    for (const auto &c : added_cam_calibs) {
-      apply_cam_calibration(c);
-    }
+    for (const auto &c : added_cam_calibs) { apply_cam_calibration(c); }
 
     // Overwrite IMU calibration data
-    for (const auto &c : added_imu_calibs) {
-      apply_imu_calibration(c);
-    }
+    for (const auto &c : added_imu_calibs) { apply_imu_calibration(c); }
 
     ASSERT(calib_data_ready.imu, "Missing IMU calibration");
     for (size_t i = 0; i < calib_data_ready.cam.size(); i++) {
@@ -476,9 +470,7 @@ struct Tracker::Implementation {
         partial_frame->addTime("frames_read_started");
       }
 
-      if (enabled_exts.has_pose_features) {
-        partial_frame->stats.features_per_cam.resize(cam_count);
-      }
+      if (enabled_exts.has_pose_features) { partial_frame->stats.features_per_cam.resize(cam_count); }
     } else {
       ASSERT(partial_frame->t_ns == s->timestamp, "cam0 and cam%d frame timestamps differ: %ld != %ld", i,
              partial_frame->t_ns, s->timestamp);
@@ -497,9 +489,7 @@ struct Tracker::Implementation {
     int type = s->format == VIT_IMAGE_FORMAT_L8 ? CV_8UC1 : CV_8UC3;
     cv::Mat img{(int)s->height, (int)s->width, type, s->data, s->stride};
 
-    for (uint32_t j = 0; j < s->width * s->height; j++) {
-      mimg->ptr[j] = img.at<uchar>(j) << 8;
-    }
+    for (uint32_t j = 0; j < s->width * s->height; j++) { mimg->ptr[j] = img.at<uchar>(j) << 8; }
 
     if (i == cam_count - 1) {
       partial_frame->addTime("frames_read");
@@ -517,9 +507,7 @@ struct Tracker::Implementation {
 
     if (popped) {
       // Discard the pose if the caller doesn't request it.
-      if (pose == nullptr) {
-        return vit::Result::VIT_SUCCESS;
-      }
+      if (pose == nullptr) { return vit::Result::VIT_SUCCESS; }
 
       // TODO find another way to give the state to the pose implementation
       // without touching the interface
@@ -537,9 +525,7 @@ struct Tracker::Implementation {
   }
 
   static vit::Result get_timing_titles(vit_tracker_timing_titles *out_titles) {
-    if (!exts.has_pose_timing) {
-      return vit::Result::VIT_ERROR_NOT_SUPPORTED;
-    }
+    if (!exts.has_pose_timing) { return vit::Result::VIT_ERROR_NOT_SUPPORTED; }
 
     out_titles->count = (sizeof(timing_titles) / sizeof(timing_titles[0]));
     out_titles->titles = &timing_titles[0];
@@ -592,12 +578,8 @@ Tracker::Tracker(const vit::Config *config) { impl_ = make_unique<Tracker::Imple
 vit::Result Tracker::has_image_format(vit::ImageFormat fmt, bool *out) const {
   switch (fmt) {
     case VIT_IMAGE_FORMAT_L8:
-    case VIT_IMAGE_FORMAT_L16:
-      *out = true;
-      break;
-    default:
-      std::cerr << "Unknown image format: " << fmt << std::endl;
-      break;
+    case VIT_IMAGE_FORMAT_L16: *out = true; break;
+    default: std::cerr << "Unknown image format: " << fmt << std::endl; break;
   }
 
   *out = false;
@@ -689,9 +671,7 @@ struct Pose::Implementation {
 
   vit::Result get_timing(vit::PoseTiming *out_timing) const {
     const vit::TimeStats &stats = state->input_images->stats;
-    if (!stats.enabled_exts.has_pose_timing) {
-      return vit::Result::VIT_ERROR_NOT_ENABLED;
-    }
+    if (!stats.enabled_exts.has_pose_timing) { return vit::Result::VIT_ERROR_NOT_ENABLED; }
 
     out_timing->count = stats.timings.size();
     out_timing->timestamps = stats.timings.data();
@@ -700,9 +680,7 @@ struct Pose::Implementation {
 
   vit::Result get_features(uint32_t camera_index, vit::PoseFeatures *out_features) const {
     const vit::TimeStats &stats = state->input_images->stats;
-    if (!stats.enabled_exts.has_pose_features) {
-      return vit::Result::VIT_ERROR_NOT_ENABLED;
-    }
+    if (!stats.enabled_exts.has_pose_features) { return vit::Result::VIT_ERROR_NOT_ENABLED; }
 
     const std::vector<vit::PoseFeature> &f = stats.features_per_cam.at(camera_index);
 

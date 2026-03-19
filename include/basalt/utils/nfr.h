@@ -56,9 +56,7 @@ inline Sophus::Vector6d relPoseError(const Sophus::SE3d& T_i_j, const Sophus::SE
     Adj.topLeftCorner<3, 3>() = R;
     Adj.bottomRightCorner<3, 3>() = R;
 
-    if (d_res_d_T_w_i) {
-      *d_res_d_T_w_i = J * Adj;
-    }
+    if (d_res_d_T_w_i) { *d_res_d_T_w_i = J * Adj; }
 
     if (d_res_d_T_w_j) {
       Adj.topRightCorner<3, 3>() = Sophus::SO3d::hat(T_j_i.inverse().translation()) * R;

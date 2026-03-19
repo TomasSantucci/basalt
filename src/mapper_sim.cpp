@@ -146,9 +146,7 @@ int main(int argc, char** argv) {
 
   try {
     app.parse(argc, argv);
-  } catch (const CLI::ParseError& e) {
-    return app.exit(e);
-  }
+  } catch (const CLI::ParseError& e) { return app.exit(e); }
 
   load_data(cam_calib_path, marg_data_path);
 
@@ -156,9 +154,7 @@ int main(int argc, char** argv) {
 
   nrf_mapper.reset(new basalt::NfrMapper(calib, config));
 
-  for (auto& kv : marg_data) {
-    nrf_mapper->addMargData(kv.second);
-  }
+  for (auto& kv : marg_data) { nrf_mapper->addMargData(kv.second); }
 
   computeEdgeVis();
 
@@ -232,9 +228,7 @@ void draw_scene() {
   glColor3f(1.0, 0.0, 0.0);
   if (show_edges) pangolin::glDrawLines(rel_edges_vis);
 
-  for (const auto& kv : nrf_mapper->getFramePoses()) {
-    pangolin::glDrawAxis(kv.second.getPose().matrix(), 0.1);
-  }
+  for (const auto& kv : nrf_mapper->getFramePoses()) { pangolin::glDrawAxis(kv.second.getPose().matrix(), 0.1); }
 
   pangolin::glDrawAxis(Sophus::SE3d().matrix(), 1.0);
 }
@@ -278,9 +272,7 @@ void load_data(const std::string& calib_path, const std::string& cache_path) {
 
       gt_spline.reset(new basalt::Se3Spline<5>(t_ns));
 
-      for (size_t i = 0; i < knots.size(); i++) {
-        gt_spline->knotsPushBack(knots[i]);
-      }
+      for (size_t i = 0; i < knots.size(); i++) { gt_spline->knotsPushBack(knots[i]); }
 
       is.close();
     } else {
@@ -416,9 +408,7 @@ void extractNonlinearFactors(basalt::MargData& m) {
   }
 
   for (int64_t other_id : m.kfs_all) {
-    if (m.frame_poses.count(other_id) == 0 || other_id == kf_id) {
-      continue;
-    }
+    if (m.frame_poses.count(other_id) == 0 || other_id == kf_id) { continue; }
 
     auto state_o = m.frame_poses.at(other_id);
 
@@ -546,9 +536,7 @@ void setup_points() {
 
       nrf_mapper->feature_corners[tcid] = kd;
 
-      for (size_t j = 0; j < kd.corners.size(); j++) {
-        nrf_mapper->feature_tracks[obs.id[j]][tcid] = j;
-      }
+      for (size_t j = 0; j < kd.corners.size(); j++) { nrf_mapper->feature_tracks[obs.id[j]][tcid] = j; }
     }
   }
 

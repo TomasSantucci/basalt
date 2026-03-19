@@ -380,9 +380,7 @@ class ScBundleAdjustmentBase : public BundleAdjustmentBase<Scalar_> {
     LinearizeAbsReduce2(const LinearizeAbsReduce2& other, tbb::split) : aom(other.aom) { accum.reset(aom.total_size); }
 
     void operator()(const tbb::blocked_range<AbsLinDataConstIter>& range) {
-      for (const AbsLinData& ald : range) {
-        linearizeAbs(ald, aom, accum);
-      }
+      for (const AbsLinData& ald : range) { linearizeAbs(ald, aom, accum); }
     }
 
     void join(LinearizeAbsReduce2& rhs) { accum.join(rhs.accum); }

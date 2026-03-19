@@ -99,9 +99,7 @@ void VignetteEstimator::compute_error(std::map<TimeCamId, std::vector<double>> *
         double e = irradiance[i] * vign_param[tcid.cam_id].evaluate(loc)[0] - val;
         ve[i] = e;
         max_residual = std::max(max_residual, std::abs(e));
-        if (max_residual == std::abs(e)) {
-          tcid_max = tcid;
-        }
+        if (max_residual == std::abs(e)) { tcid_max = tcid; }
       }
     }
 
@@ -189,9 +187,7 @@ void VignetteEstimator::opt_vign() {
   double max_val_inv = 1.0 / max_val;
   for (size_t j = 0; j < vio_dataset->get_num_cams(); j++)
     for (size_t i = 0; i < num_knots; i++) {
-      if (new_vign_param_count[j][i] > 0) {
-        vign_param[j].getKnot(i)[0] *= max_val_inv;
-      }
+      if (new_vign_param_count[j][i] > 0) { vign_param[j].getKnot(i)[0] *= max_val_inv; }
     }
 }
 

@@ -50,10 +50,8 @@ template <class Scalar_>
 void LandmarkDatabase<Scalar_>::removeFrame(const FrameId &frame) {
   for (auto it = kpts.begin(); it != kpts.end();) {
     for (auto it2 = it->second.obs.begin(); it2 != it->second.obs.end();) {
-      if (it2->first.frame_id == frame)
-        it2 = removeLandmarkObservationHelper(it, it2);
-      else
-        it2++;
+      if (it2->first.frame_id == frame) it2 = removeLandmarkObservationHelper(it, it2);
+      else it2++;
     }
 
     if (it->second.obs.size() < min_num_obs) {
@@ -76,8 +74,7 @@ void LandmarkDatabase<Scalar_>::removeKeyframes(const std::set<FrameId> &kfs_to_
         FrameId fid = it2->first.frame_id;
         if (poses_to_marg.count(fid) > 0 || states_to_marg_all.count(fid) > 0 || kfs_to_marg.count(fid) > 0)
           it2 = removeLandmarkObservationHelper(it, it2);
-        else
-          it2++;
+        else it2++;
       }
 
       if (it->second.obs.size() < min_num_obs) {
@@ -166,9 +163,7 @@ int LandmarkDatabase<Scalar_>::numObservations() const {
   int num_observations = 0;
 
   for (const auto &[_, val_map] : observations) {
-    for (const auto &[_, val] : val_map) {
-      num_observations += val.size();
-    }
+    for (const auto &[_, val] : val_map) { num_observations += val.size(); }
   }
 
   return num_observations;
@@ -223,13 +218,10 @@ void LandmarkDatabase<Scalar_>::removeObservations(LandmarkId lm_id, const std::
   for (auto it2 = it->second.obs.begin(); it2 != it->second.obs.end();) {
     if (obs.count(it2->first) > 0) {
       it2 = removeLandmarkObservationHelper(it, it2);
-    } else
-      it2++;
+    } else it2++;
   }
 
-  if (it->second.obs.size() < min_num_obs) {
-    removeLandmarkHelper(it);
-  }
+  if (it->second.obs.size() < min_num_obs) { removeLandmarkHelper(it); }
 }
 
 // //////////////////////////////////////////////////////////////////

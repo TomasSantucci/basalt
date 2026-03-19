@@ -198,9 +198,7 @@ struct CameraCandidates {
   int num_cameras_added() {
     int num_added = 0;
     for (const auto& c : cameras) {
-      if (c.camera_added) {
-        ++num_added;
-      }
+      if (c.camera_added) { ++num_added; }
     }
     return num_added;
   }
@@ -208,9 +206,7 @@ struct CameraCandidates {
   int num_landmarks_added() {
     int num_added = 0;
     for (const auto& c : cameras) {
-      if (c.landmarks_added) {
-        ++num_added;
-      }
+      if (c.landmarks_added) { ++num_added; }
     }
     return num_added;
   }

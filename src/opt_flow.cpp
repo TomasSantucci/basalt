@@ -136,9 +136,7 @@ void read_result() {
 
   double sum = 0;
 
-  for (const auto& kv : keypoint_stats) {
-    sum += kv.second;
-  }
+  for (const auto& kv : keypoint_stats) { sum += kv.second; }
 
   std::cout << "Mean track length: " << sum / keypoint_stats.size() << " num_points: " << keypoint_stats.size()
             << std::endl;
@@ -164,13 +162,9 @@ int main(int argc, char** argv) {
 
   try {
     app.parse(argc, argv);
-  } catch (const CLI::ParseError& e) {
-    return app.exit(e);
-  }
+  } catch (const CLI::ParseError& e) { return app.exit(e); }
 
-  if (!config_path.empty()) {
-    vio_config.load(config_path);
-  }
+  if (!config_path.empty()) { vio_config.load(config_path); }
 
   load_data(cam_calib_path);
 
@@ -251,9 +245,7 @@ int main(int argc, char** argv) {
       pangolin::FinishFrame();
 
       if (continue_btn) {
-        if (!next_step()) {
-          continue_btn = false;
-        }
+        if (!next_step()) { continue_btn = false; }
       } else {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
       }

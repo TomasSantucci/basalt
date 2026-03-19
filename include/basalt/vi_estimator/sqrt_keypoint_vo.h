@@ -136,14 +136,10 @@ class SqrtKeypointVoEstimator : public VioEstimatorBase, public SqrtBundleAdjust
 
     auto it = frame_states.find(t_ns);
 
-    if (it != frame_states.end()) {
-      return it->second.getState();
-    }
+    if (it != frame_states.end()) { return it->second.getState(); }
 
     auto it2 = frame_poses.find(t_ns);
-    if (it2 != frame_poses.end()) {
-      state.T_w_i = it2->second.getPose();
-    }
+    if (it2 != frame_poses.end()) { state.T_w_i = it2->second.getPose(); }
 
     return state;
   }
@@ -154,9 +150,7 @@ class SqrtKeypointVoEstimator : public VioEstimatorBase, public SqrtBundleAdjust
   Eigen::aligned_vector<SE3> getFrameStates() const {
     Eigen::aligned_vector<SE3> res;
 
-    for (const auto& kv : frame_states) {
-      res.push_back(kv.second.getState().T_w_i);
-    }
+    for (const auto& kv : frame_states) { res.push_back(kv.second.getState().T_w_i); }
 
     return res;
   }
@@ -164,9 +158,7 @@ class SqrtKeypointVoEstimator : public VioEstimatorBase, public SqrtBundleAdjust
   Eigen::aligned_vector<SE3> getFramePoses() const {
     Eigen::aligned_vector<SE3> res;
 
-    for (const auto& kv : frame_poses) {
-      res.push_back(kv.second.getPose());
-    }
+    for (const auto& kv : frame_poses) { res.push_back(kv.second.getPose()); }
 
     return res;
   }
@@ -174,13 +166,9 @@ class SqrtKeypointVoEstimator : public VioEstimatorBase, public SqrtBundleAdjust
   Eigen::aligned_map<int64_t, SE3> getAllPosesMap() const {
     Eigen::aligned_map<int64_t, SE3> res;
 
-    for (const auto& kv : frame_poses) {
-      res[kv.first] = kv.second.getPose();
-    }
+    for (const auto& kv : frame_poses) { res[kv.first] = kv.second.getPose(); }
 
-    for (const auto& kv : frame_states) {
-      res[kv.first] = kv.second.getState().T_w_i;
-    }
+    for (const auto& kv : frame_states) { res[kv.first] = kv.second.getState().T_w_i; }
 
     return res;
   }

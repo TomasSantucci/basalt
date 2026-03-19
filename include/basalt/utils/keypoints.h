@@ -116,9 +116,7 @@ inline void findInliersEssential(const KeypointsData& kd1, const KeypointsData& 
 
     const double epipolar_error = std::abs(p0_3d.transpose() * E * p1_3d);
 
-    if (epipolar_error < epipolar_error_threshold) {
-      md.inliers.push_back(md.matches[j]);
-    }
+    if (epipolar_error < epipolar_error_threshold) { md.inliers.push_back(md.matches[j]); }
   }
 }
 

@@ -17,9 +17,7 @@ namespace basalt {
 template <class Scalar, int Rows>
 Scalar median_non_const(Eigen::Matrix<Scalar, Rows, 1>& vec) {
   static_assert(Rows != 0);
-  if constexpr (Rows < 0) {
-    BASALT_ASSERT(vec.size() >= 1);
-  }
+  if constexpr (Rows < 0) { BASALT_ASSERT(vec.size() >= 1); }
   int n = vec.size() / 2;
   std::nth_element(vec.begin(), vec.begin() + n, vec.end());
   return vec(n);
@@ -62,9 +60,7 @@ void ExecutionStats::merge_all(const ExecutionStats& other) {
     const auto& meta = other.stats_.at(name);
     std::visit(
         [&](auto& data) {
-          for (auto v : data) {
-            add(name, v);
-          }
+          for (auto v : data) { add(name, v); }
         },
         meta.data_);
     stats_.at(name).set_meta(meta);

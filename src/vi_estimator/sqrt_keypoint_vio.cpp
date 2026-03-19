@@ -291,9 +291,7 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_, c
         std::cout << "T_w_i\n" << T_w_i_init.matrix() << std::endl;
         std::cout << "vel_w_i " << vel_w_i_init.transpose() << std::endl;
 
-        if (config.vio_debug || config.vio_extended_logging) {
-          logMargNullspace();
-        }
+        if (config.vio_debug || config.vio_extended_logging) { logMargNullspace(); }
 
         initialized = true;
       }
@@ -443,9 +441,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
         lmdb.addObservation(tcid_target, kobs);
         // obs[tcid_host][tcid_target].push_back(kobs);
 
-        if (num_points_connected.count(tcid_host.frame_id) == 0) {
-          num_points_connected[tcid_host.frame_id] = 0;
-        }
+        if (num_points_connected.count(tcid_host.frame_id) == 0) { num_points_connected[tcid_host.frame_id] = 0; }
         num_points_connected[tcid_host.frame_id]++;
 
         connected[i]++;
@@ -548,9 +544,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
         }
 
         if (valid_kp) {
-          for (const auto& kv_obs : kp_obs) {
-            lmdb.addObservation(kv_obs.first, kv_obs.second);
-          }
+          for (const auto& kv_obs : kp_obs) { lmdb.addObservation(kv_obs.first, kv_obs.second); }
         }
       }
     }
@@ -567,9 +561,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
       for (auto& keypoint : opt_flow_meas->keypoints) {
         if (keypoint.count(kv.first) > 0) connected = true;
       }
-      if (!connected) {
-        lost_landmaks.emplace(kv.first);
-      }
+      if (!connected) { lost_landmaks.emplace(kv.first); }
     }
   }
   opt_flow_meas->input_images->addTime("backend_observations_processed");
@@ -979,9 +971,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
         m->kfs_to_marg = kfs_to_marg;
         m->use_imu = true;
 
-        for (int64_t t : m->kfs_all) {
-          m->opt_flow_res.emplace_back(prev_opt_flow_res.at(t));
-        }
+        for (int64_t t : m->kfs_all) { m->opt_flow_res.emplace_back(prev_opt_flow_res.at(t)); }
 
         out_marg_queue->push(m);
       }
@@ -1189,9 +1179,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
 
     stats_sums_.add("marg", t_actual_marg.elapsed()).format("ms");
 
-    if (config.vio_debug) {
-      std::cout << "marginalizaon done!!" << std::endl;
-    }
+    if (config.vio_debug) { std::cout << "marginalizaon done!!" << std::endl; }
 
     if (config.vio_debug || config.vio_extended_logging) {
       Timer t;
@@ -1211,9 +1199,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::marginalize(const std::map<int64_t, int>
 
 template <class Scalar_>
 bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
-  if (config.vio_debug) {
-    std::cout << "=================================" << std::endl;
-  }
+  if (config.vio_debug) { std::cout << "=================================" << std::endl; }
 
   int64_t initial_ts = std::chrono::steady_clock::now().time_since_epoch().count();
   std::array<int64_t, 4> times = {0, 0, 0, 0};  // linearize, solver, backsub, error
@@ -1276,9 +1262,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
     std::unique_ptr<LinearizationBase<Scalar, POSE_SIZE>> lqr;
 
     ImuLinData<Scalar> ild = {g, gyro_bias_sqrt_weight, accel_bias_sqrt_weight, {}};
-    for (const auto& kv : imu_meas) {
-      ild.imu_meas[kv.first] = &kv.second;
-    }
+    for (const auto& kv : imu_meas) { ild.imu_meas[kv.first] = &kv.second; }
 
     std::set<FrameId> fixed_kfs = config.vio_fix_long_term_keyframes ? ltkfs : std::set<FrameId>{};
 
@@ -1297,9 +1281,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
     int it = 0;
     int it_rejected = 0;
     for (; it <= config.vio_max_iterations && !terminated;) {
-      if (it > 0) {
-        timer_iteration.reset();
-      }
+      if (it > 0) { timer_iteration.reset(); }
 
       Scalar error_total = 0;
       VecX Jp_column_norm2;
@@ -1368,9 +1350,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
       for (int j = 0; it <= config.vio_max_iterations && !terminated; j++) {
         if (j > 0) {
           timer_iteration.reset();
-          if (config.vio_debug) {
-            std::cout << "Iteration " << it << ", backtracking" << std::endl;
-          }
+          if (config.vio_debug) { std::cout << "Iteration " << it << ", backtracking" << std::endl; }
         }
 
         {
@@ -1449,9 +1429,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::optimize() {
             iter++;
           }
 
-          if (!inc_valid) {
-            std::cerr << "Still invalid inc after " << max_num_iter << " iterations." << std::endl;
-          }
+          if (!inc_valid) { std::cerr << "Still invalid inc after " << max_num_iter << " iterations." << std::endl; }
 
           if (show_uimat(UIMAT::HB)) {
             visual_data->geth(UIMAT::HB).H = std::make_shared<Eigen::MatrixXf>(H.template cast<float>());

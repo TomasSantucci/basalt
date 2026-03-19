@@ -71,20 +71,14 @@ CamCalib::CamCalib(const std::string &dataset_path, const std::string &dataset_t
       stop_thresh("ui.stop_thresh", 1e-8, 1e-10, 0.01, true) {
   if (show_gui) initGui();
 
-  if (!fs::exists(cache_path)) {
-    fs::create_directory(cache_path);
-  }
+  if (!fs::exists(cache_path)) { fs::create_directory(cache_path); }
 
   pangolin::ColourWheel cw;
-  for (int i = 0; i < 20; i++) {
-    cam_colors.emplace_back(cw.GetUniqueColour());
-  }
+  for (int i = 0; i < 20; i++) { cam_colors.emplace_back(cw.GetUniqueColour()); }
 }
 
 CamCalib::~CamCalib() {
-  if (processing_thread) {
-    processing_thread->join();
-  }
+  if (processing_thread) { processing_thread->join(); }
 }
 
 void CamCalib::initGui() {
@@ -453,9 +447,7 @@ void CamCalib::initCamIntrinsics() {
 
         auto it = calib_corners.find(tcid);
         if (it != calib_corners.end()) {
-          if (it->second.corners.size() > 8) {
-            pinhole_corners.emplace_back(&it->second);
-          }
+          if (it->second.corners.size() > 8) { pinhole_corners.emplace_back(&it->second); }
         }
 
         w = img_vec[j].img->w;
@@ -591,9 +583,7 @@ void CamCalib::initCamExtrinsics() {
         int curr_weight = cam_graph[edge_id].first;
         int new_weight = std::min(it->second.num_inliers, it2->second.num_inliers);
 
-        if (curr_weight < new_weight) {
-          cam_graph[edge_id] = std::make_pair(new_weight, timestamp_ns);
-        }
+        if (curr_weight < new_weight) { cam_graph[edge_id] = std::make_pair(new_weight, timestamp_ns); }
       }
     }
   }
@@ -850,9 +840,7 @@ bool CamCalib::optimizeWithParam(bool print_info, std::map<std::string, double> 
       std::cout << "==================================" << std::endl;
     }
 
-    if (show_gui) {
-      computeProjections();
-    }
+    if (show_gui) { computeProjections(); }
   }
 
   return converged;

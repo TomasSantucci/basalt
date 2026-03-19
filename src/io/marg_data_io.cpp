@@ -164,9 +164,7 @@ void MargDataLoader::start(const std::string& path) {
       }
       is.close();
 
-      for (const auto& d : data->kfs_all) {
-        data->opt_flow_res.emplace_back(opt_flow_res.at(d));
-      }
+      for (const auto& d : data->kfs_all) { data->opt_flow_res.emplace_back(opt_flow_res.at(d)); }
 
       out_marg_queue->push(data);
     }
