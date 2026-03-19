@@ -166,7 +166,7 @@ class MapDatabase {
   LandmarkDatabase<Scalar> map;
   std::mutex mutex;
   LoopDetectionResult::Ptr pending_loop_detection = nullptr;
-  CovisibilityGraph::Ptr covisibility_graph;
+  CovisibilityGraph covisibility_graph;
 
   // These are the keyframes that have not been marginalized yet
   std::set<FrameId> active_keyframes;
