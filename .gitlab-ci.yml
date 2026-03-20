@@ -31,6 +31,7 @@ gcc-ubuntu-2204:
   when: manual
   script:
     - echo BUILD_UBUNTU_2204_JOB_ID=$CI_JOB_ID >> release.env
+    - sed -i 's/cmake_minimum_required(VERSION 3\.24)/cmake_minimum_required(VERSION 3.22)/' thirdparty/basalt-headers/thirdparty/Sophus/CMakeLists.txt
     - cmake --preset=ci
     - time cmake --build build
     - cd build && cpack
