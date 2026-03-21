@@ -798,7 +798,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
       loop_closing_input->input_images = opt_flow_meas->input_images;
       loop_closing_input->t_ns = opt_flow_meas->t_ns;
 
-      std::vector<Keypoints> landmarks(NUM_CAMS);
+      loop_closing_input->landmarks.resize(NUM_CAMS);
 
       const Eigen::aligned_map<TimeCamId, std::set<LandmarkId>>& obs = lmdb.getKeyframeObs();
 
@@ -807,12 +807,11 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
         if (obs.count(tcid) == 0) continue;
         const std::set<LandmarkId>& lm_ids = obs.at(tcid);
         for (const LandmarkId& lm_id : lm_ids) {
-          landmarks[i][lm_id] = opt_flow_meas->keypoints[i].at(lm_id);
+          loop_closing_input->landmarks[i][lm_id] = opt_flow_meas->keypoints[i].at(lm_id);
         }
       }
 
       loop_closing_input->keypoints = opt_flow_meas->keypoints;
-      loop_closing_input->landmarks = landmarks;
 
       out_opt_flow_queue_loop_closing->push(loop_closing_input);
       if (sync_lc_finished != nullptr) {

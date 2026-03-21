@@ -118,8 +118,6 @@ struct VioConfig {
   int map_covisibility_max_size;
 
   bool enable_loop_closing;
-  std::vector<int64_t> loop_closing_timestamps;
-  bool loop_closing_skip_covisible;
   int loop_closing_bow_num_bits;
   double loop_closing_num_frames_to_match;
   double loop_closing_frames_to_match_threshold;
@@ -128,27 +126,25 @@ struct VioConfig {
   double loop_closing_pnp_ransac_threshold;
   int loop_closing_pnp_ransac_iterations;
   bool loop_closing_use_all_recent_keypoints;
-  bool dump_loop_detection_result;
   int loop_closing_fast_threshold;
   bool loop_closing_fast_nonmax_suppression;
   size_t loop_closing_fast_grid_size;
   double loop_closing_redetect_max_hamming_distance;
   double loop_closing_redetect_second_best_test_ratio;
-  int loop_closing_num_neighbors;
-  bool always_detect_loop;
-  bool close_loops;
-  bool loop_closing_use_rematches;
+  int loop_closing_island_size;
+  bool loop_closing_reproject_landmarks;
   std::vector<size_t> loop_closing_cameras_to_reproject;
   int loop_closing_pgo_min_covisibility_weight;
   int loop_closing_frame_time_margin_s;
   double loop_closing_min_drift_reduction;
-  bool loop_closing_skip_initial_matching;
+  double loop_closing_min_rot_reduction_deg;
   bool loop_closing_dump_times;
   int loop_closing_min_initial_matches;
   int loop_closing_min_island_matches;
   int loop_closing_pnp_min_inliers;
   int loop_closing_reprojected_pnp_min_inliers;
   double loop_closing_pnp_inliers_ratio;
+  bool loop_closing_debug;
 
   bool causal_evaluation;
 

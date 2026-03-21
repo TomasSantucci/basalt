@@ -102,7 +102,7 @@ class MapDatabase {
 
   void read_covisibility_req(std::vector<KeypointId>& keypoints);
 
-  void read_island_req(FrameId keyframe, size_t neighbors_num);
+  void read_island_req(FrameId keyframe, size_t num_neighbors);
 
   void get_map_points(Eigen::aligned_vector<Vec3d>& points, std::vector<int>& ids);
 

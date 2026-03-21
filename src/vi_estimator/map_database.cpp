@@ -90,9 +90,19 @@ void MapDatabase::handle_loop_detection(LoopDetectionResult::Ptr& loop_detection
   Sophus::SE3f current_pose = map.getKeyframePose(loop_detection_result->current_kf_id).cast<float>();
   Sophus::SE3f corrected_pose = loop_detection_result->current_kf_corrected_pose;
   float drift_reduced = (current_pose.translation() - corrected_pose.translation()).norm();
+  Sophus::SO3f rot_diff = current_pose.so3().inverse() * corrected_pose.so3();
+  float rot_angle_deg = rot_diff.log().norm() * (180.0f / M_PI);
+
+  if (config.loop_closing_debug) {
+    bool accepted = drift_reduced >= config.loop_closing_min_drift_reduction ||
+                    rot_angle_deg >= config.loop_closing_min_rot_reduction_deg;
+    std::cout << "[MDB] Drift: " << drift_reduced << " m, rot: " << rot_angle_deg << " deg. -> "
+              << (accepted ? "ACCEPTED" : "REJECTED") << std::endl;
+  }
 
   LoopClosureDecision::Ptr loop_closure_decision = std::make_shared<LoopClosureDecision>();
-  if (drift_reduced >= config.loop_closing_min_drift_reduction) {
+  if (drift_reduced >= config.loop_closing_min_drift_reduction ||
+      rot_angle_deg >= config.loop_closing_min_rot_reduction_deg) {
     auto keyframes_poses_copy = std::make_shared<Eigen::aligned_map<FrameId, Sophus::SE3f>>(map.getKeyframes());
 
     loop_closure_decision->keyframe_poses = keyframes_poses_copy;
@@ -152,6 +162,8 @@ void MapDatabase::handle_loop_closure(LoopClosureResult::Ptr& loop_closure_resul
 void MapDatabase::merge_loop_landmarks(const LoopDetectionResult::Ptr& loop_detection_result) {
   std::unordered_map<FrameId, std::set<LandmarkId>> covisibilities_updated;
   std::set<LandmarkId> curr_lms_to_merge;
+  size_t num_observations_added = 0;
+  size_t num_merged_lms = 0;
 
   for (const auto& [curr_tcid, lm_obs_map] : loop_detection_result->curr_kf_obs) {
     for (const auto& [curr_lm_id, obs] : lm_obs_map) {
@@ -178,8 +190,9 @@ void MapDatabase::merge_loop_landmarks(const LoopDetectionResult::Ptr& loop_dete
 
         KeypointObservation<float> kp_obs;
         kp_obs.kpt_id = host_lm_id;
-        kp_obs.pos = obs;
+        kp_obs.pos = obs.translation();
         map.addObservation(curr_tcid, kp_obs);
+        num_observations_added++;
       } else {
         curr_lms_to_merge.insert(curr_lm_id);
       }
@@ -217,6 +230,12 @@ void MapDatabase::merge_loop_landmarks(const LoopDetectionResult::Ptr& loop_dete
 
     // Merge the landmarks
     map.mergeLandmarks(host_lm_id, curr_lm_id);
+    num_merged_lms++;
+  }
+
+  if (config.loop_closing_debug) {
+    std::cout << "[MDB] Merged " << num_merged_lms << " landmarks, " << num_observations_added << " observations added."
+              << std::endl;
   }
 }
 
@@ -229,17 +248,14 @@ void MapDatabase::read_covisibility_req(std::vector<KeypointId>& keypoints) {
   handleCovisibilityReq(keypoints);
 }
 
-void MapDatabase::read_island_req(FrameId keyframe, size_t neighbors_num) {
+void MapDatabase::read_island_req(FrameId keyframe, size_t num_neighbors) {
   IslandResponse::Ptr island_response = std::make_shared<IslandResponse>();
 
   island_response->keyframes.push_back(keyframe);
 
-  std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>& landmarks_3d_map =
-      island_response->landmarks_3d_map;
-
   std::unique_lock<std::mutex> lock(mutex);
 
-  for (const auto& covi_kf : covisibility_graph.getTopCovisible(keyframe, neighbors_num)) {
+  for (const auto& covi_kf : covisibility_graph.getTopCovisible(keyframe, num_neighbors)) {
     island_response->keyframes.push_back(covi_kf);
   }
 
@@ -255,9 +271,12 @@ void MapDatabase::read_island_req(FrameId keyframe, size_t neighbors_num) {
         continue;
       }
       std::set<LandmarkId> lm_ids = it->second;
+      island_response->keyframe_obs[kf_tcid] = lm_ids;
 
-      // TODO@tsantucci: this should be performed by LC
       for (const auto& lm_id : lm_ids) {
+        if (island_response->landmarks_3d.find(lm_id) != island_response->landmarks_3d.end()) {
+          continue;
+        }
         auto lm_pos = map.getLandmark(lm_id);
         int64_t frame_id = lm_pos.host_kf_id.frame_id;
         Sophus::SE3d T_w_i = map.getKeyframePose(frame_id).cast<double>();
@@ -270,7 +289,7 @@ void MapDatabase::read_island_req(FrameId keyframe, size_t neighbors_num) {
 
         Vec4d pt_w = T_w_c * pt_cam;
 
-        landmarks_3d_map[kf_tcid][lm_id] = (pt_w.template head<3>() / pt_w[3]).template cast<double>();
+        island_response->landmarks_3d[lm_id] = (pt_w.template head<3>() / pt_w[3]).template cast<double>();
       }
     }
   }
@@ -294,7 +313,7 @@ void MapDatabase::initialize() {
             if constexpr (std::is_same_v<T, CovisibilityRequest::Ptr>) {
               read_covisibility_req(m->keypoints);
             } else if constexpr (std::is_same_v<T, IslandRequest::Ptr>) {
-              read_island_req(m->keyframe, m->neighbors_num);
+              read_island_req(m->keyframe, m->num_neighbors);
             } else if constexpr (std::is_same_v<T, StopMsg>) {
               running = false;
             }

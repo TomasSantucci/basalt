@@ -96,14 +96,8 @@ using MapOfPoses =
     std::map<FrameId, Pose3d, std::less<FrameId>, Eigen::aligned_allocator<std::pair<const FrameId, Pose3d>>>;
 using VectorOfConstraints = std::vector<Constraint3d, Eigen::aligned_allocator<Constraint3d>>;
 
-struct MatchSource {
-  FrameId candidate_kf;
-  size_t pair_idx;
-};
-
 struct KeyframesMatch {
   CamId current_kf_cam;
-  CamId candidate_kf_cam;
   KeypointId current_kf_kpt_id;
   KeypointId candidate_kf_kpt_id;
 };
@@ -120,8 +114,8 @@ struct LoopClosingVisualizationData {
   std::unordered_map<TimeCamId, Keypoints> candidate_keypoints;
 
   // Matches
-  std::unordered_map<FrameId, std::vector<KeyframesMatch>> matches;
-  std::unordered_map<FrameId, std::vector<KeyframesMatch>> inlier_matches;
+  std::vector<KeyframesMatch> matches;
+  std::vector<KeyframesMatch> inlier_matches;
 
   // The island
   std::vector<FrameId> island;
@@ -206,8 +200,6 @@ class LoopClosing {
 
   void initialize();
 
-  void triggerLoopClosure();
-
   inline void maybe_join() {
     if (processing_thread) {
       processing_thread->join();
@@ -229,78 +221,66 @@ class LoopClosing {
   bool deterministic;
 
  private:
-  void updateHashBowDatabase(const LoopClosingInput::Ptr& optical_flow_res, HashBowVector& bow_vector);
+  void processingLoop();
 
-  bool runLoopClosure(const LoopClosingInput::Ptr& optical_flow_res, const HashBowVector& bow_vector,
-                      TimeCamId& best_candidate_tcid, Sophus::SE3f& best_corrected_pose,
-                      std::vector<FrameId>& best_island);
+  void indexKeyframe(const LoopClosingInput::Ptr& loop_closing_input, HashBowVector& bow_vector);
 
-  bool closeLoop(const FrameId curr_kf_id, const std::vector<FrameId>& best_island,
-                 const Sophus::SE3f& best_corrected_pose);
+  bool detectLoop(const LoopClosingInput::Ptr& loop_closing_input, const HashBowVector& bow_vector,
+                  LoopDetectionResult::Ptr& loop_detection_result);
 
-  void query_hashbow_database(FrameId curr_kf_id, const HashBowVector& bow_vector, std::vector<FrameId>& results,
-                              std::vector<double>& scores);
+  void retrieveCandidates(FrameId curr_kf_id, const HashBowVector& bow_vector, std::vector<FrameId>& results);
 
-  bool redetect_kpts(const Keypoint& center_kpt, std::bitset<256>& center_kpt_descriptor,
-                     Eigen::aligned_vector<Vec2>& redetected_kpts, const basalt::ManagedImage<uint16_t>& img,
-                     Vec2& best_keypoint_pos);
+  bool validateCandidate(const LoopClosingInput::Ptr& loop_closing_input, const FrameId& candidate_kf,
+                         std::vector<Keypoints>& curr_kf_kpts, LoopDetectionResult::Ptr& loop_detection_result);
 
-  void reproject_landmarks(const Sophus::SE3d& absolute_pose, Keypoints& reprojected_keypoints, size_t cam_id,
-                           const Eigen::aligned_map<LandmarkId, Vec3d>& points_3d,
-                           const std::unordered_set<LandmarkId>& landmarks_to_skip);
+  bool checkCovisibility(const FrameId& kf1_id, const FrameId& kf2_id);
 
-  void populateVisualizationData(
-      FrameId curr_kf_id, const std::vector<FrameId>& kfs_island,
-      const std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>& points_3d,
-      const std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches,
-      const std::unordered_map<FrameId, std::vector<KeyframesMatch>>& inlier_matches,
-      const std::vector<Keypoints>& curr_kf_kpts, const std::vector<Keypoints>& reprojected_keypoints,
-      const std::vector<std::unordered_map<KeypointId, Eigen::aligned_vector<Vec2>>>& redetected_keypoints_map,
-      const std::vector<Eigen::aligned_vector<Vec2>>& rematched_keypoints, const Sophus::SE3f& best_corrected_pose,
-      const TimeCamId& best_candidate_tcid);
-
-  bool are_covisible(const FrameId& kf1_id, const FrameId& kf2_id);
-
-  void filter_redundant_matches(std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches);
-
-  void match_keyframe(const FrameId& curr_kf_id, const std::vector<Keypoints>& curr_kf_kpts,
-                      const std::vector<std::vector<KeypointId>>& candidate_kf_kpts, const FrameId& candidate_kf_id,
+  void matchKeyframes(const FrameId& curr_kf_id, const FrameId& candidate_kf_id,
+                      const std::vector<Keypoints>& curr_kf_kpts,
+                      const std::vector<std::vector<KeypointId>>& candidate_kf_kpts,
                       std::vector<KeyframesMatch>& matches);
 
-  size_t computeAbsolutePoseMultiCam(
-      const FrameId& last_kf_id,                     // id of the viewpoint we're solving for
-      const std::vector<FrameId>& candidate_kf_ids,  // ids of the candidate keyframes
-      const std::vector<Keypoints>& last_kf_kpts,    // keypoints of the last kf, per camera
-      const std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Vec3d>>& points_3d,
-      const std::unordered_map<FrameId, std::vector<KeyframesMatch>>& matches,
-      std::unordered_map<FrameId, std::vector<KeyframesMatch>>& inlier_matches, Sophus::SE3d& absolute_pose);
+  void consolidateMatches(std::vector<KeyframesMatch>& matches);
 
-  void buildPoseGraph(const TimeCamId& curr_kf_tcid, const std::vector<FrameId>& best_island,
-                      const Sophus::SE3f& best_corrected_pose, MapOfPoses& map_of_poses,
+  size_t estimateAbsolutePose(const std::vector<Keypoints>& curr_kf_kpts,
+                              const Eigen::aligned_map<LandmarkId, Vec3d>& points_3d,
+                              const std::vector<KeyframesMatch>& matches, std::vector<KeyframesMatch>& inlier_matches,
+                              Sophus::SE3d& estimated_pose);
+
+  void reprojectLandmarks(const Sophus::SE3d& T_w_i, size_t cam_id,
+                          const Eigen::aligned_map<LandmarkId, Vec3d>& points_3d, Keypoints& reprojected_keypoints);
+
+  bool searchInWindow(const basalt::ManagedImage<uint16_t>& img, const Keypoint& center,
+                      const std::bitset<256>& center_descriptor, Eigen::aligned_vector<Vec2>& detected_kpts,
+                      Vec2& match_pos);
+
+  bool closeLoop(const LoopDetectionResult::Ptr& loop_detection_result,
+                 const LoopClosureDecision::Ptr& loop_closure_decision, LoopClosureResult::Ptr& loop_closure_result);
+
+  void buildPoseGraph(const LoopDetectionResult::Ptr& loop_detection_result,
+                      const LoopClosureDecision::Ptr& loop_closure_decision, MapOfPoses& map_of_poses,
                       VectorOfConstraints& constraints);
 
-  void restorePosesFromCeres(const MapOfPoses& map_of_poses);
+  void buildCeresProblem(const VectorOfConstraints& constraints, const std::set<FrameId>& active_keyframes,
+                         MapOfPoses* map_of_poses, ceres::Problem* problem);
 
-  void buildOptimizationProblem(const VectorOfConstraints& constraints, MapOfPoses* map_of_poses,
-                                ceres::Problem* problem);
+  bool solveCeresProblem(ceres::Problem* problem);
 
-  bool solveOptimizationProblem(ceres::Problem* problem);
+  void applyOptimizedPoses(const MapOfPoses& map_of_poses, Eigen::aligned_map<FrameId, Sophus::SE3f>& keyframe_poses);
 
   VioConfig config;
   basalt::Calibration<double> calib;
 
   std::map<TimeCamId, std::unordered_map<KeypointId, std::bitset<256>>> kpt_descriptors;
-  std::unordered_map<TimeCamId, std::vector<KeypointId>> kf_landmarks;
+
+  // Used only to show the keypoints of the loop closure procedure in the UI. It's empty
+  // when --show-gui is 0
   std::unordered_map<TimeCamId, std::unordered_map<KeypointId, Vec2>> kpts_positions;
   std::shared_ptr<HashBow<256>> hash_bow_database;
 
-  LoopClosureDecision::Ptr loop_closure_decision;
   LCTimeStats lc_time_stats;
-
-  bool close_loop = false;
 
   std::shared_ptr<std::thread> processing_thread;
   LoopClosingVisualizationData::Ptr loop_closing_visualization_data;
-  LoopDetectionResult::Ptr loop_detection_result;
 };
 }  // namespace basalt

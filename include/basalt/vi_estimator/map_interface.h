@@ -11,10 +11,12 @@ struct LoopDetectionResult {
   using Ptr = std::shared_ptr<LoopDetectionResult>;
 
   FrameId candidate_kf_id, current_kf_id;
+  std::vector<FrameId> candidates_island;
   Sophus::SE3f current_kf_corrected_pose;
 
+  // It maps the current kf's keypoints to the matched candidate keypoints
   std::unordered_map<LandmarkId, LandmarkId> lm_fusions;
-  std::unordered_map<TimeCamId, std::unordered_map<LandmarkId, Vec2>> curr_kf_obs;
+  std::unordered_map<TimeCamId, Keypoints> curr_kf_obs;
 };
 
 struct LoopClosureResult {
@@ -47,7 +49,7 @@ struct IslandRequest {
   using Ptr = std::shared_ptr<IslandRequest>;
 
   FrameId keyframe;
-  size_t neighbors_num;
+  size_t num_neighbors;
 };
 
 struct LoopClosureDecision {
@@ -64,7 +66,8 @@ struct IslandResponse {
   using Ptr = std::shared_ptr<IslandResponse>;
 
   std::vector<FrameId> keyframes;
-  std::unordered_map<TimeCamId, Eigen::aligned_map<LandmarkId, Eigen::Matrix<double, 3, 1>>> landmarks_3d_map;
+  Eigen::aligned_map<TimeCamId, std::set<LandmarkId>> keyframe_obs;
+  Eigen::aligned_map<LandmarkId, Eigen::Matrix<double, 3, 1>> landmarks_3d;
 };
 
 struct OptimizedPosesUpdate {

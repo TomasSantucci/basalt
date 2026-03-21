@@ -362,7 +362,6 @@ struct VIOUIBase {
   Var<bool> show_spanning_tree{"map_menu.show_spanning_tree", false, true};
   Var<bool> show_loop_closures{"map_menu.show_loop_closures", false, true};
   Var<bool> show_keyframe_poses{"map_menu.show_keyframe_poses", true, true};
-  Button trigger_loop_closure_btn{"map_menu.Close Loop", [this]() { trigger_loop_closure(); }};
   Button toggle_similar_keyframes_btn{"map_menu.toggle_similar_kfs", [this]() { toggle_similar_keyframes(); }};
   Button next_island_btn{"map_menu.next_island", [this]() { next_island(); }};
   Button next_similar_keyframe_btn{"map_menu.next_similar_kf", [this]() { next_similar_kf(); }};
@@ -397,7 +396,6 @@ struct VIOUIBase {
   void clear_highlights();
   bool toggle_blocks();
   bool take_ltkf();
-  bool trigger_loop_closure();
   bool reset_state();
   void do_show_empty_warning(size_t cam_id);
   bool get_covisibility_map();

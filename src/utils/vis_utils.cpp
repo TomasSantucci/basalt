@@ -178,11 +178,6 @@ bool VIOUIBase::take_ltkf() {
   return true;
 }
 
-bool VIOUIBase::trigger_loop_closure() {
-  loop_closing->triggerLoopClosure();
-  return true;
-}
-
 bool VIOUIBase::reset_state() {
   vio->scheduleResetState();
   return true;
@@ -769,13 +764,17 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
     std::memcpy(row + current_img->w, row2, candidate_img->w * sizeof(uint16_t));
   }
 
-  std::vector<KeyframesMatch>& matches = curr_lc_vis_data->matches[candidate_tcid.frame_id];
+  std::vector<KeyframesMatch>& matches = curr_lc_vis_data->matches;
   Keypoints& current_keypoints = curr_lc_vis_data->current_keypoints[recent_kf_cam_id];
   Keypoints& candidate_keypoints = curr_lc_vis_data->candidate_keypoints[candidate_tcid];
 
   glColor3ubv(BLUE);
   for (const auto& match : matches) {
-    if (match.current_kf_cam != recent_kf_cam_id || match.candidate_kf_cam != candidate_kf_cam_id) {
+    if (match.current_kf_cam != recent_kf_cam_id) {
+      continue;
+    }
+
+    if (candidate_keypoints.find(match.candidate_kf_kpt_id) == candidate_keypoints.end()) {
       continue;
     }
 
@@ -792,11 +791,15 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
     pangolin::glDrawCirclePerimeter(p2.cast<double>(), 3.0f);
   }
 
-  std::vector<KeyframesMatch>& inlier_matches = curr_lc_vis_data->inlier_matches[candidate_tcid.frame_id];
+  std::vector<KeyframesMatch>& inlier_matches = curr_lc_vis_data->inlier_matches;
 
   glColor3ubv(GREEN);
   for (const auto& match : inlier_matches) {
-    if (match.current_kf_cam != recent_kf_cam_id || match.candidate_kf_cam != candidate_kf_cam_id) {
+    if (match.current_kf_cam != recent_kf_cam_id) {
+      continue;
+    }
+
+    if (candidate_keypoints.find(match.candidate_kf_kpt_id) == candidate_keypoints.end()) {
       continue;
     }
 

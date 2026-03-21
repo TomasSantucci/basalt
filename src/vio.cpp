@@ -1373,31 +1373,16 @@ struct basalt_vio_ui : vis::VIOUIBase {
       Sophus::SE3f main_candidate_pose = vio_T_w_i[main_candidate_idx].cast<float>();
 
       Sophus::SE3f corrected_pose = curr_lc_vis_data->candidate_corrected_pose;
-      if (!config.close_loops) { pangolin::glDrawAxis(corrected_pose.matrix(), 0.1); }
 
       Eigen::Vector3f t_actual_curr = current_keyframe_pose.translation();
       Eigen::Vector3f t_corrected_curr = corrected_pose.translation();
       Eigen::Vector3f t_actual_candidate = vio_T_w_i[actual_frame_idx].cast<float>().translation();
 
-      if (!config.close_loops) {
-        glColor3f(1.0f, 1.0f, 0.0f);
-        glBegin(GL_LINES);
-        glVertex3d(t_actual_curr.x(), t_actual_curr.y(), t_actual_curr.z());
-        glVertex3d(t_corrected_curr.x(), t_corrected_curr.y(), t_corrected_curr.z());
-        glEnd();
-
-        glColor3f(0.0f, 1.0f, 1.0f);
-        glBegin(GL_LINES);
-        glVertex3d(t_corrected_curr.x(), t_corrected_curr.y(), t_corrected_curr.z());
-        glVertex3d(t_actual_candidate.x(), t_actual_candidate.y(), t_actual_candidate.z());
-        glEnd();
-      } else {
-        glColor3f(0.0f, 1.0f, 1.0f);
-        glBegin(GL_LINES);
-        glVertex3d(t_actual_curr.x(), t_actual_curr.y(), t_actual_curr.z());
-        glVertex3d(t_actual_candidate.x(), t_actual_candidate.y(), t_actual_candidate.z());
-        glEnd();
-      }
+      glColor3f(0.0f, 1.0f, 1.0f);
+      glBegin(GL_LINES);
+      glVertex3d(t_actual_curr.x(), t_actual_curr.y(), t_actual_curr.z());
+      glVertex3d(t_actual_candidate.x(), t_actual_candidate.y(), t_actual_candidate.z());
+      glEnd();
 
       if (show_map) {
         MapDatabaseVisualizationData::Ptr curr_map_vis_data = get_curr_map_vis_data();
@@ -1405,11 +1390,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
         Eigen::aligned_vector<Eigen::Vector3f> curr_island_points;
         std::unordered_set<LandmarkId> island_lm_ids;
 
-        for (const auto& [kf_id, matches] : curr_lc_vis_data->inlier_matches) {
-          for (const auto& match : matches) {
-            island_lm_ids.insert(match.candidate_kf_kpt_id);
-            island_lm_ids.insert(match.current_kf_kpt_id);
-          }
+        for (const auto& match : curr_lc_vis_data->inlier_matches) {
+          island_lm_ids.insert(match.candidate_kf_kpt_id);
+          island_lm_ids.insert(match.current_kf_kpt_id);
         }
 
         Eigen::aligned_vector<Eigen::Matrix<double, 3, 1>>& points = curr_map_vis_data->landmarks;
