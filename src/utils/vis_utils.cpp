@@ -749,7 +749,7 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
   }
 
   const std::vector<FrameId>& current_island = candidate_kfs;
-  TimeCamId candidate_tcid = TimeCamId{current_island[similar_kf_idx], candidate_kf_cam_id};
+  TimeCamId candidate_tcid = TimeCamId{current_island[similar_kf_idx], static_cast<CamId>(candidate_kf_cam_id)};
   basalt::ManagedImage<uint16_t>::Ptr current_img = vio_dataset->get_image_data(t_ns)[recent_kf_cam_id].img;
   basalt::ManagedImage<uint16_t>::Ptr candidate_img =
       vio_dataset->get_image_data(candidate_tcid.frame_id)[candidate_tcid.cam_id].img;
@@ -770,7 +770,7 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
 
   glColor3ubv(BLUE);
   for (const auto& match : matches) {
-    if (match.current_kf_cam != recent_kf_cam_id) {
+    if (match.current_kf_cam != static_cast<CamId>(recent_kf_cam_id)) {
       continue;
     }
 
@@ -795,7 +795,7 @@ void VIOUIBase::draw_similar_keyframes_overlay(const VioDatasetPtr& vio_dataset,
 
   glColor3ubv(GREEN);
   for (const auto& match : inlier_matches) {
-    if (match.current_kf_cam != recent_kf_cam_id) {
+    if (match.current_kf_cam != static_cast<CamId>(recent_kf_cam_id)) {
       continue;
     }
 

@@ -1430,7 +1430,6 @@ struct basalt_vio_ui : vis::VIOUIBase {
       Sophus::SE3f corrected_pose = curr_lc_vis_data->candidate_corrected_pose;
 
       Eigen::Vector3f t_actual_curr = current_keyframe_pose.translation();
-      Eigen::Vector3f t_corrected_curr = corrected_pose.translation();
       Eigen::Vector3f t_actual_candidate = vio_T_w_i[actual_frame_idx].cast<float>().translation();
 
       glColor3f(0.0f, 1.0f, 1.0f);
