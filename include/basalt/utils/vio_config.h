@@ -138,7 +138,6 @@ struct VioConfig {
   int loop_closing_frame_time_margin_s;
   double loop_closing_min_drift_reduction;
   double loop_closing_min_rot_reduction_deg;
-  bool loop_closing_dump_times;
   int loop_closing_min_initial_matches;
   int loop_closing_min_island_matches;
   int loop_closing_pnp_min_inliers;

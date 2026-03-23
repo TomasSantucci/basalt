@@ -109,6 +109,49 @@ struct TimeStats {
 	}
 };
 
+struct TimeStatsWithInterpolation : public TimeStats {
+	void addTime(const std::string_view name, int64_t ts = INT64_MIN) {
+		if (!enabled_exts.has_pose_timing) {
+			return;
+		}
+
+		if (timing_titles != nullptr) {
+			if (!isTimingTitleValid(name))
+				return;
+
+			const std::string_view expected(timing_titles[timings.size()]);
+			if (expected != name) {
+				int current_idx = -1;
+				for (size_t i = 0; timing_titles[i] != nullptr; ++i) {
+					if (name == timing_titles[i]) {
+						current_idx = i;
+						break;
+					}
+				}
+
+				if (current_idx == -1 || current_idx <= (int)timings.size())
+					return;
+
+				int64_t prev_value =
+					timings.empty()
+						? (ts == INT64_MIN ? std::chrono::steady_clock::now().time_since_epoch().count() : ts)
+						: timings.back();
+
+				int expected_idx = timings.size();
+				for (int i = expected_idx; i < current_idx; ++i) {
+					timings.push_back(prev_value);
+				}
+			}
+		}
+
+		if (ts == INT64_MIN) {
+			ts = std::chrono::steady_clock::now().time_since_epoch().count();
+		}
+
+		timings.push_back(ts);
+	}
+};
+
 } // namespace vit
 
 struct vit_tracker {

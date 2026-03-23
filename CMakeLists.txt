@@ -397,7 +397,6 @@ target_sources(basalt_internal
     ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/vio_config.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/vis_matrices.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/vis_utils.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/lc_time_utils.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/utils/sync_utils.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/ba_base.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/landmark_database.h

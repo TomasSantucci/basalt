@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 #pragma once
 
+#include <array>
 #include <memory>
 #include <thread>
 
@@ -47,7 +48,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <basalt/hash_bow/hash_bow.h>
 #include <basalt/utils/common_types.h>
-#include <basalt/utils/lc_time_utils.h>
 #include <basalt/utils/nfr.h>
 #include <basalt/utils/sync_utils.h>
 #include <basalt/vi_estimator/map_database.h>
@@ -231,7 +231,8 @@ class LoopClosing {
   void retrieveCandidates(FrameId curr_kf_id, const HashBowVector& bow_vector, std::vector<FrameId>& results);
 
   bool validateCandidate(const LoopClosingInput::Ptr& loop_closing_input, const FrameId& candidate_kf,
-                         std::vector<Keypoints>& curr_kf_kpts, LoopDetectionResult::Ptr& loop_detection_result);
+                         std::vector<Keypoints>& curr_kf_kpts, LoopDetectionResult::Ptr& loop_detection_result,
+                         std::array<int64_t, 5>& cumulative_times);
 
   bool checkCovisibility(const FrameId& kf1_id, const FrameId& kf2_id);
 
@@ -254,7 +255,7 @@ class LoopClosing {
                       const std::bitset<256>& center_descriptor, Eigen::aligned_vector<Vec2>& detected_kpts,
                       Vec2& match_pos);
 
-  bool closeLoop(const LoopDetectionResult::Ptr& loop_detection_result,
+  bool closeLoop(const LoopClosingInput::Ptr& loop_closing_input, const LoopDetectionResult::Ptr& loop_detection_result,
                  const LoopClosureDecision::Ptr& loop_closure_decision, LoopClosureResult::Ptr& loop_closure_result);
 
   void buildPoseGraph(const LoopDetectionResult::Ptr& loop_detection_result,
@@ -271,14 +272,12 @@ class LoopClosing {
   VioConfig config;
   basalt::Calibration<double> calib;
 
+  std::shared_ptr<HashBow<256>> hash_bow_database;
   std::map<TimeCamId, std::unordered_map<KeypointId, std::bitset<256>>> kpt_descriptors;
 
   // Used only to show the keypoints of the loop closure procedure in the UI. It's empty
   // when --show-gui is 0
   std::unordered_map<TimeCamId, std::unordered_map<KeypointId, Vec2>> kpts_positions;
-  std::shared_ptr<HashBow<256>> hash_bow_database;
-
-  LCTimeStats lc_time_stats;
 
   std::shared_ptr<std::thread> processing_thread;
   LoopClosingVisualizationData::Ptr loop_closing_visualization_data;

@@ -106,8 +106,15 @@ struct OpticalFlowInput {
   std::vector<Masks> masks{};     //!< Regions of the image to ignore
   UIMAT show_uimat = UIMAT::ALL;  //!< Which matrix to compute for the UI
 
-  vit::TimeStats stats;  //!< Keeps track of internal metrics for this t_ns
-  void addTime(const char* name, int64_t custom_ts = INT64_MIN) { stats.addTime(name, custom_ts); }
+  bool is_keyframe = true;
+
+  vit::TimeStats stats;                            //!< Keeps track of internal metrics for this t_ns
+  vit::TimeStatsWithInterpolation keyframe_stats;  //!< Keeps track of internal metrics for the keyframe processing
+  void addTime(const char* name, int64_t custom_ts = INT64_MIN) {
+    stats.addTime(name, custom_ts);
+    if (is_keyframe) keyframe_stats.addTime(name, custom_ts);
+  }
+  void addKeyframeTime(const char* name, int64_t custom_ts = INT64_MIN) { keyframe_stats.addTime(name, custom_ts); }
 };
 
 struct OpticalFlowResult {

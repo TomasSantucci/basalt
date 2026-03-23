@@ -1,9 +1,9 @@
 #include <basalt/vi_estimator/loop_closing.h>
+#include <basalt/utils/time_utils.hpp>
 #include "basalt/optical_flow/optical_flow.h"
 #include "basalt/utils/common_types.h"
 #include "basalt/utils/eigen_utils.hpp"
 #include "basalt/utils/keypoints.h"
-#include "basalt/utils/lc_time_utils.h"
 #include "basalt/vi_estimator/landmark_database.h"
 #include "basalt/vi_estimator/map_interface.h"
 
@@ -13,6 +13,7 @@
 #include <ceres/manifold.h>
 #include <ceres/problem.h>
 #include <Eigen/Core>
+#include <chrono>
 #include <opengv/absolute_pose/CentralAbsoluteAdapter.hpp>
 #include <opengv/absolute_pose/NoncentralAbsoluteAdapter.hpp>
 #include <opengv/absolute_pose/methods.hpp>
@@ -37,19 +38,8 @@ void LoopClosing::processingLoop() {
   LoopClosingInput::Ptr loop_closing_input;
 
   bool notify_lc_finished = false;
-  std::ofstream dump_loop_detection_result_file("loop_detection_times.csv", std::ios::out);
-
-  if (config.loop_closing_dump_times) {
-    lc_time_stats.dumpHeader(dump_loop_detection_result_file);
-    lc_time_stats.resetStats();
-  }
 
   while (true) {
-    if (config.loop_closing_dump_times && lc_time_stats.current_kf_ts != -1) {
-      dump_loop_detection_result_file << lc_time_stats;
-      lc_time_stats.resetStats();
-    }
-
     if (notify_lc_finished && sync_lc_finished != nullptr) {
       std::lock_guard<std::mutex> lk(sync_lc_finished->m);
       sync_lc_finished->ready = true;
@@ -63,31 +53,27 @@ void LoopClosing::processingLoop() {
       break;
     }
 
-    if (config.loop_closing_dump_times) {
-      lc_time_stats.addTime(LCTimeStage::Start, true);
-      lc_time_stats.current_kf_ts = loop_closing_input->t_ns;
-    }
-
     HashBowVector bow_vector;
     indexKeyframe(loop_closing_input, bow_vector);
 
-    if (config.loop_closing_dump_times) lc_time_stats.addTime(LCTimeStage::HashBowIndex, true);
+    loop_closing_input->input_images->addKeyframeTime("lc_keyframe_indexed");
 
     auto loop_detection_result = std::make_shared<LoopDetectionResult>();
     bool success = detectLoop(loop_closing_input, bow_vector, loop_detection_result);
 
+    loop_closing_input->input_images->addKeyframeTime("lc_loop_detection_finished");
+
     if (!success) {
-      if (config.loop_closing_dump_times) lc_time_stats.loop_closed = false;
       notify_lc_finished = true;
       continue;
     }
-
-    if (config.loop_closing_dump_times) lc_time_stats.loop_closed = true;
 
     if (out_map_write_queue) out_map_write_queue->push(loop_detection_result);
 
     LoopClosureDecision::Ptr loop_closure_decision;
     in_lc_dec_res_queue.pop(loop_closure_decision);
+
+    loop_closing_input->input_images->addKeyframeTime("lc_loop_decision_received");
 
     if (!loop_closure_decision->close_loop) {
       if (out_lc_vis_queue) {
@@ -98,8 +84,7 @@ void LoopClosing::processingLoop() {
     }
 
     auto loop_closure_result = std::make_shared<LoopClosureResult>();
-    success = closeLoop(loop_detection_result, loop_closure_decision, loop_closure_result);
-    if (config.loop_closing_dump_times) lc_time_stats.addTime(LCTimeStage::LoopClosure, true);
+    success = closeLoop(loop_closing_input, loop_detection_result, loop_closure_decision, loop_closure_result);
 
     if (out_map_write_queue && success) out_map_write_queue->push(loop_closure_result);
 
@@ -176,16 +161,33 @@ bool LoopClosing::detectLoop(const LoopClosingInput::Ptr& loop_closing_input, co
 
   std::vector<FrameId> candidate_kfs;
   retrieveCandidates(curr_kf_id, bow_vector, candidate_kfs);
-  lc_time_stats.addTime(LCTimeStage::HashBowSearch, true);
+
+  loop_closing_input->input_images->addKeyframeTime("lc_candidates_retrieved");
 
   if (candidate_kfs.empty()) return false;
 
+  const int64_t validation_start_ts = std::chrono::steady_clock::now().time_since_epoch().count();
+  // Initial matching, island request, island matching, reprojection and pose estimation
+  std::array<int64_t, 5> cumulative_times = {0, 0, 0, 0, 0};
+
   bool loop_detected = false;
   for (const auto& candidate_kf : candidate_kfs) {
-    loop_detected = validateCandidate(loop_closing_input, candidate_kf, curr_kf_kpts, loop_detection_result);
+    loop_detected =
+        validateCandidate(loop_closing_input, candidate_kf, curr_kf_kpts, loop_detection_result, cumulative_times);
     if (loop_detected) break;
   }
 
+  cumulative_times[0] += validation_start_ts;
+  for (size_t i = 1; i < cumulative_times.size(); ++i) {
+    cumulative_times[i] += cumulative_times[i - 1];
+  }
+
+  loop_closing_input->input_images->addKeyframeTime("lc_cumulative_initial_matching_ended", cumulative_times[0]);
+  loop_closing_input->input_images->addKeyframeTime("lc_cumulative_island_response_received", cumulative_times[1]);
+  loop_closing_input->input_images->addKeyframeTime("lc_cumulative_island_matching_ended", cumulative_times[2]);
+  loop_closing_input->input_images->addKeyframeTime("lc_cumulative_reprojection_ended", cumulative_times[3]);
+  loop_closing_input->input_images->addKeyframeTime("lc_cumulative_pose_estimation_ended", cumulative_times[4]);
+  loop_closing_input->input_images->addKeyframeTime("lc_candidates_validated");
   return loop_detected;
 }
 
@@ -208,7 +210,8 @@ void LoopClosing::retrieveCandidates(FrameId curr_kf_id, const HashBowVector& bo
 
 bool LoopClosing::validateCandidate(const LoopClosingInput::Ptr& loop_closing_input, const FrameId& candidate_kf,
                                     std::vector<Keypoints>& curr_kf_kpts,
-                                    LoopDetectionResult::Ptr& loop_detection_result) {
+                                    LoopDetectionResult::Ptr& loop_detection_result,
+                                    std::array<int64_t, 5>& cumulative_times) {
   FrameId curr_kf_id = loop_closing_input->t_ns;
   std::vector<KeyframesMatch> matches;
   std::vector<KeyframesMatch> inlier_matches;
@@ -217,6 +220,8 @@ bool LoopClosing::validateCandidate(const LoopClosingInput::Ptr& loop_closing_in
   size_t initial_inliers = 0;
   size_t reprojection_matches = 0;
   size_t reprojection_inliers = 0;
+
+  Timer t;
 
   // -- Covisibility check --
   if (checkCovisibility(curr_kf_id, candidate_kf)) return false;
@@ -233,14 +238,13 @@ bool LoopClosing::validateCandidate(const LoopClosingInput::Ptr& loop_closing_in
   consolidateMatches(matches);
 
   initial_matches = matches.size();
-  if (initial_matches < static_cast<size_t>(config.loop_closing_min_initial_matches)) {
-    lc_time_stats.addTime(LCTimeStage::InitialMatch, false);
-    return false;
-  }
+  cumulative_times[0] += t.elapsed_ns();
+  t.reset();
+
+  if (initial_matches < static_cast<size_t>(config.loop_closing_min_initial_matches)) return false;
 
   candidate_kf_kpts.clear();
   matches.clear();
-  lc_time_stats.addTime(LCTimeStage::InitialMatch, true);
 
   // -- Query Map Database for the island of the candidate keyframe --
   auto msg = std::make_shared<IslandRequest>();
@@ -254,7 +258,8 @@ bool LoopClosing::validateCandidate(const LoopClosingInput::Ptr& loop_closing_in
   const std::vector<FrameId>& island_kfs = map_island->keyframes;
   const Eigen::aligned_map<TimeCamId, std::set<LandmarkId>>& keyframe_obs = map_island->keyframe_obs;
 
-  lc_time_stats.addTime(LCTimeStage::LandmarksRequest, true);
+  cumulative_times[1] += t.elapsed_ns();
+  t.reset();
 
   // -- Match the current keyframe with all the keyframes in the island --
   for (const auto& neighbor_kf : island_kfs) {
@@ -274,24 +279,21 @@ bool LoopClosing::validateCandidate(const LoopClosingInput::Ptr& loop_closing_in
 
   initial_island_matches = matches.size();
 
-  if (initial_island_matches < static_cast<size_t>(config.loop_closing_min_island_matches)) {
-    lc_time_stats.addTime(LCTimeStage::IslandMatch, false);
-    return false;
-  }
-  lc_time_stats.addTime(LCTimeStage::IslandMatch, true);
+  cumulative_times[2] += t.elapsed_ns();
+  t.reset();
+
+  if (initial_island_matches < static_cast<size_t>(config.loop_closing_min_island_matches)) return false;
 
   // -- Geometric verification with PnP --
   Sophus::SE3d curr_kf_estimated_pose;
   initial_inliers = estimateAbsolutePose(curr_kf_kpts, points_3d, matches, inlier_matches, curr_kf_estimated_pose);
 
+  cumulative_times[4] += t.elapsed_ns();
+  t.reset();
+
   if (initial_inliers < static_cast<size_t>(config.loop_closing_pnp_min_inliers) ||
-      initial_inliers < initial_island_matches * static_cast<size_t>(config.loop_closing_pnp_inliers_ratio)) {
-    lc_time_stats.addTime(LCTimeStage::GeometricVerification, false);
-
+      initial_inliers < initial_island_matches * static_cast<size_t>(config.loop_closing_pnp_inliers_ratio))
     return false;
-  }
-
-  lc_time_stats.addTime(LCTimeStage::GeometricVerification, true);
 
   // -- Optional reprojection and geometric verification --
   if (config.loop_closing_reproject_landmarks) {
@@ -348,20 +350,18 @@ bool LoopClosing::validateCandidate(const LoopClosingInput::Ptr& loop_closing_in
 
     reprojection_matches = matches.size();
 
-    lc_time_stats.addTime(LCTimeStage::Reprojection, true);
+    cumulative_times[3] += t.elapsed_ns();
+    t.reset();
 
     inlier_matches.clear();
     reprojection_inliers =
         estimateAbsolutePose(curr_kf_kpts, points_3d, matches, inlier_matches, curr_kf_estimated_pose);
 
+    cumulative_times[4] += t.elapsed_ns();
+
     if (reprojection_inliers < static_cast<size_t>(config.loop_closing_reprojected_pnp_min_inliers) ||
-        reprojection_inliers < initial_island_matches * static_cast<size_t>(config.loop_closing_pnp_inliers_ratio)) {
-      lc_time_stats.addTime(LCTimeStage::ReprojectedGeometricVerification, false);
-
+        reprojection_inliers < initial_island_matches * static_cast<size_t>(config.loop_closing_pnp_inliers_ratio))
       return false;
-    }
-
-    lc_time_stats.addTime(LCTimeStage::ReprojectedGeometricVerification, true);
   }
 
   if (config.loop_closing_debug) {
@@ -696,7 +696,8 @@ bool LoopClosing::searchInWindow(const basalt::ManagedImage<uint16_t>& img, cons
   return false;
 }
 
-bool LoopClosing::closeLoop(const LoopDetectionResult::Ptr& loop_detection_result,
+bool LoopClosing::closeLoop(const LoopClosingInput::Ptr& loop_closing_input,
+                            const LoopDetectionResult::Ptr& loop_detection_result,
                             const LoopClosureDecision::Ptr& loop_closure_decision,
                             LoopClosureResult::Ptr& loop_closure_result) {
   MapOfPoses map_of_poses;
@@ -711,13 +712,19 @@ bool LoopClosing::closeLoop(const LoopDetectionResult::Ptr& loop_detection_resul
   ceres::Problem problem;
   buildCeresProblem(constraints, loop_closure_decision->active_keyframes, &map_of_poses, &problem);
 
+  loop_closing_input->input_images->addKeyframeTime("lc_pgo_problem_built");
+
   bool success = solveCeresProblem(&problem);
+
+  loop_closing_input->input_images->addKeyframeTime("lc_pgo_problem_solved");
 
   if (!success) {
     return false;
   }
 
   applyOptimizedPoses(map_of_poses, *loop_closure_decision->keyframe_poses);
+
+  loop_closing_input->input_images->addKeyframeTime("lc_pgo_poses_applied");
 
   loop_closure_result->keyframe_poses = loop_closure_decision->keyframe_poses;
   loop_closure_result->loop_detection_result = loop_detection_result;

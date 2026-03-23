@@ -344,7 +344,6 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.loop_closing_frame_time_margin_s));
   ar(CEREAL_NVP(config.loop_closing_min_drift_reduction));
   ar(CEREAL_NVP(config.loop_closing_min_rot_reduction_deg));
-  ar(CEREAL_NVP(config.loop_closing_dump_times));
   ar(CEREAL_NVP(config.loop_closing_min_initial_matches));
   ar(CEREAL_NVP(config.loop_closing_min_island_matches));
   ar(CEREAL_NVP(config.loop_closing_pnp_min_inliers));

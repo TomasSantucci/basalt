@@ -127,6 +127,46 @@ std::array timing_titles = {"frames_original_timestamp",
                             "backend_state_pushed",
                             "consumer_state_received"};
 
+std::array kf_timing_titles = {"frames_original_timestamp",
+                               "frames_read_started",
+                               "frames_read",
+                               "frames_pushed",
+                               "frontend_frames_received",
+                               "frontend_preintegration_computed",
+                               "frontend_pyramid_created",
+                               "frontend_tracking_ended",
+                               "frontend_recall_ended",
+                               "frontend_detection_cam0_ended",
+                               "frontend_matching_ended",
+                               "frontend_detection_cami_ended",
+                               "frontend_filter_ended",
+                               "frontend_keypoints_pushed",
+                               "backend_keypoints_received",
+                               "backend_observations_processed",
+                               "backend_cumulative_linearization_ended",
+                               "backend_cumulative_solver_ended",
+                               "backend_cumulative_backsubstitution_ended",
+                               "backend_cumulative_error_computed",
+                               "backend_optimization_ended",
+                               "backend_marginalization_ended",
+                               "map_stamp_saved",
+                               "lc_keyframe_indexed",
+                               "lc_candidates_retrieved",
+                               "lc_cumulative_initial_matching_ended",
+                               "lc_cumulative_island_response_received",
+                               "lc_cumulative_island_matching_ended",
+                               "lc_cumulative_reprojection_ended",
+                               "lc_cumulative_pose_estimation_ended",
+                               "lc_candidates_validated",
+                               "lc_loop_detection_finished",
+                               "lc_loop_decision_received",
+                               "lc_pgo_problem_built",
+                               "lc_pgo_problem_solved",
+                               "lc_pgo_poses_applied",
+                               "lc_loop_closing_finished",
+                               "backend_state_pushed",
+                               "consumer_state_received"};
+
 std::ostream& operator<<(std::ostream& os, const vit::TimeStats& s) {
   for (const int64_t& ts : s.timings) os << ts << (&ts != &s.timings.back() ? "," : "\n");
   return os;
@@ -191,6 +231,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
   size_t max_gui_frames = 10000;
 
   std::ofstream timing_csv{};
+  std::ofstream kf_timing_csv{};
 
   std::atomic<bool> terminate = false;
 
@@ -339,6 +380,14 @@ struct basalt_vio_ui : vis::VIOUIBase {
       for (const auto& col : timing_titles) {
         string delimiter = &col != &timing_titles.back() ? "," : "\n";
         timing_csv << col << delimiter;
+      }
+
+      string kf_timing_fn = string("kf_") + timing_fn;
+      kf_timing_csv = std::ofstream{kf_timing_fn};
+      kf_timing_csv << "#";
+      for (const auto& col : kf_timing_titles) {
+        string delimiter = &col != &kf_timing_titles.back() ? "," : "\n";
+        kf_timing_csv << col << delimiter;
       }
     }
 
@@ -654,6 +703,8 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
     data->input_images->addTime("consumer_state_received");
     if (save_times) timing_csv << data->input_images->stats;  // Write CSV line
+    if (save_times && data->input_images->is_keyframe)
+      kf_timing_csv << data->input_images->keyframe_stats;  // Write CSV line for keyframe timings
 
     int64_t t_ns = data->t_ns;
 
@@ -1072,6 +1123,10 @@ struct basalt_vio_ui : vis::VIOUIBase {
       img->stats.enabled_exts.has_pose_timing = true;
       img->stats.timings.reserve(timing_titles.size());  // This enables timing measurements in the pipeline
       img->stats.timing_titles = timing_titles.data();
+      img->keyframe_stats.ts = t_ns;
+      img->keyframe_stats.enabled_exts.has_pose_timing = true;
+      img->keyframe_stats.timings.reserve(kf_timing_titles.size());
+      img->keyframe_stats.timing_titles = kf_timing_titles.data();
     }
     img->addTime("frames_original_timestamp", t_ns);
     img->addTime("frames_read_started");

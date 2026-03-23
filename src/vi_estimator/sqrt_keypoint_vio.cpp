@@ -756,6 +756,7 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
     num_points_kf[opt_flow_meas->t_ns] = num_points_added;
   } else {
     frames_after_kf++;
+    opt_flow_meas->input_images->is_keyframe = false;
   }
 
   std::unordered_set<KeypointId> lost_landmaks;
@@ -793,6 +794,8 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
       }
     }
 
+    opt_flow_meas->input_images->addKeyframeTime("map_stamp_saved");
+
     if (out_opt_flow_queue_loop_closing) {
       LoopClosingInput::Ptr loop_closing_input = std::make_shared<LoopClosingInput>();
       loop_closing_input->input_images = opt_flow_meas->input_images;
@@ -820,6 +823,8 @@ bool SqrtKeypointVioEstimator<Scalar_>::measure(const OpticalFlowResult::Ptr& op
         sync_lc_finished->ready = false;
       }
     }
+
+    opt_flow_meas->input_images->addTime("lc_loop_closing_finished");
   }
 
   size_t num_cams = opt_flow_meas->keypoints.size();
