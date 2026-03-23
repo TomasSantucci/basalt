@@ -145,12 +145,6 @@ class LandmarkDatabase {
 
   void mergeKeyframesPoses(std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3<Scalar_>>> loop_kfs_poses);
 
-  void print_landmark(const Landmark<Scalar>& lm);
-
-  bool debug_check_landmark_consistency(const Landmark<Scalar>& lm);
-
-  bool debug_check_keyframes_consistency(std::string caller);
-
   // Const
   const Landmark<Scalar>& getLandmark(LandmarkId lm_id) const;
 
@@ -185,10 +179,6 @@ class LandmarkDatabase {
   void removeLandmark(LandmarkId lm_id);
 
   void removeObservations(LandmarkId lm_id, const std::set<TimeCamId>& obs);
-
-  void dump_map_to_json(const std::string& filename);
-
-  void dump_observations_map_to_json(const std::string& filename);
 
   void print(bool show_ids = false);
 

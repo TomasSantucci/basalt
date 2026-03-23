@@ -120,9 +120,7 @@ class MapDatabase {
 
   void updateCovisibilityGraph(const LandmarkDatabase<Scalar>::Ptr& lmdb);
 
-  void saveColmap(const std::string& path);
-
-  void saveEuroc(const std::string& path);
+  void saveEuroc(const std::string& file_path);
 
   void saveJson(const std::string& file_path);
 
