@@ -116,6 +116,8 @@ double alignSVD(const std::vector<int64_t>& filter_t_ns, const Eigen::aligned_ve
 
   int num_kfs = est_associations.size();
 
+  if (num_kfs < 5) return -1;
+
   Eigen::Matrix<double, 3, Eigen::Dynamic> gt, est;
   gt.setZero(3, num_kfs);
   est.setZero(3, num_kfs);

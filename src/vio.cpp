@@ -438,8 +438,9 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
     bool pose_moved_enough = !data->frames.empty() && data->frames.rbegin()->second.translation().norm() > 1.0f;
     if (pose_moved_enough) {
-      alignButton();
-      initially_aligned = true;
+      initially_aligned = alignButton() >= 0;
+
+      if (!initially_aligned) std::cout << "Initial alignment failed at " << data->t_ns << "ns!" << std::endl;
     }
 
     return false;
@@ -747,6 +748,8 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
     // TODO: remove this unconditional call (here for debugging);
     const double ate_rmse = basalt::alignSVD(vio_t_ns, vio_t_w_i, gt_t_ns, gt_t_w_i);
+    if (ate_rmse < 0) std::cout << "error: Trajectory could not be aligned with ground truth!" << std::endl;
+
     vio->debug_finalize();
     std::cout << "Total runtime: {:.3f}s\n"_format(duration_total);
 
@@ -791,6 +794,8 @@ struct basalt_vio_ui : vis::VIOUIBase {
 
     if (!aborted && !result_path.empty()) {
       double error = basalt::alignSVD(vio_t_ns, vio_t_w_i, gt_t_ns, gt_t_w_i);
+
+      if (error < 0) std::cout << "error: Trajectory could not be aligned with ground truth!" << std::endl;
 
       auto exec_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(time_end - time_start);
 
@@ -1115,7 +1120,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
     plotter->AddMarker(pangolin::Marker::Vertical, t, pangolin::Marker::Equal, pangolin::Colour::White());
   }
 
-  void alignButton() { basalt::alignSVD(vio_t_ns, vio_t_w_i, gt_t_ns, gt_t_w_i); }
+  double alignButton() { return basalt::alignSVD(vio_t_ns, vio_t_w_i, gt_t_ns, gt_t_w_i); }
 
   void compute_frames_error() {
     Eigen::Matrix<int64_t, Eigen::Dynamic, 1> est_ts{};
