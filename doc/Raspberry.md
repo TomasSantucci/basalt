@@ -70,7 +70,7 @@ sudo apt install ubuntu-dev-tools
 mk-sbuild --arch=arm64 bookworm --debootstrap-mirror=http://deb.debian.org/debian --name=bookworm --skip-proposed --skip-updates --skip-security
 su - $USER
 mk-sbuild --arch=arm64 bookworm --debootstrap-mirror=http://deb.debian.org/debian --name=bookworm --skip-proposed --skip-updates   --skip-security
-sudo sbuild-apt bookworm-arm64 apt-get install libtbb-dev libglew-dev libjpeg-dev libpng-dev liblz4-dev libbz2-dev libboost-regex-dev libboost-filesystem-dev libboost-date-time-dev libboost-program-options-dev libgtest-dev libopencv-dev libfmt-dev libepoxy-dev libgl1-mesa-dev
+sudo sbuild-apt bookworm-arm64 apt-get install libtbb-dev libglew-dev libjpeg-dev libpng-dev liblz4-dev libbz2-dev libboost-regex-dev libboost-filesystem-dev libboost-date-time-dev libboost-program-options-dev libgtest-dev libopencv-dev libfmt-dev libepoxy-dev libgl1-mesa-dev libyaml-cpp-dev libsqlite3-dev
 sudo sbuild-apt bookworm-arm64 apt-get autoremove
 sudo cp -r /var/lib/schroot/chroots/bookworm-arm64/ "$SYSROOT"
 sudo chown -R $USER:$USER "$SYSROOT"

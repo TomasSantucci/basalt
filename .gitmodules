@@ -24,3 +24,6 @@
 [submodule "thirdparty/magic_enum"]
 	path = thirdparty/magic_enum
 	url = https://github.com/Neargye/magic_enum.git
+[submodule "thirdparty/fastcdr"]
+	path = thirdparty/fastcdr
+	url = https://github.com/eProsima/Fast-CDR.git

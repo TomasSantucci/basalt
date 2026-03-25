@@ -5,6 +5,8 @@ project(basalt)
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules/" ${CMAKE_MODULE_PATH})
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+cmake_policy(SET CMP0127 NEW)
+
 if(CMAKE_TOOLCHAIN_FILE)
   message(STATUS "Using CMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
 endif()
@@ -42,7 +44,7 @@ if(LSB_RELEASE_PROGRAM)
 
   if(${LSB_RELEASE_ID_SHORT} EQUAL "22.04")
     set(DEBIAN_DEPENDS
-        "libtbb12, liblz4-1, libbz2-1.0, libboost-filesystem1.74.0, libboost-date-time1.74.0, libboost-program-options1.74.0, libboost-regex1.74.0, libopencv-dev, libglew2.2, libjpeg8, libpng16-16, libuvc0, libfmt8, libc++-14-dev, libc++1-14, libc++abi1-14, libunwind-14, libunwind-14-dev, libwayland-bin, libepoxy-dev"
+        "libtbb12, liblz4-1, libbz2-1.0, libboost-filesystem1.74.0, libboost-date-time1.74.0, libboost-program-options1.74.0, libboost-regex1.74.0, libopencv-dev, libglew2.2, libjpeg8, libpng16-16, libuvc0, libfmt8, libc++-14-dev, libc++1-14, libc++abi1-14, libunwind-14, libunwind-14-dev, libwayland-bin, libepoxy-dev, libyaml-cpp-dev, libsqlite3-dev"
     )
   endif()
 
@@ -251,6 +253,8 @@ set(BASALT_CXX_FLAGS "${BASALT_CXX_FLAGS} -DEIGEN_DONT_PARALLELIZE")
 option(BASALT_INSTANTIATIONS_DOUBLE "Instatiate templates for Scalar=double." ON)
 option(BASALT_INSTANTIATIONS_FLOAT "Instatiate templates for Scalar=float." ON)
 option(BASALT_BUILD_SHARED_LIBRARY_ONLY "Build only Basalt shared library" OFF)
+option(BASALT_ENABLE_ROSBAG2 "Enable rosbag2 dataset support" ON)
+
 if(ANDROID)
   set(BASALT_BUILD_VISUALIZATION OFF CACHE INTERNAL "")
   set(CMAKE_Fortran_COMPILER "NOTFOUND" CACHE INTERNAL "")
@@ -311,6 +315,13 @@ set_property(TARGET basalt::opencv PROPERTY INTERFACE_LINK_LIBRARIES ${OpenCV_LI
 
 find_package(fmt REQUIRED)
 message(STATUS "Found {fmt} ${fmt_VERSION} in: ${fmt_DIR}")
+
+# Enable rosbag2 if both yaml-cpp and SQLite3 are found
+find_package(yaml-cpp)
+find_package(SQLite3)
+include(CMakeDependentOption)
+cmake_dependent_option(BASALT_ENABLE_ROSBAG2 "Enable rosbag2 feature" ON "yaml-cpp_FOUND AND SQLite3_FOUND" OFF)
+message(STATUS "BASALT_ENABLE_ROSBAG2: ${BASALT_ENABLE_ROSBAG2}")
 
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5) # TODO: Patch for opengv, sophus, ros
 add_subdirectory(thirdparty)
@@ -449,6 +460,7 @@ if(NOT BASALT_BUILD_SHARED_LIBRARY_ONLY)
            ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/io/dataset_io_euroc.h
            ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/io/dataset_io_kitti.h
            ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/io/dataset_io_rosbag.h
+           ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/io/dataset_io_rosbag2.h
            ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/io/dataset_io_uzh.h
            ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/io/marg_data_io.h
            ${CMAKE_CURRENT_SOURCE_DIR}/include/basalt/vi_estimator/nfr_mapper.h
@@ -460,6 +472,9 @@ if(NOT BASALT_BUILD_SHARED_LIBRARY_ONLY)
   )
   target_link_libraries(basalt_internal PRIVATE rosbag apriltag opengv)
 
+  if(BASALT_ENABLE_ROSBAG2)
+    target_link_libraries(basalt_internal PRIVATE fastcdr yaml-cpp::yaml-cpp SQLite::SQLite3)
+  endif()
 endif()
 
 add_library(basalt SHARED)

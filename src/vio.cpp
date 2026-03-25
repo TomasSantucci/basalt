@@ -436,6 +436,11 @@ struct basalt_vio_ui : vis::VIOUIBase {
   bool try_to_initially_align(const VioVisualizationData::Ptr& data) {
     if (initially_aligned) return false;
 
+    if (vio_dataset->get_gt_pose_data().empty()) {
+      initially_aligned = true;
+      return false;
+    }
+
     bool pose_moved_enough = !data->frames.empty() && data->frames.rbegin()->second.translation().norm() > 1.0f;
     if (pose_moved_enough) {
       initially_aligned = alignButton() >= 0;

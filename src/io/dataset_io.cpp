@@ -37,7 +37,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <basalt/io/dataset_io_euroc.h>
 #include <basalt/io/dataset_io_kitti.h>
 #include <basalt/io/dataset_io_rosbag.h>
+#include <basalt/io/dataset_io_rosbag2.h>
 #include <basalt/io/dataset_io_uzh.h>
+#include <basalt/utils/build_config.h>
 
 namespace basalt {
 
@@ -51,7 +53,13 @@ DatasetIoInterfacePtr DatasetIoFactory::getDatasetIo(const std::string &dataset_
     return DatasetIoInterfacePtr(new UzhIO);
   } else if (dataset_type == "kitti") {
     return DatasetIoInterfacePtr(new KittiIO);
-  } else {
+  }
+#ifdef BASALT_ENABLE_ROSBAG2
+  else if (dataset_type == "ros2") {
+    return DatasetIoInterfacePtr(new Rosbag2IO);
+  }
+#endif
+  else {
     std::cerr << "Dataset type " << dataset_type << " is not supported" << std::endl;
     std::abort();
   }

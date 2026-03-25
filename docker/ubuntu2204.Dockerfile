@@ -32,14 +32,17 @@ RUN apt update && \
     libgtest-dev \
     libopencv-dev \
     libfmt-dev \
+    libyaml-cpp-dev \
+    libsqlite3-dev \
     ninja-build \
     libepoxy-dev \
     jq \
     tree \
     zip \
     7zip \
+    xz-utils \
     curl && \
-  export CLANGD_URL=$(curl -s https://api.github.com/repos/clangd/clangd/releases/latest | grep -oP "\"browser_download_url.*clangd-linux-(\d|\.)+\.zip\"" | cut -d ":" -f 2,3 | tr -d \") && \
+  export CLANGD_URL=$(curl -s https://api.github.com/repos/clangd/clangd/releases/latest | jq -r '[.assets[] | select(.name | test("^clangd-linux-.*\\.zip$"))][0].browser_download_url') && \
     echo "Setting up clangd-tidy" && \
     echo "CLANGD_URL=" $CLANGD_URL && \
     curl -L --silent --show-error --fail $CLANGD_URL -o clangd-linux.zip && \
