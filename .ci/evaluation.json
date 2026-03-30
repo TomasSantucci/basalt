@@ -83,21 +83,61 @@
     "MOO13": { "device": "msdmo", "path": "MOO_others/MOO13_sudden_movements" },
     "MOO14": { "device": "msdmo", "path": "MOO_others/MOO14_flickering_light" },
     "MOO15": { "device": "msdmo", "path": "MOO_others/MOO15_seated_screen" },
-    "MOO16": { "device": "msdmo", "path": "MOO_others/MOO16_still" }
+    "MOO16": { "device": "msdmo", "path": "MOO_others/MOO16_still" },
+    "HF01D0505R1": { "device": "hilti26", "path": "data/floor_1/2025-05-05/run_1"},
+    "HF01D0707R1": { "device": "hilti26", "path": "data/floor_1/2025-07-07/run_1"},
+    "HF01D1202R1": { "device": "hilti26", "path": "data/floor_1/2025-12-02/run_1"},
+    "HF02D0505R1": { "device": "hilti26", "path": "data/floor_2/2025-05-05/run_1"},
+    "HF02D1028R1": { "device": "hilti26", "path": "data/floor_2/2025-10-28/run_1"},
+    "HF02D1028R2": { "device": "hilti26", "path": "data/floor_2/2025-10-28/run_2"},
+    "HF02D1202R1": { "device": "hilti26", "path": "data/floor_2/2025-12-02/run_1"},
+    "HF02D1203R1": { "device": "hilti26", "path": "data/floor_2/2025-12-03/run_1"},
+    "HF03D0519R1": { "device": "hilti26", "path": "data/floor_3/2025-05-19/run_1"},
+    "HF03D1202R1": { "device": "hilti26", "path": "data/floor_3/2025-12-02/run_1"},
+    "HF04D0519R1": { "device": "hilti26", "path": "data/floor_4/2025-05-19/run_1"},
+    "HF04D1202R1": { "device": "hilti26", "path": "data/floor_4/2025-12-02/run_1"},
+    "HF05D1202R1": { "device": "hilti26", "path": "data/floor_5/2025-12-02/run_1"},
+    "HF06D0618R1": { "device": "hilti26", "path": "data/floor_6/2025-06-18/run_1"},
+    "HF06D0707R1": { "device": "hilti26", "path": "data/floor_6/2025-07-07/run_1"},
+    "HF06D1202R1": { "device": "hilti26", "path": "data/floor_6/2025-12-02/run_1"},
+    "HF06D1202R2": { "device": "hilti26", "path": "data/floor_6/2025-12-02/run_2"},
+    "HF07D1202R1": { "device": "hilti26", "path": "data/floor_7/2025-12-02/run_1"},
+    "HF07D1202R2": { "device": "hilti26", "path": "data/floor_7/2025-12-02/run_2"},
+    "HF07D1203R1": { "device": "hilti26", "path": "data/floor_7/2025-12-03/run_1"},
+    "HF00D1016R1": { "device": "hilti26", "path": "data/floor_EG/2025-10-16/run_1"},
+    "HF00D1202R1": { "device": "hilti26", "path": "data/floor_EG/2025-12-02/run_1"},
+    "HF00D1202R2": { "device": "hilti26", "path": "data/floor_EG/2025-12-02/run_2"},
+    "HFU1D0519R1": { "device": "hilti26", "path": "data/floor_UG1/2025-05-19/run_1"},
+    "HFU1D0618R1": { "device": "hilti26", "path": "data/floor_UG1/2025-06-18/run_1"},
+    "HFU1D1016R1": { "device": "hilti26", "path": "data/floor_UG1/2025-10-16/run_1"},
+    "HFU1D1202R1": { "device": "hilti26", "path": "data/floor_UG1/2025-12-02/run_1"},
+    "HFU1D1202R2": { "device": "hilti26", "path": "data/floor_UG1/2025-12-02/run_2"},
+    "HFU1D1203R1": { "device": "hilti26", "path": "data/floor_UG1/2025-12-03/run_1"},
+    "HFU2D1202R1": { "device": "hilti26", "path": "data/floor_UG2/2025-12-02/run_1"}
+  },
+  "formats": {
+    "msdmo": "euroc",
+    "msdmg": "euroc",
+    "msdmi": "euroc",
+    "euroc": "euroc",
+    "tumvi": "euroc",
+    "hilti26": "ros2"
   },
   "calibs": {
     "msdmo": "data/msd/msdmo_calib.json",
     "msdmg": "data/msd/msdmg_calib.json",
     "msdmi": "data/msd/msdmi_calib.json",
     "euroc": "data/euroc/euroc_ds_calib.json",
-    "tumvi": "data/tum/tumvi_512_ds_calib.json"
+    "tumvi": "data/tum/tumvi_512_ds_calib.json",
+    "hilti26": "data/hilti26/hilti_calib.json"
   },
   "configs": {
     "msdmo": "data/msd/msdmo_config.json",
     "msdmg": "data/msd/msdmg_config.json",
     "msdmi": "data/msd/msdmi_config.json",
     "euroc": "data/euroc/euroc_config.json",
-    "tumvi": "data/tum/tumvi_512_config.json"
+    "tumvi": "data/tum/tumvi_512_config.json",
+    "hilti26": "data/hilti26/hilti_config.json"
   },
   "evalsets": {
     "all": [ "EMH01", "EMH02", "EMH03", "EMH04", "EMH05", "EV101", "EV102", "EV103", "EV201", "EV202", "EV203", "TR1", "TR2", "TR3", "TR4", "TR5", "TR6", "TS1", "TS2", "TS3", "MOO01", "MOO02", "MOO03", "MOO04", "MOO05", "MOO06", "MOO07", "MOO08", "MOO09", "MOO10", "MOO11", "MOO12", "MOO13", "MOO14", "MOO15", "MOO16", "MGO01", "MGO02", "MGO03", "MGO04", "MGO05", "MGO06", "MGO07", "MGO08", "MGO09", "MGO10", "MGO11", "MGO12", "MGO13", "MGO14", "MGO15", "MIO01", "MIO02", "MIO03", "MIO04", "MIO05", "MIO06", "MIO07", "MIO08", "MIO09", "MIO10", "MIO11", "MIO12", "MIO13", "MIO14", "MIO15", "MIO16", "MIPB01", "MIPB02", "MIPB03", "MIPB04", "MIPB05", "MIPB06", "MIPB07", "MIPB08", "MIPP01", "MIPP02", "MIPP03", "MIPP04", "MIPP05", "MIPP06", "MIPT01", "MIPT02", "MIPT03" ],
@@ -116,6 +156,8 @@
     "msdmipb": [ "MIPB01", "MIPB02", "MIPB03", "MIPB04", "MIPB05", "MIPB06", "MIPB07", "MIPB08" ],
     "msdmipp": [ "MIPP01", "MIPP02", "MIPP03", "MIPP04", "MIPP05", "MIPP06" ],
     "msdmipt": [ "MIPT01", "MIPT02", "MIPT03" ],
+    "hilti26-gt": ["HF01D0505R1", "HF02D0505R1", "HF02D1028R1", "HF02D1028R2", "HFU1D1016R1"],
+    "hilti26": ["HF01D0505R1", "HF01D0707R1", "HF01D1202R1", "HF02D0505R1", "HF02D1028R1", "HF02D1028R2", "HF02D1202R1", "HF02D1203R1", "HF03D0519R1", "HF03D1202R1", "HF04D0519R1", "HF04D1202R1", "HF05D1202R1", "HF06D0618R1", "HF06D0707R1", "HF06D1202R1", "HF06D1202R2", "HF07D1202R1", "HF07D1202R2", "HF07D1203R1", "HF00D1016R1", "HF00D1202R1", "HF00D1202R2", "HFU1D0519R1", "HFU1D0618R1", "HFU1D1016R1", "HFU1D1202R1", "HFU1D1202R2", "HFU1D1203R1", "HFU2D1202R1"],
     "quickset0": [ "MIO11", "MOO11", "MGO11", "MOO09" ],
     "quickset1": [ "MIO06", "MOO06", "MGO06", "MIPB01", "TR2", "TR5", "EMH01", "EMH03" ]
   }

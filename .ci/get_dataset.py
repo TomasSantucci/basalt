@@ -121,24 +121,27 @@ def main():
     lock_file = args.lock_file
 
     zip_path = dataset_path.with_suffix(".zip")
+    rosbag_path = dataset_path / "rosbag" / "rosbag.db3"
 
     working_mount_point = get_mount_point(working_dir)
     print(f"{working_mount_point=}")
-    if not zip_path.exists():
+    if not zip_path.exists() and not rosbag_path.exists():
         dataset_mount_point = get_mount_point(dataset_path)
         print(f"{dataset_mount_point=}")
         if dataset_mount_point == working_mount_point:
             print(dataset_path)
             sys.exit(0)
         else:
-            print("No zip, mount points differ")
+            print("No zip, no rosbag, mount points differ")
             sys.exit(1)
 
-    # Assume zip file exists from here on
-    dataset_mount_point = get_mount_point(zip_path)
+    # Assume zip or rosbag file exists from here on
+    origin_path = zip_path if zip_path.exists() else dataset_path
+
+    dataset_mount_point = get_mount_point(origin_path)
     print(f"{dataset_mount_point=}")
 
-    print(f"Uncompressing {zip_path} to {working_dir}")
+    print(f"Copying dataset from {origin_path} to {working_dir}")
 
     # Naive locking (race conditions possible but rare)
     lock_file = Path(lock_file)
@@ -153,11 +156,15 @@ def main():
 
     # Acquire lock
     with lock_file.open("w", encoding="utf-8") as f:
-        f.write(f"{zip_path} ")
+        f.write(f"{origin_path} ")
 
     try:
-        wait_space_for_file(zip_path, working_dir)
-        shout(f"7z x -y {zip_path} -o{working_dir}")
+        wait_space_for_file(origin_path, working_dir)
+
+        if zip_path.exists():
+            shout(f"7z x -y {origin_path} -o{working_dir}")
+        else:
+            shout(f'cp -r "{origin_path}" "{working_dir}"')
         print("New dataset path name is:")
         print(f"{working_dir / dataset_path.name}")
     except Exception as e:

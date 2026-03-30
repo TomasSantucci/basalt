@@ -107,5 +107,6 @@ check_interval = 0
       "/storage/local/ssd/<user>/tumvi:/tumvi:ro",
       "/storage/local/hdd/monado-slam-datasets/M_monado_datasets/MO_odyssey_plus:/msdmo:ro",
       "/storage/local/hdd/monado-slam-datasets/M_monado_datasets/MI_valve_index:/msdmi:ro",
-      "/storage/local/hdd/monado-slam-datasets/M_monado_datasets/MG_reverb_g2:/msdmg:ro"
+      "/storage/local/hdd/monado-slam-datasets/M_monado_datasets/MG_reverb_g2:/msdmg:ro",
+      "/storage/local/ssd/<user>/hilti26:/hilti26:ro"
     ]

@@ -58,9 +58,10 @@ build:
     - export DS_PATH=/$DS_DEV/$DS_REL_PATH
     - export DS_CONFIG=$(jq -r .configs.$DS_DEV .ci/evaluation.json)
     - export DS_CALIB=$(jq -r .calibs.$DS_DEV .ci/evaluation.json)
-    - echo $DATASET, $DS_DEV, $DS_REL_PATH, $DS_NAME, $DS_PATH, $DS_CONFIG, $DS_CALIB
+    - export DS_FORMAT=$(jq -r .formats.$DS_DEV .ci/evaluation.json)
+    - echo $DATASET, $DS_DEV, $DS_REL_PATH, $DS_NAME, $DS_PATH, $DS_CONFIG, $DS_CALIB, $DS_FORMAT
     - echo Runner variables $GET_DATASET_LOCKFILE
-    - ls /msdmo /msdmi /msdmg /euroc /tumvi
+    - ls /msdmo /msdmi /msdmg /euroc /tumvi /hilti26
     - python3 -u .ci/get_dataset.py $DS_PATH /scratch --lock_file $GET_DATASET_LOCKFILE | tee get_dataset.log
     - export FINAL_DS_PATH=$(cat get_dataset.log | tail -n 1)
     - echo $FINAL_DS_PATH | tee FINAL_DS_PATH.txt
@@ -71,7 +72,7 @@ build:
       for i in $(seq 1 $REPETITIONS)
       do
           echo "Run repetition $i / $REPETITIONS"
-          ./build/basalt_vio --save-times 1 --show-gui 0 --deterministic $DETERMINISTIC --num-threads $NUM_THREADS --dataset-path $FINAL_DS_PATH --dataset-type euroc --cam-calib $DS_CALIB --config-path $DS_CONFIG --save-trajectory euroc --save-trajectory-fn tracking.$DATASET.csv 2>&1 | tee output.$DATASET.log
+          ./build/basalt_vio --save-times 1 --show-gui 0 --deterministic $DETERMINISTIC --num-threads $NUM_THREADS --dataset-path $FINAL_DS_PATH --dataset-type $DS_FORMAT --cam-calib $DS_CALIB --config-path $DS_CONFIG --save-trajectory euroc --save-trajectory-fn tracking.$DATASET.csv 2>&1 | tee output.$DATASET.log
           ls
           export RESDIR=$RESULTS_DIR/$CI_COMMIT_SHORT_SHA-$i/$DATASET
           echo "Results will be saved in $RESDIR"
