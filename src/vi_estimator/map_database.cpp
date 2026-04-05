@@ -10,6 +10,7 @@ MapDatabase::MapDatabase(const VioConfig& config, const Calibration<double>& cal
   this->calib = calib;
   this->map = LandmarkDatabase<float>("Persistent Map");
   this->covisibility_graph = CovisibilityGraph();
+  this->covisibility_graph.setHighCovisibilityThreshold(config.loop_closing_pgo_min_covisibility_weight);
   this->map_export_path = map_export_path.empty() ? "exported_map" : map_export_path;
 }
 
@@ -104,7 +105,7 @@ void MapDatabase::handle_loop_detection(LoopDetectionResult::Ptr& loop_detection
     auto keyframes_poses_copy = std::make_shared<Eigen::aligned_map<FrameId, Sophus::SE3f>>(map.getKeyframes());
 
     loop_closure_decision->keyframe_poses = keyframes_poses_copy;
-    loop_closure_decision->covisibility_graph = covisibility_graph;
+    loop_closure_decision->covisibility_graph = covisibility_graph.copyPoseGraph();
     loop_closure_decision->active_keyframes = active_keyframes;
     loop_closure_decision->close_loop = true;
 
@@ -158,10 +159,11 @@ void MapDatabase::handle_loop_closure(LoopClosureResult::Ptr& loop_closure_resul
 }
 
 void MapDatabase::merge_loop_landmarks(const LoopDetectionResult::Ptr& loop_detection_result) {
-  std::unordered_map<FrameId, std::set<LandmarkId>> covisibilities_updated;
-  std::set<LandmarkId> curr_lms_to_merge;
+  std::unordered_map<FrameId, std::unordered_set<LandmarkId>> covisibilities_updated;
+  std::unordered_set<LandmarkId> curr_lms_to_merge;
   size_t num_observations_added = 0;
   size_t num_merged_lms = 0;
+  std::unordered_map<CovisibilityEdge, int, CovisibilityEdge::Hash> covisibility_increments;
 
   for (const auto& [curr_tcid, lm_obs_map] : loop_detection_result->curr_kf_obs) {
     for (const auto& [curr_lm_id, obs] : lm_obs_map) {
@@ -181,7 +183,7 @@ void MapDatabase::merge_loop_landmarks(const LoopDetectionResult::Ptr& loop_dete
             if (tcid.frame_id == curr_tcid.frame_id) {
               continue;
             }
-            covisibility_graph.incrementEdge(curr_tcid.frame_id, tcid.frame_id, 1);
+            covisibility_increments[CovisibilityEdge(curr_tcid.frame_id, tcid.frame_id)]++;
           }
           covisibilities_updated[curr_tcid.frame_id].insert(host_lm_id);
         }
@@ -222,13 +224,17 @@ void MapDatabase::merge_loop_landmarks(const LoopDetectionResult::Ptr& loop_dete
         if (old_kf_id == new_kf_id) {
           continue;
         }
-        covisibility_graph.incrementEdge(old_kf_id, new_kf_id, 1);
+        covisibility_increments[CovisibilityEdge(old_kf_id, new_kf_id)]++;
       }
     }
 
     // Merge the landmarks
     map.mergeLandmarks(host_lm_id, curr_lm_id);
     num_merged_lms++;
+  }
+
+  for (const auto& [covi_edge, increment] : covisibility_increments) {
+    covisibility_graph.incrementEdge(covi_edge.id1, covi_edge.id2, increment);
   }
 
   if (config.loop_closing_debug) {

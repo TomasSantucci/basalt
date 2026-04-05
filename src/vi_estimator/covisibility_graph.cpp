@@ -2,7 +2,14 @@
 
 namespace basalt {
 
+void CovisibilityGraph::setHighCovisibilityThreshold(size_t threshold) { high_covisibility_threshold_ = threshold; }
+
 const std::unordered_map<FrameId, int>& CovisibilityGraph::getCovisibility(FrameId id) const { return covis_.at(id); }
+
+const std::unordered_set<CovisibilityEdge, CovisibilityEdge::Hash>& CovisibilityGraph::getHighCovisibilityEdges()
+    const {
+  return high_covisibility_edges_;
+}
 
 const FrameId& CovisibilityGraph::getParentId(FrameId id) const { return tree_.at(id).parent; }
 
@@ -23,11 +30,23 @@ bool CovisibilityGraph::edgeExists(FrameId id1, FrameId id2) const {
 void CovisibilityGraph::setEdge(FrameId id1, FrameId id2, int weight) {
   covis_[id1][id2] = weight;
   covis_[id2][id1] = weight;
+
+  if (weight >= high_covisibility_threshold_) {
+    high_covisibility_edges_.insert({id1, id2});
+  } else {
+    high_covisibility_edges_.erase({id1, id2});
+  }
 }
 
 void CovisibilityGraph::incrementEdge(FrameId id1, FrameId id2, int weight) {
   covis_[id1][id2] += weight;
   covis_[id2][id1] += weight;
+
+  if (covis_[id1][id2] >= high_covisibility_threshold_) {
+    high_covisibility_edges_.insert({id1, id2});
+  } else {
+    high_covisibility_edges_.erase({id1, id2});
+  }
 }
 
 void CovisibilityGraph::addTreeNode(FrameId id, FrameId parent_id) {
@@ -58,6 +77,7 @@ void CovisibilityGraph::removeNode(FrameId id) {
 
   for (const auto& [other_id, neighbors] : covi_it->second) {
     covis_[other_id].erase(id);
+    high_covisibility_edges_.erase({id, other_id});
   }
   covis_.erase(covi_it);
 
@@ -128,6 +148,17 @@ std::vector<FrameId> CovisibilityGraph::getCovisibleAbove(FrameId id, int weight
     }
   }
   return result;
+}
+
+CovisibilityGraph CovisibilityGraph::copyPoseGraph() const {
+  CovisibilityGraph copy;
+  copy.setHighCovisibilityThreshold(high_covisibility_threshold_);
+  copy.root_ = root_;
+  copy.tree_ = tree_;
+  copy.loop_closures_ = loop_closures_;
+  copy.high_covisibility_edges_ = high_covisibility_edges_;
+
+  return copy;
 }
 
 void CovisibilityGraph::print_stats() const {
