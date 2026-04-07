@@ -463,6 +463,7 @@ struct basalt_vio_ui : vis::VIOUIBase {
       loop_closing->out_map_read_queue = &map_db->read_queue;
       map_db->out_lc_dec_res_queue = &loop_closing->in_lc_dec_res_queue;
       map_db->out_island_res_queue = &loop_closing->in_island_res_queue;
+      map_db->out_culled_map_data_queue = &loop_closing->in_culled_map_data_queue;
       loop_closing->out_map_write_queue = &map_db->write_queue;
       vio->out_opt_flow_queue_loop_closing = &loop_closing->in_optical_flow_queue;
       if (deterministic) { loop_closing->sync_lc_finished = &sync_lc_finished; }

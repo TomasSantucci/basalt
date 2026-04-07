@@ -307,6 +307,10 @@ void serialize(Archive& ar, basalt::VioConfig& config) {
   ar(CEREAL_NVP(config.map_sts_use_last_frame));
   ar(CEREAL_NVP(config.map_covisibility_min_weight));
   ar(CEREAL_NVP(config.map_covisibility_max_size));
+  ar(CEREAL_NVP(config.map_enable_culling));
+  ar(CEREAL_NVP(config.map_redundancy_exclude_hosted_lms));
+  ar(CEREAL_NVP(config.map_max_redundancy_score));
+  ar(CEREAL_NVP(config.map_debug));
 
   ar(CEREAL_NVP(config.mapper_obs_std_dev));
   ar(CEREAL_NVP(config.mapper_obs_huber_thresh));

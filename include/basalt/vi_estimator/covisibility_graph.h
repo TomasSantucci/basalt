@@ -47,6 +47,8 @@ class CovisibilityGraph {
 
   void incrementEdge(FrameId id1, FrameId id2, int weight);
 
+  void decrementEdge(FrameId id1, FrameId id2, int weight);
+
   void addTreeNode(FrameId id, FrameId parent_id);
 
   void addLoopClosure(FrameId id1, FrameId id2);
@@ -80,6 +82,8 @@ class CovisibilityGraph {
   std::unordered_set<CovisibilityEdge, CovisibilityEdge::Hash> high_covisibility_edges_;
 
   size_t high_covisibility_threshold_;
+
+  size_t culled_nodes_count_ = 0;
 
   FrameId root_ = invalid();
 };

@@ -120,6 +120,8 @@ class MapDatabase {
 
   void updateCovisibilityGraph(const LandmarkDatabase<Scalar>::Ptr& lmdb);
 
+  bool cullKeyframe(FrameId kf_id);
+
   void saveEuroc(const std::string& file_path);
 
   void saveJson(const std::string& file_path);
@@ -147,6 +149,7 @@ class MapDatabase {
   tbb::concurrent_bounded_queue<LandmarkDatabase<Scalar>::Ptr>* out_covi_res_queue = nullptr;
   tbb::concurrent_bounded_queue<LoopClosureDecision::Ptr>* out_lc_dec_res_queue = nullptr;
   tbb::concurrent_bounded_queue<IslandResponse::Ptr>* out_island_res_queue = nullptr;
+  tbb::concurrent_bounded_queue<CulledMapData::Ptr>* out_culled_map_data_queue = nullptr;
 
   SyncState* sync_map_stamp = nullptr;
   SyncState* sync_lc_finished = nullptr;
@@ -168,6 +171,7 @@ class MapDatabase {
 
   // These are the keyframes that have not been marginalized yet
   std::set<FrameId> active_keyframes;
+  std::unordered_set<FrameId> current_loop_keyframes;
 
   // Covisibility
   Eigen::aligned_map<TimeCamId, SpatialDistributionCube<double>> keyframes_sdc;

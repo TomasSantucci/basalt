@@ -64,8 +64,30 @@ void MapDatabase::write_map_marg(std::set<FrameId>& keyframes_to_marg) {
   }
 
   std::unique_lock<std::mutex> lock(mutex);
+
+  std::vector<FrameId> culled_keyframes;
   for (const auto& kf_id : keyframes_to_marg) {
     active_keyframes.erase(kf_id);
+
+    if (config.map_enable_culling) {
+      float redundancy =
+          map.getKeyframeRedundancyScore(kf_id, calib.intrinsics.size(), config.map_redundancy_exclude_hosted_lms);
+
+      if (redundancy >= config.map_max_redundancy_score) {
+        bool success = cullKeyframe(kf_id);
+        if (!success) continue;
+
+        if (config.map_debug)
+          std::cout << "[MDB] Culled keyframe " << kf_id << " with redundancy score " << redundancy << std::endl;
+        culled_keyframes.push_back(kf_id);
+      }
+    }
+  }
+
+  if (out_culled_map_data_queue && !culled_keyframes.empty()) {
+    auto culled_map_data = std::make_shared<CulledMapData>();
+    culled_map_data->culled_keyframes = culled_keyframes;
+    out_culled_map_data_queue->push(culled_map_data);
   }
 
   if (sync_map_marg != nullptr) {
@@ -75,12 +97,81 @@ void MapDatabase::write_map_marg(std::set<FrameId>& keyframes_to_marg) {
   }
 }
 
+bool MapDatabase::cullKeyframe(FrameId kf_id) {
+  if (kf_id == covisibility_graph.getRoot()) {
+    if (config.map_debug)
+      std::cout << "[MDB] Skipping culling of keyframe " << kf_id << " because it is the root of the covisibility graph"
+                << std::endl;
+    return false;
+  }
+
+  if (current_loop_keyframes.count(kf_id) > 0) {
+    if (config.map_debug)
+      std::cout << "[MDB] Skipping culling of keyframe " << kf_id
+                << " because it is part of the current loop closure candidate keyframes" << std::endl;
+    return false;
+  }
+
+  std::vector<Landmark<float>> removed_landmarks;
+
+  map.removeKeyframe(kf_id, calib.intrinsics.size(), removed_landmarks);
+
+  covisibility_graph.removeNode(kf_id);
+
+  for (size_t cam_id = 0; cam_id < calib.intrinsics.size(); cam_id++) {
+    TimeCamId tcid{kf_id, cam_id};
+    keyframes_sdc.erase(tcid);
+  }
+
+  // update the edge weights of the covisibility graph
+  for (const auto& lm : removed_landmarks) {
+    std::unordered_set<FrameId> observing_kfs;
+    for (const auto& [tcid, _] : lm.obs) {
+      FrameId other_kf_id = tcid.frame_id;
+      if (other_kf_id == kf_id) continue;
+
+      observing_kfs.insert(other_kf_id);
+    }
+
+    for (const auto& kf1 : observing_kfs) {
+      for (const auto& kf2 : observing_kfs) {
+        if (kf1 >= kf2) continue;
+
+        covisibility_graph.decrementEdge(kf1, kf2, 1);
+      }
+    }
+  }
+  return true;
+}
+
 void MapDatabase::handle_loop_detection(LoopDetectionResult::Ptr& loop_detection_result) {
   std::unique_lock<std::mutex> lock(mutex);
 
-  // If the keyframe is not in the map yet, save the loop detection for later
+  // If the current keyframe of the loop detection result doesnt exist in the map, there are two possibilities:
+  // 1) The keyframe has not been added to the map yet, in which case we store the loop detection result as pending
+  // 2) The keyframe has been culled from the map, in which case we discard the loop detection result
   if (!map.keyframeExists(loop_detection_result->current_kf_id)) {
-    pending_loop_detection = loop_detection_result;
+    FrameId newest_kf_id = map.getKeyframes().empty() ? 0 : map.getKeyframes().rbegin()->first;
+    if (newest_kf_id < loop_detection_result->current_kf_id) {
+      pending_loop_detection = loop_detection_result;
+    } else {
+      LoopClosureDecision::Ptr loop_closure_decision = std::make_shared<LoopClosureDecision>();
+      loop_closure_decision->close_loop = false;
+      if (out_lc_dec_res_queue) {
+        out_lc_dec_res_queue->push(loop_closure_decision);
+      }
+    }
+
+    return;
+  }
+
+  // if the candidate keyframe doesnt exist in the map, just discard the loop detection
+  if (!map.keyframeExists(loop_detection_result->candidate_kf_id)) {
+    LoopClosureDecision::Ptr loop_closure_decision = std::make_shared<LoopClosureDecision>();
+    loop_closure_decision->close_loop = false;
+    if (out_lc_dec_res_queue) {
+      out_lc_dec_res_queue->push(loop_closure_decision);
+    }
     return;
   }
 
@@ -108,6 +199,9 @@ void MapDatabase::handle_loop_detection(LoopDetectionResult::Ptr& loop_detection
     loop_closure_decision->covisibility_graph = covisibility_graph.copyPoseGraph();
     loop_closure_decision->active_keyframes = active_keyframes;
     loop_closure_decision->close_loop = true;
+
+    current_loop_keyframes.insert(loop_detection_result->current_kf_id);
+    current_loop_keyframes.insert(loop_detection_result->candidate_kf_id);
 
     if (out_lc_dec_res_queue) {
       out_lc_dec_res_queue->push(loop_closure_decision);
@@ -255,9 +349,16 @@ void MapDatabase::read_covisibility_req(std::vector<KeypointId>& keypoints) {
 void MapDatabase::read_island_req(FrameId keyframe, size_t num_neighbors) {
   IslandResponse::Ptr island_response = std::make_shared<IslandResponse>();
 
-  island_response->keyframes.push_back(keyframe);
-
   std::unique_lock<std::mutex> lock(mutex);
+
+  if (!map.keyframeExists(keyframe)) {
+    if (out_island_res_queue) {
+      out_island_res_queue->push(island_response);
+    }
+    return;
+  }
+
+  island_response->keyframes.push_back(keyframe);
 
   for (const auto& covi_kf : covisibility_graph.getTopCovisible(keyframe, num_neighbors)) {
     island_response->keyframes.push_back(covi_kf);

@@ -110,6 +110,8 @@ class LandmarkDatabase {
 
   void removeFrame(const FrameId& frame);
 
+  void removeKeyframe(FrameId kf_id, int num_cams, std::vector<Landmark<Scalar>>& removed_landmarks);
+
   void clear() {
     kpts.clear();
     observations.clear();
@@ -161,6 +163,8 @@ class LandmarkDatabase {
   const Eigen::aligned_map<FrameId, SE3>& getKeyframes() const;
 
   const Eigen::aligned_map<TimeCamId, std::set<LandmarkId>>& getKeyframeObs() const;
+
+  float getKeyframeRedundancyScore(FrameId kf_id, int num_cams, bool exclude_hosted_lms) const;
 
   bool landmarkExists(int lm_id) const;
 

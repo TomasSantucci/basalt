@@ -1,9 +1,11 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <bitset>
 #include <iostream>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <basalt/utils/common_types.h>
@@ -15,9 +17,9 @@
 namespace basalt {
 
 template <size_t N>
-class HashBow {
+class HashBowBase {
  public:
-  HashBow(size_t num_bits) : num_bits(num_bits < 32 ? num_bits : 32) {
+  HashBowBase(size_t num_bits) : num_bits(num_bits < 32 ? num_bits : 32) {
     static_assert(N < 512,
                   "This implementation of HashBow only supports the descriptor "
                   "length below 512.");
@@ -52,47 +54,6 @@ class HashBow {
     }
 
     for (auto& kv : bow_vector) { kv.second /= l1_sum; }
-  }
-
-  inline void add_to_database(const TimeCamId& tcid, const HashBowVector& bow_vector) {
-    for (const auto& kv : bow_vector) {
-      // std::pair<TimeCamId, double> p = std::make_pair(tcid, kv.second);
-      inverted_index[kv.first].emplace_back(tcid, kv.second);
-    }
-    time_cam_ids.insert(tcid);
-  }
-
-  inline bool has_keyframe(const TimeCamId& tcid) const { return time_cam_ids.find(tcid) != time_cam_ids.end(); }
-
-  inline void querry_database(const HashBowVector& bow_vector, size_t num_results,
-                              std::vector<std::pair<TimeCamId, double>>& results,
-                              const int64_t* max_t_ns = nullptr) const {
-    results.clear();
-
-    std::unordered_map<TimeCamId, double> scores;
-
-    for (const auto& kv : bow_vector) {
-      const auto range_it = inverted_index.find(kv.first);
-
-      if (range_it != inverted_index.end())
-        for (const auto& v : range_it->second) {
-          // if there is a maximum query time select only the frames that have
-          // timestamp below max_t_ns
-          if (!max_t_ns || v.first.frame_id < (*max_t_ns))
-            scores[v.first] += std::abs(kv.second - v.second) - std::abs(kv.second) - std::abs(v.second);
-        }
-    }
-
-    results.reserve(scores.size());
-
-    for (const auto& kv : scores) results.emplace_back(kv.first, -kv.second / 2.0);
-
-    if (results.size() > num_results) {
-      std::partial_sort(results.begin(), results.begin() + num_results, results.end(),
-                        [](const auto& a, const auto& b) { return a.second > b.second; });
-
-      results.resize(num_results);
-    }
   }
 
  protected:
@@ -137,12 +98,121 @@ class HashBow {
   constexpr static const std::array<size_t, FEATURE_HASH_MAX_SIZE> word_bit_permutation = compute_permutation();
 
   size_t num_bits;
+};
 
+template <size_t N>
+class HashBow : public HashBowBase<N> {
+ public:
+  HashBow(size_t num_bits) : HashBowBase<N>(num_bits) {}
+
+  inline void add_to_database(const TimeCamId& tcid, const HashBowVector& bow_vector) {
+    for (const auto& kv : bow_vector) {
+      inverted_index_[kv.first].emplace_back(tcid, kv.second);
+    }
+    time_cam_ids_.insert(tcid);
+  }
+
+  inline bool has_keyframe(const TimeCamId& tcid) const { return time_cam_ids_.find(tcid) != time_cam_ids_.end(); }
+
+  inline void querry_database(const HashBowVector& bow_vector, size_t num_results,
+                              std::vector<std::pair<TimeCamId, double>>& results,
+                              const int64_t* max_t_ns = nullptr) const {
+    results.clear();
+
+    std::unordered_map<TimeCamId, double> scores;
+
+    for (const auto& kv : bow_vector) {
+      const auto range_it = inverted_index_.find(kv.first);
+
+      if (range_it != inverted_index_.end())
+        for (const auto& v : range_it->second) {
+          // if there is a maximum query time select only the frames that have
+          // timestamp below max_t_ns
+          if ((!max_t_ns || v.first.frame_id < (*max_t_ns)))
+            scores[v.first] += std::abs(kv.second - v.second) - std::abs(kv.second) - std::abs(v.second);
+        }
+    }
+
+    results.reserve(scores.size());
+    for (const auto& kv : scores) results.emplace_back(kv.first, -kv.second / 2.0);
+
+    if (results.size() > num_results) {
+      std::partial_sort(results.begin(), results.begin() + num_results, results.end(),
+                        [](const auto& a, const auto& b) { return a.second > b.second; });
+      results.resize(num_results);
+    }
+  }
+
+ private:
   tbb::concurrent_unordered_map<FeatureHash, tbb::concurrent_vector<std::pair<TimeCamId, double>>,
                                 std::hash<FeatureHash>>
-      inverted_index;
+      inverted_index_;
 
-  tbb::concurrent_unordered_set<TimeCamId> time_cam_ids;
+  tbb::concurrent_unordered_set<TimeCamId> time_cam_ids_;
+};
+
+template <size_t N>
+class HashBowST : public HashBowBase<N> {
+ public:
+  HashBowST(size_t num_bits) : HashBowBase<N>(num_bits) {}
+
+  inline void add_to_database(const TimeCamId& tcid, const HashBowVector& bow_vector) {
+    auto& hashes_for_tcid = direct_index_[tcid];
+    for (const auto& kv : bow_vector) {
+      inverted_index_[kv.first].emplace_back(tcid, kv.second);
+      hashes_for_tcid.push_back(kv.first);
+    }
+  }
+
+  inline bool has_keyframe(const TimeCamId& tcid) const { return direct_index_.find(tcid) != direct_index_.end(); }
+
+  inline void remove_from_database(const TimeCamId& tcid) {
+    auto it = direct_index_.find(tcid);
+    if (it == direct_index_.end()) return;
+
+    for (const FeatureHash& hash : it->second) {
+      auto bucket_it = inverted_index_.find(hash);
+      if (bucket_it == inverted_index_.end()) continue;
+      auto& entries = bucket_it->second;
+      entries.erase(std::remove_if(entries.begin(), entries.end(), [&](const auto& e) { return e.first == tcid; }),
+                    entries.end());
+    }
+    direct_index_.erase(it);
+  }
+
+  inline void querry_database(const HashBowVector& bow_vector, size_t num_results,
+                              std::vector<std::pair<TimeCamId, double>>& results,
+                              const int64_t* max_t_ns = nullptr) const {
+    results.clear();
+
+    std::unordered_map<TimeCamId, double> scores;
+
+    for (const auto& kv : bow_vector) {
+      const auto range_it = inverted_index_.find(kv.first);
+
+      if (range_it != inverted_index_.end())
+        for (const auto& v : range_it->second) {
+          // if there is a maximum query time select only the frames that have
+          // timestamp below max_t_ns
+          if (!max_t_ns || v.first.frame_id < (*max_t_ns))
+            scores[v.first] += std::abs(kv.second - v.second) - std::abs(kv.second) - std::abs(v.second);
+        }
+    }
+
+    results.reserve(scores.size());
+    for (const auto& kv : scores) results.emplace_back(kv.first, -kv.second / 2.0);
+
+    if (results.size() > num_results) {
+      std::partial_sort(results.begin(), results.begin() + num_results, results.end(),
+                        [](const auto& a, const auto& b) { return a.second > b.second; });
+      results.resize(num_results);
+    }
+  }
+
+ private:
+  std::unordered_map<FeatureHash, std::vector<std::pair<TimeCamId, double>>, std::hash<FeatureHash>> inverted_index_;
+
+  std::unordered_map<TimeCamId, std::vector<FeatureHash>> direct_index_;
 };
 
 }  // namespace basalt

@@ -76,6 +76,12 @@ struct OptimizedPosesUpdate {
   std::shared_ptr<Eigen::aligned_map<int64_t, Sophus::SE3f>> keyframe_poses;
 };
 
+struct CulledMapData {
+  using Ptr = std::shared_ptr<CulledMapData>;
+
+  std::vector<FrameId> culled_keyframes;
+};
+
 struct StopMsg {};
 
 using MapWriteMessage =

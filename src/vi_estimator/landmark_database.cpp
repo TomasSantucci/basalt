@@ -117,6 +117,51 @@ void LandmarkDatabase<Scalar_>::removeKeyframes(const std::set<FrameId>& kfs_to_
 }
 
 template <class Scalar_>
+void LandmarkDatabase<Scalar_>::removeKeyframe(FrameId kf_id, int num_cams,
+                                               std::vector<Landmark<Scalar>>& removed_landmarks) {
+  for (size_t cam_id = 0; cam_id < num_cams; cam_id++) {
+    TimeCamId tcid{kf_id, static_cast<CamId>(cam_id)};
+
+    auto obs_it = keyframe_obs.find(tcid);
+    if (obs_it == keyframe_obs.end()) continue;
+
+    // Copy the set of observed landmarks to avoid modifying it while iterating
+    const std::set<LandmarkId> lm_ids_copy = obs_it->second;
+    for (const auto& lm_id : lm_ids_copy) {
+      auto lm_it = kpts.find(lm_id);
+      if (lm_it == kpts.end()) continue;
+
+      Landmark<Scalar>& lm = lm_it->second;
+
+      if (lm.host_kf_id.frame_id == kf_id) {
+        removed_landmarks.push_back(lm);
+        removeLandmarkHelper(lm_it);
+        continue;
+      }
+
+      auto obs_it2 = lm.obs.find(tcid);
+      if (obs_it2 == lm.obs.end()) continue;
+
+      removeLandmarkObservationHelper(lm_it, obs_it2);
+      if (lm.obs.size() < min_num_obs) {
+        removed_landmarks.push_back(lm);
+        removeLandmarkHelper(lm_it);
+      }
+    }
+  }
+
+  // Remove the keyframe and its pose
+  keyframe_idx.erase(kf_id);
+  keyframe_poses->erase(kf_id);
+
+  // Remove the keyframe observations
+  for (size_t cam_id = 0; cam_id < num_cams; cam_id++) {
+    TimeCamId tcid{kf_id, static_cast<CamId>(cam_id)};
+    keyframe_obs.erase(tcid);
+  }
+}
+
+template <class Scalar_>
 std::vector<TimeCamId> LandmarkDatabase<Scalar_>::getHostKfs() const {
   std::vector<TimeCamId> res;
 
@@ -340,6 +385,41 @@ const Eigen::aligned_map<FrameId, Sophus::SE3<Scalar_>>& LandmarkDatabase<Scalar
 template <class Scalar_>
 const Eigen::aligned_map<TimeCamId, std::set<LandmarkId>>& LandmarkDatabase<Scalar_>::getKeyframeObs() const {
   return keyframe_obs;
+}
+
+template <class Scalar_>
+float LandmarkDatabase<Scalar_>::getKeyframeRedundancyScore(FrameId kf_id, int num_cams,
+                                                            bool exclude_hosted_lms) const {
+  std::unordered_set<LandmarkId> observed_lms;
+
+  for (int cam_id = 0; cam_id < num_cams; cam_id++) {
+    TimeCamId tcid(kf_id, cam_id);
+    if (keyframe_obs.count(tcid) > 0) {
+      for (const auto& lm_id : keyframe_obs.at(tcid)) observed_lms.insert(lm_id);
+    }
+  }
+
+  // A landmark is considered redundant if the keyframe is not its host,
+  // and it is observed by more than 2 other keyframes
+  int redundant_lms = 0;
+  for (const auto& lm_id : observed_lms) {
+    const auto& lm = getLandmark(lm_id);
+
+    if (exclude_hosted_lms && lm.host_kf_id.frame_id == kf_id) continue;
+
+    std::unordered_set<FrameId> observing_kfs;
+    for (const auto& [tcid, _] : lm.obs) {
+      observing_kfs.insert(tcid.frame_id);
+      if (observing_kfs.size() > 3) {
+        redundant_lms++;
+        break;
+      }
+    }
+  }
+
+  int total_lms_observed = observed_lms.size();
+
+  return total_lms_observed > 0 ? static_cast<float>(redundant_lms) / static_cast<float>(total_lms_observed) : 0.0f;
 }
 
 template <class Scalar_>

@@ -216,6 +216,7 @@ class LoopClosing {
   tbb::concurrent_bounded_queue<LoopClosureDecision::Ptr> in_lc_dec_res_queue;
   tbb::concurrent_bounded_queue<IslandResponse::Ptr> in_island_res_queue;
   tbb::concurrent_bounded_queue<LoopClosingInput::Ptr> in_optical_flow_queue;
+  tbb::concurrent_bounded_queue<CulledMapData::Ptr> in_culled_map_data_queue;
 
   SyncState* sync_lc_finished = nullptr;
   bool deterministic;
@@ -272,7 +273,7 @@ class LoopClosing {
   VioConfig config;
   basalt::Calibration<double> calib;
 
-  std::shared_ptr<HashBow<256>> hash_bow_database;
+  std::shared_ptr<HashBowST<256>> hash_bow_database;
   std::map<TimeCamId, std::unordered_map<KeypointId, std::bitset<256>>> kpt_descriptors;
 
   // Used only to show the keypoints of the loop closure procedure in the UI. It's empty

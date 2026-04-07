@@ -116,6 +116,10 @@ struct VioConfig {
   bool map_sts_use_last_frame;
   int map_covisibility_min_weight;
   int map_covisibility_max_size;
+  bool map_enable_culling;
+  bool map_redundancy_exclude_hosted_lms;
+  double map_max_redundancy_score;
+  bool map_debug;
 
   bool enable_loop_closing;
   int loop_closing_bow_num_bits;

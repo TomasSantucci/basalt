@@ -49,6 +49,22 @@ void CovisibilityGraph::incrementEdge(FrameId id1, FrameId id2, int weight) {
   }
 }
 
+void CovisibilityGraph::decrementEdge(FrameId id1, FrameId id2, int weight) {
+  covis_[id1][id2] = std::max(0, covis_[id1][id2] - weight);
+  covis_[id2][id1] = std::max(0, covis_[id2][id1] - weight);
+
+  if (covis_[id1][id2] >= high_covisibility_threshold_) {
+    high_covisibility_edges_.insert({id1, id2});
+  } else {
+    high_covisibility_edges_.erase({id1, id2});
+  }
+
+  if (covis_[id1][id2] == 0) {
+    covis_[id1].erase(id2);
+    covis_[id2].erase(id1);
+  }
+}
+
 void CovisibilityGraph::addTreeNode(FrameId id, FrameId parent_id) {
   TreeNode node;
   node.parent = parent_id;
@@ -111,6 +127,8 @@ void CovisibilityGraph::removeNode(FrameId id) {
     }
     loop_closures_.erase(lc_it);
   }
+
+  culled_nodes_count_++;
 }
 
 std::vector<FrameId> CovisibilityGraph::getTopCovisible(FrameId id, size_t k) const {
@@ -164,6 +182,7 @@ CovisibilityGraph CovisibilityGraph::copyPoseGraph() const {
 void CovisibilityGraph::print_stats() const {
   std::cout << "Covisibility Graph Stats:" << std::endl;
   std::cout << "  Number of nodes: " << covis_.size() << std::endl;
+  std::cout << "  Culled nodes count: " << culled_nodes_count_ << std::endl;
 
   size_t total_edges = 0;
   for (const auto& [id, neighbors] : covis_) {
@@ -172,6 +191,8 @@ void CovisibilityGraph::print_stats() const {
   // Each edge is counted twice
   total_edges /= 2;
   std::cout << "  Number of edges: " << total_edges << std::endl;
+
+  std::cout << "  Number of high covisibility edges: " << high_covisibility_edges_.size() << std::endl;
 
   std::cout << "  Number of tree nodes: " << tree_.size() << std::endl;
 

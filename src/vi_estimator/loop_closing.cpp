@@ -29,7 +29,7 @@ const int EDGE_THRESHOLD = 19;
 LoopClosing::LoopClosing(const VioConfig& config, const Calibration<double>& calib) {
   this->config = config;
   this->calib = calib;
-  hash_bow_database.reset(new HashBow<256>(config.loop_closing_bow_num_bits));
+  hash_bow_database.reset(new HashBowST<256>(config.loop_closing_bow_num_bits));
 }
 
 void LoopClosing::initialize() { processing_thread.reset(new std::thread(&LoopClosing::processingLoop, this)); }
@@ -45,6 +45,18 @@ void LoopClosing::processingLoop() {
       sync_lc_finished->ready = true;
       sync_lc_finished->cvar.notify_one();
       notify_lc_finished = false;
+    }
+
+    CulledMapData::Ptr culled_map_data;
+    while (in_culled_map_data_queue.try_pop(culled_map_data)) {
+      for (const auto& kf_id : culled_map_data->culled_keyframes) {
+        for (size_t cam_id = 0; cam_id < calib.intrinsics.size(); cam_id++) {
+          TimeCamId tcid{kf_id, cam_id};
+          hash_bow_database->remove_from_database(tcid);
+          kpt_descriptors.erase(tcid);
+          kpts_positions.erase(tcid);
+        }
+      }
     }
 
     in_optical_flow_queue.pop(loop_closing_input);
@@ -254,12 +266,15 @@ bool LoopClosing::validateCandidate(const LoopClosingInput::Ptr& loop_closing_in
 
   auto map_island = std::make_shared<IslandResponse>();
   in_island_res_queue.pop(map_island);
-  const Eigen::aligned_map<LandmarkId, Vec3d>& points_3d = map_island->landmarks_3d;
-  const std::vector<FrameId>& island_kfs = map_island->keyframes;
-  const Eigen::aligned_map<TimeCamId, std::set<LandmarkId>>& keyframe_obs = map_island->keyframe_obs;
 
   cumulative_times[1] += t.elapsed_ns();
   t.reset();
+
+  if (map_island->keyframes.empty()) return false;
+
+  const Eigen::aligned_map<LandmarkId, Vec3d>& points_3d = map_island->landmarks_3d;
+  const std::vector<FrameId>& island_kfs = map_island->keyframes;
+  const Eigen::aligned_map<TimeCamId, std::set<LandmarkId>>& keyframe_obs = map_island->keyframe_obs;
 
   // -- Match the current keyframe with all the keyframes in the island --
   for (const auto& neighbor_kf : island_kfs) {
@@ -312,6 +327,8 @@ bool LoopClosing::validateCandidate(const LoopClosingInput::Ptr& loop_closing_in
 
     for (size_t i = 0; i < config.loop_closing_cameras_to_reproject.size(); i++) {
       size_t cam_id = config.loop_closing_cameras_to_reproject[i];
+
+      if (keyframe_obs.find(TimeCamId{candidate_kf, cam_id}) == keyframe_obs.end()) continue;
 
       Eigen::aligned_map<LandmarkId, Eigen::Matrix<double, 3, 1>> points_to_reproject;
       for (const auto& lm_id : keyframe_obs.at(TimeCamId{candidate_kf, cam_id})) {
