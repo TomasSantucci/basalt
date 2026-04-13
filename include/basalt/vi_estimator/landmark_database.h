@@ -147,6 +147,8 @@ class LandmarkDatabase {
 
   void mergeKeyframesPoses(std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3<Scalar_>>> loop_kfs_poses);
 
+  void removeReferencesToCulledKeyframes(const LandmarkDatabase<Scalar>& persistent_map, FrameId last_persistent_kf);
+
   // Const
   const Landmark<Scalar>& getLandmark(LandmarkId lm_id) const;
 

@@ -22,12 +22,23 @@ struct CovisibilityEdge {
   };
 };
 
+struct NodeScore {
+  FrameId id;
+
+  float graph_score;
+  float loop_score;
+};
+
 class CovisibilityGraph {
  public:
   using Ptr = std::shared_ptr<CovisibilityGraph>;
+  using GraphScoreChangedCb = std::function<void(FrameId, NodeScore)>;
+
   static constexpr FrameId invalid() { return FrameId(-1); }
 
   void setHighCovisibilityThreshold(size_t threshold);
+
+  void setGraphScoreChangedCallback(GraphScoreChangedCb cb);
 
   const std::unordered_map<FrameId, int>& getCovisibility(FrameId id) const;
 
@@ -63,6 +74,8 @@ class CovisibilityGraph {
 
   std::vector<FrameId> getCovisibleAbove(FrameId id, int weight_threshold) const;
 
+  NodeScore computeGraphScore(FrameId id) const;
+
   CovisibilityGraph copyPoseGraph() const;
 
   void print_stats() const;
@@ -82,6 +95,8 @@ class CovisibilityGraph {
   std::unordered_set<CovisibilityEdge, CovisibilityEdge::Hash> high_covisibility_edges_;
 
   size_t high_covisibility_threshold_;
+
+  GraphScoreChangedCb graph_score_changed_cb_;
 
   size_t culled_nodes_count_ = 0;
 

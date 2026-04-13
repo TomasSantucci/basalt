@@ -119,8 +119,8 @@ void LandmarkDatabase<Scalar_>::removeKeyframes(const std::set<FrameId>& kfs_to_
 template <class Scalar_>
 void LandmarkDatabase<Scalar_>::removeKeyframe(FrameId kf_id, int num_cams,
                                                std::vector<Landmark<Scalar>>& removed_landmarks) {
-  for (size_t cam_id = 0; cam_id < num_cams; cam_id++) {
-    TimeCamId tcid{kf_id, static_cast<CamId>(cam_id)};
+  for (size_t cam_id = 0; cam_id < static_cast<size_t>(num_cams); cam_id++) {
+    TimeCamId tcid{kf_id, cam_id};
 
     auto obs_it = keyframe_obs.find(tcid);
     if (obs_it == keyframe_obs.end()) continue;
@@ -155,7 +155,7 @@ void LandmarkDatabase<Scalar_>::removeKeyframe(FrameId kf_id, int num_cams,
   keyframe_poses->erase(kf_id);
 
   // Remove the keyframe observations
-  for (size_t cam_id = 0; cam_id < num_cams; cam_id++) {
+  for (size_t cam_id = 0; cam_id < static_cast<size_t>(num_cams); cam_id++) {
     TimeCamId tcid{kf_id, static_cast<CamId>(cam_id)};
     keyframe_obs.erase(tcid);
   }
@@ -321,7 +321,10 @@ void LandmarkDatabase<Scalar_>::mergeObservations(const Landmark<Scalar_>& exist
                                                   const Landmark<Scalar_>& incoming_lm) {
   for (const auto& [tcid, _] : existing_lm.obs) {
     observations[existing_lm.host_kf_id][tcid].erase(existing_lm.id);
-    // eliminar el host/ target si se queda sin observaciones
+    if (observations[existing_lm.host_kf_id][tcid].empty()) {
+      observations[existing_lm.host_kf_id].erase(tcid);
+      if (observations[existing_lm.host_kf_id].empty()) observations.erase(existing_lm.host_kf_id);
+    }
 
     observations[incoming_lm.host_kf_id][tcid].insert(incoming_lm.id);
   }
@@ -350,6 +353,46 @@ void LandmarkDatabase<Scalar_>::mergeLandmarks(const LandmarkId& from_lm_id, con
 
   // Remove the from_lm landmark
   removeLandmark(from_lm_id);
+}
+
+template <class Scalar_>
+void LandmarkDatabase<Scalar_>::removeReferencesToCulledKeyframes(const LandmarkDatabase<Scalar>& persistent_map,
+                                                                  FrameId last_persistent_kf) {
+  /* This removes from the current LMDB all the references to keyframes that do not exist in the persistent map.
+     If a keyframe is not in the persistent map, but is more recent than the last keyframe in the persistent map,
+     it is not removed, since it might be added later to the persistent map during the merge.
+
+     For each landmark in the current LMDB stamp:
+     1) if the host keyframe does not exist in the persistent map, remove the landmark from the current LMDB
+     2) otherwise, remove all the observations that reference inexistent keyframes in the persistent map
+  */
+  // last_persistent_kf = persistent_map.getKeyframes().empty() ? -1 : persistent_map.getKeyframes().rbegin()->first;
+
+  // TODO@tsantucci: remove print statements and replace with proper logging
+  for (auto it = kpts.begin(); it != kpts.end();) {
+    if (!persistent_map.keyframeExists(it->second.host_kf_id.frame_id) &&
+        it->second.host_kf_id.frame_id <= last_persistent_kf) {
+      std::cout << "[LMDB] Removing landmark " << it->first << " because its host keyframe "
+                << it->second.host_kf_id.frame_id
+                << " does not exist in the persistent map and is older than the last persistent keyframe "
+                << last_persistent_kf << std::endl;
+      it = removeLandmarkHelper(it);
+      continue;
+    }
+
+    for (auto it2 = it->second.obs.begin(); it2 != it->second.obs.end();) {
+      if (!persistent_map.keyframeExists(it2->first.frame_id) && it2->first.frame_id <= last_persistent_kf) {
+        std::cout << "[LMDB] Removing observation of landmark " << it->first << " in keyframe " << it2->first.frame_id
+                  << " because the keyframe does not exist in the persistent map and is older than the last persistent "
+                     "keyframe "
+                  << last_persistent_kf << std::endl;
+        it2 = removeLandmarkObservationHelper(it, it2);
+      } else {
+        it2++;
+      }
+    }
+    it++;
+  }
 }
 
 template <class Scalar_>
@@ -425,13 +468,25 @@ float LandmarkDatabase<Scalar_>::getKeyframeRedundancyScore(FrameId kf_id, int n
 template <class Scalar_>
 void LandmarkDatabase<Scalar_>::mergeKeyframesPoses(
     std::shared_ptr<Eigen::aligned_map<FrameId, Sophus::SE3<Scalar_>>> loop_kfs_poses) {
+  // This function merges the keyframe poses of loop_kfs_poses into the current LMDB.
+  // It adds the new poses present in keyframe_poses but not in loop_kfs_poses
+  // It removes the old poses present in loop_kfs_poses but not in keyframe_poses (culled while the loop-closing thread
+  // was running)
+
   FrameId last_kf_pose = loop_kfs_poses->rbegin()->first;
 
-  // starting from last_kf_pose, add all the new keyframes poses of keyframe_poses to loop_kfs_poses
-  auto it = keyframe_poses->find(last_kf_pose);
-  if (it != keyframe_poses->end()) {
-    it++;
-    for (; it != keyframe_poses->end(); it++) { (*loop_kfs_poses)[it->first] = it->second; }
+  // Remove the culled keyframe poses from loop_kfs_poses
+  for (auto it = loop_kfs_poses->begin(); it != loop_kfs_poses->end();) {
+    if (keyframe_poses->count(it->first) == 0) {
+      it = loop_kfs_poses->erase(it);
+    } else {
+      it++;
+    }
+  }
+
+  // Add the new keyframe poses from keyframe_poses to loop_kfs_poses
+  for (auto it = keyframe_poses->upper_bound(last_kf_pose); it != keyframe_poses->end(); ++it) {
+    (*loop_kfs_poses)[it->first] = it->second;
   }
 
   keyframe_poses = loop_kfs_poses;
@@ -505,8 +560,12 @@ typename LandmarkDatabase<Scalar_>::MapIter LandmarkDatabase<Scalar_>::removeLan
     if (host_it->second.empty()) observations.erase(host_it);
   }
 
-  for (const auto& [tcid, obs] : keyframe_obs) {
-    if (obs.count(it->first) > 0) keyframe_obs[tcid].erase(it->first);
+  for (const auto& [tcid, _] : it->second.obs) {
+    auto obs_it = keyframe_obs.find(tcid);
+    if (obs_it != keyframe_obs.end()) {
+      obs_it->second.erase(it->first);
+      if (obs_it->second.empty()) { keyframe_obs.erase(obs_it); }
+    }
   }
 
   return kpts.erase(it);
@@ -522,7 +581,11 @@ typename Landmark<Scalar_>::MapIter LandmarkDatabase<Scalar_>::removeLandmarkObs
   if (target_it->second.empty()) host_it->second.erase(target_it);
   if (host_it->second.empty()) observations.erase(host_it);
 
-  keyframe_obs.find(it2->first)->second.erase(it->first);
+  auto kf_obs_it = keyframe_obs.find(it2->first);
+  if (kf_obs_it != keyframe_obs.end()) {
+    kf_obs_it->second.erase(it->first);
+    if (kf_obs_it->second.empty()) keyframe_obs.erase(kf_obs_it);
+  }
 
   return it->second.obs.erase(it2);
 }

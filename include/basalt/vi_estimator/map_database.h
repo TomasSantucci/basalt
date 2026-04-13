@@ -68,6 +68,15 @@ struct MapDatabaseVisualizationData {
   std::map<int, Eigen::aligned_vector<Eigen::Vector3d>> observations;
 };
 
+struct KeyframeScore {
+  FrameId kf_id;
+
+  float img_bbox_coverage;
+  float total_observed_lms_score;
+  float time_score;
+  NodeScore node_score;
+};
+
 // TODO: This should be a templated class template <class Scalar>
 class MapDatabase {
  public:
@@ -122,6 +131,18 @@ class MapDatabase {
 
   bool cullKeyframe(FrameId kf_id);
 
+  void cullKeyframes(int num_to_cull);
+
+  void handleGraphScoreChange(FrameId kf_id, NodeScore new_score);
+
+  float computeImgCoverageScore(FrameId kf_id);
+
+  float computeTotalObservedLmsScore(FrameId kf_id);
+
+  float computeTimeScore(FrameId kf_id, FrameId t_min, float t_range);
+
+  float computeKeyframeScore(const KeyframeScore& kf_score);
+
   void saveEuroc(const std::string& file_path);
 
   void saveJson(const std::string& file_path);
@@ -156,6 +177,7 @@ class MapDatabase {
   SyncState* sync_map_marg = nullptr;
   bool deterministic;
 
+  // TODO@tsantucci: remove this
   std::shared_ptr<std::unordered_map<TimeCamId, std::string>> frame_id_to_name;
 
  private:
@@ -172,6 +194,10 @@ class MapDatabase {
   // These are the keyframes that have not been marginalized yet
   std::set<FrameId> active_keyframes;
   std::unordered_set<FrameId> current_loop_keyframes;
+  std::unordered_map<FrameId, KeyframeScore> keyframe_scores;
+  std::set<std::pair<float, FrameId>> keyframe_score_set;
+
+  FrameId most_recent_ts = 0;
 
   // Covisibility
   Eigen::aligned_map<TimeCamId, SpatialDistributionCube<double>> keyframes_sdc;

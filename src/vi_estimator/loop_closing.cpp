@@ -770,6 +770,12 @@ void LoopClosing::buildPoseGraph(const LoopDetectionResult::Ptr& loop_detection_
     if (kf_id == spanning_tree_root) continue;
 
     FrameId parent_kf_id = covisibility_graph.getParentId(kf_id);
+
+    // TODO@tsantucci: remove this check
+    if (keyframe_poses.find(parent_kf_id) == keyframe_poses.end()) {
+      std::cout << "[LC] Warning: Parent keyframe " << parent_kf_id << " of keyframe " << kf_id
+                << " not found in the current pose graph. Skipping this constraint." << std::endl;
+    }
     Sophus::SE3f T_w_p = keyframe_poses.at(parent_kf_id);
     Sophus::SE3f T_p_i = T_w_p.inverse() * T_w_i;
     Constraint3d c;

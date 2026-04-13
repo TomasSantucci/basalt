@@ -4,6 +4,8 @@ namespace basalt {
 
 void CovisibilityGraph::setHighCovisibilityThreshold(size_t threshold) { high_covisibility_threshold_ = threshold; }
 
+void CovisibilityGraph::setGraphScoreChangedCallback(GraphScoreChangedCb cb) { graph_score_changed_cb_ = cb; }
+
 const std::unordered_map<FrameId, int>& CovisibilityGraph::getCovisibility(FrameId id) const { return covis_.at(id); }
 
 const std::unordered_set<CovisibilityEdge, CovisibilityEdge::Hash>& CovisibilityGraph::getHighCovisibilityEdges()
@@ -31,32 +33,67 @@ void CovisibilityGraph::setEdge(FrameId id1, FrameId id2, int weight) {
   covis_[id1][id2] = weight;
   covis_[id2][id1] = weight;
 
-  if (weight >= high_covisibility_threshold_) {
+  if (static_cast<size_t>(weight) >= high_covisibility_threshold_) {
     high_covisibility_edges_.insert({id1, id2});
   } else {
     high_covisibility_edges_.erase({id1, id2});
+  }
+
+  if (graph_score_changed_cb_) {
+    NodeScore score1 = computeGraphScore(id1);
+    NodeScore score2 = computeGraphScore(id2);
+    graph_score_changed_cb_(id1, score1);
+    graph_score_changed_cb_(id2, score2);
   }
 }
 
 void CovisibilityGraph::incrementEdge(FrameId id1, FrameId id2, int weight) {
+  int previous_weight = covis_[id1][id2];
+
   covis_[id1][id2] += weight;
   covis_[id2][id1] += weight;
 
-  if (covis_[id1][id2] >= high_covisibility_threshold_) {
+  if (static_cast<size_t>(covis_[id1][id2]) >= high_covisibility_threshold_) {
     high_covisibility_edges_.insert({id1, id2});
   } else {
     high_covisibility_edges_.erase({id1, id2});
   }
+
+  bool high_covi_edge_changed = (static_cast<size_t>(previous_weight) < high_covisibility_threshold_ &&
+                                 static_cast<size_t>(covis_[id1][id2]) >= high_covisibility_threshold_) ||
+                                (static_cast<size_t>(previous_weight) >= high_covisibility_threshold_ &&
+                                 static_cast<size_t>(covis_[id1][id2]) < high_covisibility_threshold_);
+
+  if (high_covi_edge_changed && graph_score_changed_cb_) {
+    NodeScore score1 = computeGraphScore(id1);
+    NodeScore score2 = computeGraphScore(id2);
+    graph_score_changed_cb_(id1, score1);
+    graph_score_changed_cb_(id2, score2);
+  }
 }
 
 void CovisibilityGraph::decrementEdge(FrameId id1, FrameId id2, int weight) {
+  int previous_weight = covis_[id1][id2];
+
   covis_[id1][id2] = std::max(0, covis_[id1][id2] - weight);
   covis_[id2][id1] = std::max(0, covis_[id2][id1] - weight);
 
-  if (covis_[id1][id2] >= high_covisibility_threshold_) {
+  if (static_cast<size_t>(covis_[id1][id2]) >= high_covisibility_threshold_) {
     high_covisibility_edges_.insert({id1, id2});
   } else {
     high_covisibility_edges_.erase({id1, id2});
+  }
+
+  bool high_covi_edge_changed = (static_cast<size_t>(previous_weight) < high_covisibility_threshold_ &&
+                                 static_cast<size_t>(covis_[id1][id2]) >= high_covisibility_threshold_) ||
+                                (static_cast<size_t>(previous_weight) >= high_covisibility_threshold_ &&
+                                 static_cast<size_t>(covis_[id1][id2]) < high_covisibility_threshold_);
+
+  if (high_covi_edge_changed && graph_score_changed_cb_) {
+    NodeScore score1 = computeGraphScore(id1);
+    NodeScore score2 = computeGraphScore(id2);
+    graph_score_changed_cb_(id1, score1);
+    graph_score_changed_cb_(id2, score2);
   }
 
   if (covis_[id1][id2] == 0) {
@@ -78,6 +115,13 @@ void CovisibilityGraph::addTreeNode(FrameId id, FrameId parent_id) {
 void CovisibilityGraph::addLoopClosure(FrameId id1, FrameId id2) {
   loop_closures_[id1].push_back(id2);
   loop_closures_[id2].push_back(id1);
+
+  if (graph_score_changed_cb_) {
+    NodeScore score1 = computeGraphScore(id1);
+    NodeScore score2 = computeGraphScore(id2);
+    graph_score_changed_cb_(id1, score1);
+    graph_score_changed_cb_(id2, score2);
+  }
 }
 
 void CovisibilityGraph::setRoot(FrameId id) { root_ = id; }
@@ -88,14 +132,20 @@ void CovisibilityGraph::removeNode(FrameId id) {
   // Removing the root is not allowed for now
   BASALT_ASSERT(id != getRoot());
 
-  auto covi_it = covis_.find(id);
-  if (covi_it == covis_.end()) return;
+  std::unordered_set<FrameId> affected_neighbors;
 
-  for (const auto& [other_id, neighbors] : covi_it->second) {
-    covis_[other_id].erase(id);
-    high_covisibility_edges_.erase({id, other_id});
+  auto covi_it = covis_.find(id);
+  if (covi_it != covis_.end()) {
+    for (const auto& [other_id, neighbors] : covi_it->second) {
+      covis_[other_id].erase(id);
+
+      // If it removes a high covisibility edge, mark the neighbor as affected to update its score later
+      if (high_covisibility_edges_.erase({id, other_id}) > 0) {
+        affected_neighbors.insert(other_id);
+      }
+    }
+    covis_.erase(covi_it);
   }
-  covis_.erase(covi_it);
 
   // Remove node from the spanning tree
   auto tree_it = tree_.find(id);
@@ -124,11 +174,21 @@ void CovisibilityGraph::removeNode(FrameId id) {
     for (const auto& other_id : lc_it->second) {
       auto& closures = loop_closures_[other_id];
       closures.erase(std::remove(closures.begin(), closures.end(), id), closures.end());
+
+      affected_neighbors.insert(other_id);
     }
     loop_closures_.erase(lc_it);
   }
 
   culled_nodes_count_++;
+
+  // Update scores of affected neighbors
+  if (graph_score_changed_cb_) {
+    for (const auto& neighbor_id : affected_neighbors) {
+      NodeScore score = computeGraphScore(neighbor_id);
+      graph_score_changed_cb_(neighbor_id, score);
+    }
+  }
 }
 
 std::vector<FrameId> CovisibilityGraph::getTopCovisible(FrameId id, size_t k) const {
@@ -166,6 +226,35 @@ std::vector<FrameId> CovisibilityGraph::getCovisibleAbove(FrameId id, int weight
     }
   }
   return result;
+}
+
+NodeScore CovisibilityGraph::computeGraphScore(FrameId id) const {
+  NodeScore node_score;
+  node_score.id = id;
+  // The higher the number of high covisibility edges, the more replaceable the node is, and thus the
+  // lower the graph score.
+  node_score.graph_score = 0.0f;
+  // The more loop closures, the more important the node is for maintaining the global consistency of the map, and thus
+  // the higher the loop score.
+  node_score.loop_score = 0.0f;
+
+  auto covi_it = covis_.find(id);
+  if (covi_it != covis_.end()) {
+    for (const auto& [neighbor_id, weight] : covi_it->second) {
+      if (static_cast<size_t>(weight) >= high_covisibility_threshold_) {
+        node_score.graph_score += 1.0f;
+      }
+    }
+  }
+
+  node_score.graph_score = 1.0f - std::min(node_score.graph_score / 10.0f, 1.0f);
+
+  if (loop_closures_.find(id) != loop_closures_.end()) {
+    float num_loop_closures = static_cast<float>(loop_closures_.at(id).size());
+    node_score.loop_score = num_loop_closures / (num_loop_closures + 1.0f);
+  }
+
+  return node_score;
 }
 
 CovisibilityGraph CovisibilityGraph::copyPoseGraph() const {

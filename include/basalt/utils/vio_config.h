@@ -120,6 +120,8 @@ struct VioConfig {
   bool map_redundancy_exclude_hosted_lms;
   double map_max_redundancy_score;
   bool map_debug;
+  int map_max_keyframes;
+  int map_batch_cull_size;
 
   bool enable_loop_closing;
   int loop_closing_bow_num_bits;

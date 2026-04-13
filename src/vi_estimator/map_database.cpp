@@ -11,6 +11,8 @@ MapDatabase::MapDatabase(const VioConfig& config, const Calibration<double>& cal
   this->map = LandmarkDatabase<float>("Persistent Map");
   this->covisibility_graph = CovisibilityGraph();
   this->covisibility_graph.setHighCovisibilityThreshold(config.loop_closing_pgo_min_covisibility_weight);
+  this->covisibility_graph.setGraphScoreChangedCallback(
+      [this](FrameId kf_id, NodeScore new_score) { handleGraphScoreChange(kf_id, new_score); });
   this->map_export_path = map_export_path.empty() ? "exported_map" : map_export_path;
 }
 
@@ -27,7 +29,14 @@ void MapDatabase::write_map_stamp(basalt::MapStamp::Ptr& map_stamp) {
     }
   }
 
+  map_stamp->lmdb->removeReferencesToCulledKeyframes(map, most_recent_ts);
+
   map.mergeLMDB(map_stamp->lmdb, true);
+
+  FrameId curr_most_recent_ts = map.getKeyframes().empty() ? 0 : map.getKeyframes().rbegin()->first;
+  if (curr_most_recent_ts > most_recent_ts) {
+    most_recent_ts = curr_most_recent_ts;
+  }
 
   if (config.map_covisibility_criteria == MapCovisibilityCriteria::MAP_COV_STS) {
     std::set<TimeCamId> kfs_to_compute;
@@ -43,6 +52,13 @@ void MapDatabase::write_map_stamp(basalt::MapStamp::Ptr& map_stamp) {
     map_visual_data->t_ns = map_stamp->t_ns;
     computeMapVisualData();
     out_vis_queue->push(map_visual_data);
+  }
+
+  if (map.getKeyframes().size() > static_cast<size_t>(config.map_max_keyframes)) {
+    if (config.map_debug)
+      std::cout << "[MDB] Number of keyframes in the map: " << map.getKeyframes().size()
+                << ". Starting culling process." << std::endl;
+    cullKeyframes(config.map_batch_cull_size);
   }
 
   if (sync_map_stamp != nullptr) {
@@ -80,6 +96,10 @@ void MapDatabase::write_map_marg(std::set<FrameId>& keyframes_to_marg) {
         if (config.map_debug)
           std::cout << "[MDB] Culled keyframe " << kf_id << " with redundancy score " << redundancy << std::endl;
         culled_keyframes.push_back(kf_id);
+      } else {
+        KeyframeScore& score = keyframe_scores[kf_id];
+        score.img_bbox_coverage = computeImgCoverageScore(kf_id);
+        score.total_observed_lms_score = computeTotalObservedLmsScore(kf_id);
       }
     }
   }
@@ -118,6 +138,8 @@ bool MapDatabase::cullKeyframe(FrameId kf_id) {
 
   covisibility_graph.removeNode(kf_id);
 
+  keyframe_scores.erase(kf_id);
+
   for (size_t cam_id = 0; cam_id < calib.intrinsics.size(); cam_id++) {
     TimeCamId tcid{kf_id, cam_id};
     keyframes_sdc.erase(tcid);
@@ -141,6 +163,7 @@ bool MapDatabase::cullKeyframe(FrameId kf_id) {
       }
     }
   }
+
   return true;
 }
 
@@ -244,6 +267,9 @@ void MapDatabase::handle_loop_closure(LoopClosureResult::Ptr& loop_closure_resul
     opt_poses_update->keyframe_poses = loop_closure_result->keyframe_poses;
     out_opt_poses_queue->push(opt_poses_update);
   }
+
+  current_loop_keyframes.erase(loop_detection_result->current_kf_id);
+  current_loop_keyframes.erase(loop_detection_result->candidate_kf_id);
 
   if (sync_lc_finished != nullptr) {
     std::lock_guard<std::mutex> lk(sync_lc_finished->m);
@@ -727,6 +753,163 @@ void MapDatabase::updateCovisibilityGraph(const LandmarkDatabase<Scalar>::Ptr& l
     // Finally add it to the spanning tree
     covisibility_graph.addTreeNode(kf_id, max_kf_id);
   }
+}
+
+void MapDatabase::cullKeyframes(int num_to_cull) {
+  std::vector<FrameId> culled_keyframes;
+  std::vector<KeyframeScore> culled_keyframe_scores;
+
+  // Sort all the keyframes by their score using a set
+  keyframe_score_set.clear();
+  const auto& all_kfs = map.getKeyframes();
+  FrameId t_min = all_kfs.empty() ? 0 : all_kfs.begin()->first;
+  FrameId t_max = all_kfs.empty() ? 0 : all_kfs.rbegin()->first;
+  double t_range = static_cast<double>(t_max - t_min);
+  for (auto& [kf_id, kf_score] : keyframe_scores) {
+    kf_score.time_score = computeTimeScore(kf_id, t_min, t_range);
+    keyframe_score_set.insert({computeKeyframeScore(kf_score), kf_id});
+  }
+
+  while (num_to_cull > 0) {
+    // Take the keyframe with the lowest score
+    auto it = keyframe_score_set.begin();
+    if (it == keyframe_score_set.end()) {
+      break;
+    }
+
+    FrameId kf_id = it->second;
+
+    // If the keyframe is still active, skip it
+    if (active_keyframes.count(kf_id)) {
+      keyframe_score_set.erase(it);
+      continue;
+    }
+
+    KeyframeScore saved_score = keyframe_scores.count(kf_id) ? keyframe_scores.at(kf_id) : KeyframeScore{};
+    if (cullKeyframe(kf_id)) {
+      culled_keyframes.push_back(kf_id);
+      culled_keyframe_scores.push_back(saved_score);
+      keyframe_score_set.erase(it);
+      num_to_cull--;
+    } else {
+      // If the keyframe couldn't be culled, remove it from the keyframe_score_set to avoid trying to cull it again in
+      // this round
+      keyframe_score_set.erase(it);
+    }
+  }
+
+  if (config.map_debug) {
+    std::cout << "[MDB] Culled " << culled_keyframes.size() << " keyframes:" << std::endl;
+    for (size_t i = 0; i < culled_keyframes.size(); ++i) {
+      std::cout << culled_keyframes[i] << " - score: " << culled_keyframe_scores[i].node_score.graph_score
+                << " (graph), " << culled_keyframe_scores[i].time_score << " (time), "
+                << culled_keyframe_scores[i].img_bbox_coverage << " (img bbox coverage), "
+                << culled_keyframe_scores[i].total_observed_lms_score << " (observed lms), "
+                << culled_keyframe_scores[i].node_score.loop_score << " (loop score)" << std::endl;
+    }
+    std::cout << std::endl;
+  }
+
+  if (out_culled_map_data_queue && !culled_keyframes.empty()) {
+    auto culled_map_data = std::make_shared<CulledMapData>();
+    culled_map_data->culled_keyframes = culled_keyframes;
+    out_culled_map_data_queue->push(culled_map_data);
+  }
+
+  keyframe_score_set.clear();
+}
+
+void MapDatabase::handleGraphScoreChange(FrameId kf_id, NodeScore new_score) {
+  // If the keyframe doesn't have a score entry yet, default-construct it
+  KeyframeScore& entry = keyframe_scores[kf_id];
+
+  KeyframeScore prev_score = entry;
+  entry.node_score = new_score;
+
+  if (keyframe_score_set.size() > 0) {
+    // Update the score of the keyframe in the keyframe_score_set
+    auto set_it = keyframe_score_set.find({computeKeyframeScore(prev_score), kf_id});
+    if (set_it != keyframe_score_set.end()) {
+      keyframe_score_set.erase(set_it);
+      keyframe_score_set.insert({computeKeyframeScore(entry), kf_id});
+    }
+  }
+}
+
+float MapDatabase::computeImgCoverageScore(FrameId kf_id) {
+  float img_area = 0.0f;
+  float bbox_area = 0.0f;
+  std::vector<float> ratios;
+
+  for (size_t cam_id = 0; cam_id < calib.intrinsics.size(); cam_id++) {
+    TimeCamId tcid{kf_id, cam_id};
+
+    if (map.getKeyframeObs().count(tcid) == 0) continue;
+
+    const auto& kpts = map.getKeyframeObs().at(tcid);
+    if (kpts.size() > 0) {
+      const auto& resolution = calib.resolution[cam_id];
+      img_area += resolution.x() * resolution.y();
+
+      float min_x = std::numeric_limits<float>::max();
+      float min_y = std::numeric_limits<float>::max();
+      float max_x = std::numeric_limits<float>::lowest();
+      float max_y = std::numeric_limits<float>::lowest();
+
+      for (const auto& kp : kpts) {
+        auto pos = map.getLandmark(kp).obs.at(tcid);
+        min_x = std::min(min_x, pos.x());
+        min_y = std::min(min_y, pos.y());
+        max_x = std::max(max_x, pos.x());
+        max_y = std::max(max_y, pos.y());
+      }
+
+      bbox_area += (max_x - min_x) * (max_y - min_y);
+      ratios.push_back(bbox_area / img_area);
+    }
+  }
+
+  float img_bbox_coverage =
+      (ratios.empty()) ? 0.0f : std::accumulate(ratios.begin(), ratios.end(), 0.0f) / ratios.size();
+
+  return img_bbox_coverage;
+}
+
+float MapDatabase::computeTotalObservedLmsScore(FrameId kf_id) {
+  std::unordered_set<LandmarkId> unique_lms;
+  for (size_t cam_id = 0; cam_id < calib.intrinsics.size(); cam_id++) {
+    TimeCamId tcid{kf_id, cam_id};
+
+    const auto& obs_it = map.getKeyframeObs().find(tcid);
+    if (obs_it == map.getKeyframeObs().end()) {
+      continue;
+    }
+    for (const auto& lm_id : obs_it->second) unique_lms.insert(lm_id);
+  }
+
+  size_t num_unique_lms = unique_lms.size();
+  float total_observed_lms_score = num_unique_lms / (num_unique_lms + 10.0f);
+
+  return total_observed_lms_score;
+}
+
+float MapDatabase::computeTimeScore(FrameId kf_id, FrameId t_min, float t_range) {
+  float t_norm = (t_range > 0.0) ? static_cast<float>((kf_id - t_min) / t_range) : 0.5f;
+  float time_score = std::abs(2.0f * t_norm - 1.0f);
+
+  return time_score;
+}
+
+float MapDatabase::computeKeyframeScore(const KeyframeScore& kf_score) {
+  float score = 0.0f;
+
+  score += 0.4f * kf_score.node_score.graph_score;
+  score += 0.2f * kf_score.node_score.loop_score;
+  score += 0.1f * kf_score.time_score;
+  score += 0.1f * kf_score.img_bbox_coverage;
+  score += 0.2f * kf_score.total_observed_lms_score;
+
+  return score;
 }
 
 void MapDatabase::saveEuroc(const std::string& file_path) {

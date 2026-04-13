@@ -68,6 +68,8 @@
         "config.map_redundancy_exclude_hosted_lms": false,
         "config.map_max_redundancy_score": 0.9,
         "config.map_debug": true,
+        "config.map_max_keyframes": 1500,
+        "config.map_batch_cull_size": 30,
         "config.mapper_obs_std_dev": 0.25,
         "config.mapper_obs_huber_thresh": 1.5,
         "config.mapper_detection_num_points": 800,
