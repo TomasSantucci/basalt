@@ -125,15 +125,17 @@ def main():
 
     working_mount_point = get_mount_point(working_dir)
     print(f"{working_mount_point=}")
-    if not zip_path.exists() and not rosbag_path.exists():
+    if dataset_path.exists():
         dataset_mount_point = get_mount_point(dataset_path)
         print(f"{dataset_mount_point=}")
         if dataset_mount_point == working_mount_point:
             print(dataset_path)
             sys.exit(0)
-        else:
+        elif not zip_path.exists() and not rosbag_path.exists():
             print("No zip, no rosbag, mount points differ")
             sys.exit(1)
+        else:
+            print("Dataset path exists but is on a different mount point, will try to copy")
 
     # Assume zip or rosbag file exists from here on
     origin_path = zip_path if zip_path.exists() else dataset_path
